@@ -8,7 +8,7 @@ import { AREA, SLA_HORAS } from '../lib/catalogo.js';
 import { hoy, json } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
 import { aSql, cargarFeriados, deSql, horasHabiles, sumarHorasHabiles } from '../lib/sla.js';
-import { estadoSla } from '../lib/servicio.js';
+import { estadoSla, kpiSla } from '../lib/servicio.js';
 import { config } from '../config.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
@@ -107,6 +107,32 @@ export default async function rutasTickets(app, { db }) {
     return {
       total: Number(total), pagina: f.pagina,
       items: filas.map((t) => ({ ...t, sla: ABIERTOS.includes(t.estado) ? estadoSla(t, feriados) : null })),
+    };
+  });
+
+  /** "Mi día" del técnico: visitas de hoy, lo pendiente ordenado por urgencia y sus propios números. */
+  app.get('/api/mi-dia', { preHandler: [auth, requerirPermiso('tickets.atender')] }, async (req) => {
+    const ahora = Date.now(); const dia = hoy();
+    const ini = Date.parse(`${dia}T00:00:00-03:00`); const fin = ini + 86400000;
+    const filas = await db('tickets').join('clientes', 'clientes.id', 'tickets.cliente_id').leftJoin('sedes', 'sedes.id', 'tickets.sede_id')
+      .leftJoin('equipos', 'equipos.id', 'tickets.equipo_id').leftJoin('modelos_equipo', 'modelos_equipo.id', 'equipos.modelo_id')
+      .whereNull('tickets.deleted_at').where('tickets.asignado_a', req.ctx.id).whereIn('tickets.estado', ABIERTOS)
+      .select('tickets.id', 'tickets.numero', 'tickets.asunto', 'tickets.estado', 'tickets.prioridad', 'tickets.tipo', 'tickets.abierto_en', 'tickets.visita_en', 'tickets.sla_horas', 'tickets.sla_medible',
+        'tickets.resuelto_en', 'tickets.sla_cumplido', 'clientes.razon_social', 'clientes.nombre_comercial', 'sedes.nombre as sede', 'sedes.domicilio',
+        'equipos.numero_serie as serie', 'modelos_equipo.marca', 'modelos_equipo.modelo');
+    const feriados = await cargarFeriados(db);
+    const PESO = { urgente: 0, alta: 1, normal: 2, baja: 3 };
+    const items = filas.map((t) => ({ id: t.id, numero: t.numero, asunto: t.asunto, estado: t.estado, prioridad: t.prioridad, tipo: t.tipo, cliente: t.nombre_comercial || t.razon_social,
+      sede: t.sede, domicilio: t.domicilio, equipo: t.serie ? `${t.marca} ${t.modelo} · ${t.serie}` : null, visita_en: t.visita_en ? t.visita_en : null, sla: estadoSla(t, feriados, ahora) }));
+    const ms = (t) => (t.visita_en ? deSql(t.visita_en) : null);
+    const deHoy = items.filter((t) => ms(t) !== null && ms(t) >= ini && ms(t) < fin).sort((a, b) => ms(a) - ms(b));
+    const atrasadas = items.filter((t) => ms(t) !== null && ms(t) < ini);
+    const resto = items.filter((t) => !deHoy.includes(t));
+    const urgencia = (a, b) => (Number(Boolean(b.sla?.vencido)) - Number(Boolean(a.sla?.vencido))) || ((a.sla?.restantes ?? 1e9) - (b.sla?.restantes ?? 1e9)) || (PESO[a.prioridad] - PESO[b.prioridad]);
+    const cerradosHoy = await db('tickets').where({ asignado_a: req.ctx.id }).whereNull('deleted_at').where('resuelto_en', '>=', aSql(ini)).where('resuelto_en', '<', aSql(fin)).count({ n: '*' }).first();
+    return {
+      fecha: dia, visitas_hoy: deHoy, atrasadas: atrasadas.sort(urgencia), pendientes: resto.filter((t) => !atrasadas.includes(t)).sort(urgencia),
+      vencidos: items.filter((t) => t.sla?.vencido).length, cerrados_hoy: Number(cerradosHoy.n), kpi: await kpiSla(db, { tecnicos: [req.ctx.id], ahora }),
     };
   });
 

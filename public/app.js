@@ -170,7 +170,36 @@ function grafico(serieCompleta) {
   return svg;
 }
 
+
+/* ---------- mi día (técnico) ---------- */
+const hora = (s) => (s ? new Date(`${String(s).replace(' ', 'T')}Z`).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' }) : null);
+function tarjetaVisita(t) {
+  const mapa = t.domicilio ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.domicilio)}` : null;
+  return h('div', { class: 'tarjeta visita' },
+    h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px' }, t.visita_en && h('b', { class: 'hora' }, hora(t.visita_en)), h('span', { class: 'apoyo' }, t.numero),
+      t.prioridad !== 'normal' && chip(t.prioridad, PRIORIDAD[t.prioridad]), chipSla(t.sla)),
+    h('div', { class: 'nombre-cliente' }, t.cliente), h('div', { class: 'apoyo' }, [t.sede, t.equipo].filter(Boolean).join(' · ')),
+    t.domicilio && h('div', null, h('a', { href: mapa, target: '_blank', rel: 'noopener' }, t.domicilio)),
+    h('p', { style: 'margin:8px 0' }, t.asunto),
+    h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: `#/tickets/${t.id}/cierre` }, 'Cerrar ticket'), h('a', { class: 'btn', href: `#/tickets/${t.id}` }, 'Ver detalle')));
+}
+
+async function vistaMiDia(destino) {
+  const r = await api('/api/mi-dia');
+  const nombre = estado.me.nombre.split(' ')[0];
+  const dia = new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const kpi = (rotulo, valor, clase) => h('div', { class: `tarjeta kpi ${clase ?? ''}` }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, String(valor)));
+  const seccion = (titulo, lista, vacio) => (!lista.length && !vacio ? null : [h('h2', { style: 'margin:20px 0 8px' }, titulo), lista.length ? lista.map(tarjetaVisita) : vacio && h('div', { class: 'tarjeta vacio' }, vacio)]);
+  agregar(destino, [encabezado(`Hola, ${nombre}`, dia),
+    h('div', { class: 'rejilla kpis' }, kpi('Visitas de hoy', r.visitas_hoy.length), kpi('SLA vencido', r.vencidos, r.vencidos ? 'alerta' : ''), kpi('Cerrados hoy', r.cerrados_hoy)),
+    seccion('Visitas de hoy', r.visitas_hoy, 'No tenés visitas agendadas para hoy.'),
+    r.atrasadas.length ? seccion('Visitas atrasadas', r.atrasadas) : null,
+    seccion('Pendientes sin fecha de visita', r.pendientes, r.visitas_hoy.length || r.atrasadas.length ? null : 'No tenés tickets pendientes. Buen trabajo.'),
+    h('div', { style: 'margin-top:20px' }, bloqueSla(r.kpi, 'Tu SLA de resolución'))]);
+}
+
 async function vistaInicio(destino) {
+  if (!puede('tableros.direccion') && puede('tickets.atender')) { await vistaMiDia(destino); return; }
   if (!puede('tableros.direccion')) {
     destino.append(encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, 'Tu tablero por área llega en las próximas etapas.'),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Mientras tanto'), h('p', null, 'Ya podés consultar los clientes que te corresponden desde el menú de la izquierda.'),
