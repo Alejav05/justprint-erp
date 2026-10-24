@@ -3,7 +3,7 @@
 Backend en Node.js (Fastify + Knex). Desarrollo y pruebas con SQLite; producción con MySQL.
 
 ## Qué incluye
-- 46 tablas (44 del modelo + `sesiones` + `feriados`) con migraciones que suben y bajan.
+- 47 tablas (44 del modelo + `sesiones`, `feriados` e `indices_ipc`) con migraciones que suben y bajan.
 - Ingreso con sesión en cookie httpOnly, bloqueo tras 5 fallos, límite por IP, control de Origin, cabeceras de seguridad.
 - Permisos por rol y alcance de datos (propio / equipo / todo). Un cliente fuera de alcance responde 404.
 - Cartera comercial con historial: una sola responsable vigente por cuenta, reasignación por el head, todo auditado.
@@ -17,7 +17,8 @@ Backend en Node.js (Fastify + Knex). Desarrollo y pruebas con SQLite; producció
 - Insumos: stock por movimientos, mínimo por insumo, entregas por remito (todo o nada) y remito imprimible.
 - Cotización del dólar oficial BNA (vendedor) tomada de DolarAPI al arrancar y cada 6 horas.
 - Facturación y cobranzas: liquidación mensual por contador (prorrateo, franquicia, excedentes; verificada contra la planilla), borradores, emisión con IVA 21 %, venta directa, cobros aplicados a facturas, antigüedad de deuda y cuentas sin comprobante aparte. Todo en USD neto con cotización BNA.
-- 98 pruebas automáticas (`npm test`).
+- Ajuste trimestral por IPC compuesto: se cargan los índices mensuales a mano, el contrato propone los precios nuevos (abono y páginas, franquicia sin cambios) y al aplicar cierra la condición anterior. Las bonificaciones manuales en una factura quedan marcadas.
+- 104 pruebas automáticas (`npm test`).
 
 ## SLA: cómo se cuenta
 Horas hábiles de lunes a viernes, de 9 a 18 (hora de Buenos Aires), salteando los feriados nacionales. Los feriados se traen solos de ArgentinaDatos al arrancar el servidor y cada 24 horas (`npm run feriados` lo hace a mano); si la API no responde se usan los ya cargados. Los puentes turísticos entran como días hábiles, pero se pueden marcar como no hábiles en la tabla `feriados`. El reloj corre desde que se abre el ticket hasta que se resuelve, sin pausas. Se puede cambiar la jornada con `SLA_JORNADA_DESDE` y `SLA_JORNADA_HASTA`. Con 0 y 24, una hora hábil es una hora corrida de un día hábil. Las firmas se guardan en `storage/` (o en `ARCHIVOS_DIR`): incluirlo en el backup.

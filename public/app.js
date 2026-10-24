@@ -253,6 +253,7 @@ function tarjetaContrato(c) {
     h('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px' },
       h('div', null, h('h2', { style: 'margin:0' }, c.nombre), h('div', { class: 'apoyo' }, `Desde ${fecha(c.fecha_inicio)} · ${c.duracion_meses ? `${c.duracion_meses} meses` : 'sin fin de vigencia'} · en ${c.moneda === 'ARS' ? 'pesos' : 'dólares'}`)),
       chip(c.estado === 'vigente' ? 'Vigente' : c.estado, c.estado === 'vigente' ? 'ok' : 'mudo')),
+    puede('contratos.editar') && puede('importes.ver') && c.estado === 'vigente' && c.condiciones?.length && panelAjuste(c),
     c.condiciones ? c.condiciones.map((x) => h('div', { class: `linea ${vigente(x) ? 'vigente' : ''}` },
       h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' },
         h('b', null, monto(x.monto_mensual, c.moneda), ' / mes'), x.motivo !== 'sin_facturar' && chip(MOTIVO[x.motivo] ?? x.motivo, 'info'),
@@ -261,6 +262,39 @@ function tarjetaContrato(c) {
       h('div', { class: 'apoyo' }, `Franquicia ${x.franquicia_negro} negro / ${x.franquicia_color} color · excedente ${Number(x.excedente_negro)} / ${Number(x.excedente_color)} por página`),
       x.monto_usd_referencia != null && h('div', { class: 'apoyo' }, `Referencia: ${usd2(x.monto_usd_referencia)}`),
       x.notas && h('div', { class: 'apoyo' }, x.notas))) : h('p', { class: 'apoyo' }, 'Las condiciones económicas no están disponibles para tu rol.'));
+}
+
+
+/** Ajuste trimestral por IPC: acumulado compuesto de los 3 meses que terminan en el período elegido. */
+function panelAjuste(c) {
+  const caja = h('div', { class: 'no-imprimir', style: 'margin-bottom:12px' });
+  const abrir = h('button', { class: 'btn', type: 'button' }, 'Ajustar por IPC');
+  const mes = h('input', { type: 'month', value: mesAnterior(), 'aria-label': 'Último mes del trimestre' });
+  const zona = h('div');
+  const calcular = async () => {
+    vaciar(zona).append(cargando());
+    const r = await api(`/api/contratos/${c.id}/ajuste?hasta=${mes.value}`).catch((e) => e);
+    if (r instanceof Error) { vaciar(zona).append(h('div', { class: 'error' }, r.datos?.error === 'ya_ajustado' ? `Ya hay una condición desde ${fecha(r.datos.desde)} o posterior.` : 'No se pudo calcular el ajuste.')); return; }
+    if (!r.ok) {
+      const inputs = r.faltan.map((p) => { const i = h('input', { type: 'number', step: '0.01', 'aria-label': `IPC ${p}`, placeholder: '% del mes' }); return [p, i]; });
+      vaciar(zona).append(h('div', { class: 'tarjeta' }, h('p', null, 'Faltan cargar estos índices de IPC (variación mensual en %):'),
+        inputs.map(([p, i]) => h('div', { class: 'dos-col', style: 'margin-bottom:8px' }, h('span', null, nombreMes(p)), i)),
+        h('button', { class: 'btn btn-principal', type: 'button', onclick: async () => { for (const [p, i] of inputs) { if (i.value === '') return; await api(`/api/ipc/${p}`, { metodo: 'PUT', cuerpo: { variacion: Number(i.value) } }); } calcular(); } }, 'Guardar y calcular')));
+      return;
+    }
+    const fila = (t, a, b) => h('tr', null, h('td', null, t), h('td', { class: 'num' }, a), h('td', { class: 'num' }, b));
+    const m4 = (n) => (c.moneda === 'ARS' ? '$ ' : 'USD ') + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    vaciar(zona).append(h('div', { class: 'tarjeta' },
+      h('p', null, 'IPC: ', r.ipc.map((x) => `${nombreMes(x.periodo)} ${x.variacion}%`).join(' · '), h('br'), h('b', null, `Acumulado compuesto ${r.pct}%`), `, rige desde ${fecha(r.vigente_desde)}.`),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, ''), h('th', { class: 'num' }, 'Hoy'), h('th', { class: 'num' }, 'Nuevo'))),
+        h('tbody', null, fila('Abono mensual', monto(r.actual.monto_mensual, c.moneda), monto(r.nuevo.monto_mensual, c.moneda)),
+          fila('Página negro', m4(r.actual.excedente_negro), m4(r.nuevo.excedente_negro)), fila('Página color', m4(r.actual.excedente_color), m4(r.nuevo.excedente_color)))),
+      h('p', { class: 'apoyo' }, 'La franquicia no cambia. La condición actual se cierra el día anterior.'),
+      h('div', { class: 'acciones' }, h('button', { class: 'btn btn-principal', type: 'button', onclick: async (ev) => { ev.target.disabled = true; try { await api(`/api/contratos/${c.id}/ajuste`, { metodo: 'POST', cuerpo: { hasta: mes.value } }); navegar(); } catch { ev.target.disabled = false; } } }, 'Aplicar ajuste'))));
+  };
+  abrir.addEventListener('click', () => { abrir.remove(); caja.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' }, h('label', null, 'Último mes del trimestre ', mes), h('button', { class: 'btn', type: 'button', onclick: calcular }, 'Calcular')), zona); });
+  caja.append(abrir);
+  return caja;
 }
 
 async function vistaCliente(destino, id) {
@@ -931,17 +965,17 @@ async function vistaFactura(destino, id) {
       f.vencimiento && h('div', null, h('dt', null, 'Vencimiento'), h('dd', null, fecha(f.vencimiento))),
       f.tipo_cambio && h('div', null, h('dt', null, 'Cotización BNA usada'), h('dd', null, `$ ${f.tipo_cambio.toLocaleString('es-AR')}`))),
     h('table', { style: 'margin-top:16px' }, h('thead', null, h('tr', null, h('th', null, 'Concepto'), h('th', { class: 'num' }, 'Cant.'), h('th', { class: 'num' }, 'Precio'), h('th', { class: 'num' }, 'Subtotal'), borrador && edita && h('th', null, ''))),
-      h('tbody', null, f.items.map((i) => h('tr', null, h('td', null, i.descripcion), h('td', { class: 'num' }, i.cantidad.toLocaleString('es-AR')), h('td', { class: 'num' }, monto(i.precio_unitario, f.moneda)), h('td', { class: 'num' }, monto(i.subtotal, f.moneda)), borrador && edita && h('td', null, delItem(i)))))),
+      h('tbody', null, f.items.map((i) => h('tr', null, h('td', null, i.descripcion, i.bonificacion ? [' ', chip('Bonificación', 'info')] : null), h('td', { class: 'num' }, i.cantidad.toLocaleString('es-AR')), h('td', { class: 'num' }, monto(i.precio_unitario, f.moneda)), h('td', { class: 'num' }, monto(i.subtotal, f.moneda)), borrador && edita && h('td', null, delItem(i)))))),
     h('div', { style: 'text-align:right;margin-top:12px' }, h('div', null, `Neto ${monto(f.neto, f.moneda)}`), f.iva > 0 && h('div', null, `IVA 21% ${monto(f.iva, f.moneda)}`), h('div', null, h('b', null, `Total ${monto(f.total, f.moneda)}`)),
       f.neto_usd != null && f.moneda === 'ARS' && h('div', { class: 'apoyo' }, `Equivale a ${usd2(f.neto_usd)} neto`),
       !borrador && f.estado !== 'anulada' && h('div', { class: 'apoyo' }, `Cobrado ${monto(f.cobrado, f.moneda)} · Saldo ${monto(f.saldo, f.moneda)}`))));
 
   if (borrador && edita) {
-    const tipo = h('select', { 'aria-label': 'Tipo' }, ['servicio', 'insumo', 'equipo', 'abono', 'excedente', 'otro'].map((t) => h('option', { value: t }, t[0].toUpperCase() + t.slice(1))));
+    const tipo = h('select', { 'aria-label': 'Tipo' }, ['servicio', 'insumo', 'equipo', 'abono', 'excedente', 'otro'].map((t) => h('option', { value: t }, t[0].toUpperCase() + t.slice(1))), h('option', { value: 'bonificacion' }, 'Bonificación / descuento'));
     const des = h('input', { required: true, maxlength: 200, placeholder: 'Concepto', 'aria-label': 'Concepto' }); const cant = h('input', { type: 'number', step: 'any', min: 0, value: 1, 'aria-label': 'Cantidad' }); const pre = h('input', { type: 'number', step: 'any', min: 0, required: true, placeholder: 'Precio unitario', 'aria-label': 'Precio' });
     const fe = h('input', { type: 'date', value: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), 'aria-label': 'Fecha de emisión' }); const nu = h('input', { maxlength: 20, placeholder: 'N° de comprobante (opcional)', 'aria-label': 'Número' }); const ve = h('input', { type: 'date', 'aria-label': 'Vencimiento' });
     destino.append(formularioEnLinea({ titulo: 'Agregar renglón', campos: [h('div', { class: 'dos-col' }, tipo, des), h('div', { class: 'dos-col' }, cant, pre)], boton: 'Agregar',
-      enviar: () => api(`/api/facturas/${f.id}/items`, { metodo: 'POST', cuerpo: { tipo: tipo.value, descripcion: des.value, cantidad: Number(cant.value), precio_unitario: Number(pre.value) } }), alExito: recargar }),
+      enviar: () => api(`/api/facturas/${f.id}/items`, { metodo: 'POST', cuerpo: { tipo: tipo.value === 'bonificacion' ? 'otro' : tipo.value, ...(tipo.value === 'bonificacion' ? { bonificacion: true } : {}), descripcion: des.value, cantidad: Number(cant.value), precio_unitario: Number(pre.value) } }), alExito: recargar }),
     h('div', { style: 'height:16px' }),
     formularioEnLinea({ titulo: f.clase === 'interno' || !f.entidad_facturante_id ? 'Confirmar' : 'Emitir', campos: [h('div', { class: 'dos-col' }, campoF('Fecha de emisión', fe, ''), campoF('Vencimiento (opcional)', ve, '')), nu], boton: 'Emitir',
       enviar: () => api(`/api/facturas/${f.id}/emitir`, { metodo: 'POST', cuerpo: { fecha_emision: fe.value, ...(nu.value.trim() ? { numero: nu.value.trim() } : {}), ...(ve.value ? { vencimiento: ve.value } : {}) } }), alExito: recargar }),

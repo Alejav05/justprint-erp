@@ -14,6 +14,7 @@ const itemSchema = z.object({
   descripcion: z.string().trim().min(2).max(200),
   cantidad: z.number().positive().max(100000).default(1),
   precio_unitario: z.number().min(0).max(1e9),
+  bonificacion: z.boolean().default(false), // descuento: se guarda en negativo y queda marcado
   insumo_id: z.number().int().positive().optional(), equipo_id: z.number().int().positive().optional(),
   ticket_id: z.number().int().positive().optional(), remito_id: z.number().int().positive().optional(),
 });
@@ -51,7 +52,7 @@ export default async function rutasFacturacion(app, { db }) {
     });
     for (const it of items) {
       await trx('factura_items').insert({ factura_id: id, tipo: it.tipo, descripcion: it.descripcion, cantidad: it.cantidad, precio_unitario: it.precio_unitario,
-        alicuota_iva: alic, subtotal: redondear(it.cantidad * it.precio_unitario), insumo_id: it.insumo_id ?? null, equipo_id: it.equipo_id ?? null, ticket_id: it.ticket_id ?? null, remito_id: it.remito_id ?? null });
+        alicuota_iva: alic, bonificacion: Boolean(it.bonificacion), subtotal: redondear(it.cantidad * it.precio_unitario) * (it.bonificacion ? -1 : 1), insumo_id: it.insumo_id ?? null, equipo_id: it.equipo_id ?? null, ticket_id: it.ticket_id ?? null, remito_id: it.remito_id ?? null });
     }
     await recalcular(trx, { id, moneda, tipo_cambio });
     return id;
@@ -163,7 +164,7 @@ export default async function rutasFacturacion(app, { db }) {
     const it = itemSchema.parse(req.body); const f = await borradorEditable(req, reply); if (!f) return;
     await db.transaction(async (trx) => {
       await trx('factura_items').insert({ factura_id: f.id, tipo: it.tipo, descripcion: it.descripcion, cantidad: it.cantidad, precio_unitario: it.precio_unitario, alicuota_iva: f.entidad_facturante_id ? IVA : 0,
-        subtotal: redondear(it.cantidad * it.precio_unitario), insumo_id: it.insumo_id ?? null, equipo_id: it.equipo_id ?? null, ticket_id: it.ticket_id ?? null, remito_id: it.remito_id ?? null });
+        bonificacion: Boolean(it.bonificacion), subtotal: redondear(it.cantidad * it.precio_unitario) * (it.bonificacion ? -1 : 1), insumo_id: it.insumo_id ?? null, equipo_id: it.equipo_id ?? null, ticket_id: it.ticket_id ?? null, remito_id: it.remito_id ?? null });
       await recalcular(trx, f);
     });
     return reply.code(201).send({ ok: true });

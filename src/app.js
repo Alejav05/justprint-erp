@@ -12,6 +12,7 @@ import rutasTickets from './routes/tickets.js';
 import rutasEquipos from './routes/equipos.js';
 import rutasInsumos from './routes/insumos.js';
 import rutasFacturacion from './routes/facturacion.js';
+import rutasAjustes from './routes/ajustes.js';
 import { ultimaCotizacion } from './lib/cotizacion.js';
 import { requerirSesion } from './plugins/auth.js';
 import fastifyStatic from '@fastify/static';
@@ -59,6 +60,7 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasEquipos, { db });
   await app.register(rutasInsumos, { db });
   await app.register(rutasFacturacion, { db });
+  await app.register(rutasAjustes, { db });
   app.get('/api/cotizacion', { preHandler: requerirSesion(db) }, async () => (await ultimaCotizacion(db)) ?? { valor: null });
   await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public/', import.meta.url)), maxAge: config.env === 'production' ? '1h' : 0 });
   return app;
