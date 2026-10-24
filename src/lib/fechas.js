@@ -11,3 +11,10 @@ export function json(valor, porDefecto = null) {
   if (typeof valor !== 'string') return valor;
   try { return JSON.parse(valor); } catch { return porDefecto; }
 }
+
+/** AAAA-MM-DD de un valor de fecha, sea texto (SQLite) u objeto Date (MySQL). */
+export function aDia(v) {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
