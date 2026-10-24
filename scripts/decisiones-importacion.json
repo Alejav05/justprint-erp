@@ -1,6 +1,9 @@
 {
   "entidades": {
-    "Europa Haus S.A.S.": { "cuit": "30-71646173-0", "activa": true }
+    "Europa Haus S.A.S.": {
+      "cuit": "30-71646173-0",
+      "activa": true
+    }
   },
   "aliasEntidades": {
     "Empresa amiga SRL": "Europa Haus S.A.S.",
@@ -8,10 +11,76 @@
     "Europa Haus SAS": "Europa Haus S.A.S."
   },
   "facturas": {
-    "FC-061": { "estado": "cobrada" },
-    "FC-089": { "estado": "emitida" }
+    "FC-061": {
+      "estado": "cobrada"
+    },
+    "FC-089": {
+      "estado": "emitida"
+    }
   },
-  "contratosSinComprobante": ["CN-04"],
-  "equiposEnDeposito": ["U62513K2J366726"],
-  "regularizarStockNegativo": true
+  "contratosSinComprobante": [
+    "CN-04"
+  ],
+  "equiposEnDeposito": [
+    "U62513K2J366726"
+  ],
+  "regularizarStockNegativo": true,
+  "historialPrecios": {
+    "CN-04": [
+      {
+        "desde": "2024-08-14",
+        "monto": 310000,
+        "excedente_negro": 17.5,
+        "excedente_color": 216
+      },
+      {
+        "desde": "2024-11-01",
+        "monto": 342240,
+        "excedente_negro": 19.32,
+        "excedente_color": 238.464
+      },
+      {
+        "desde": "2025-03-01",
+        "monto": 375437.28,
+        "excedente_negro": 21.194,
+        "excedente_color": 261.595
+      },
+      {
+        "desde": "2025-06-01",
+        "monto": 405472.26,
+        "excedente_negro": 22.8896,
+        "excedente_color": 282.5226
+      },
+      {
+        "desde": "2025-09-01",
+        "monto": 427367.76,
+        "excedente_negro": 24.1256,
+        "excedente_color": 297.7788
+      },
+      {
+        "desde": "2025-12-01",
+        "monto": 456856.14,
+        "excedente_negro": 25.7903,
+        "excedente_color": 318.3256
+      },
+      {
+        "desde": "2026-03-01",
+        "monto": 496145.77,
+        "excedente_negro": 28.0082,
+        "excedente_color": 345.7016
+      },
+      {
+        "desde": "2026-06-01",
+        "monto": 536333.58,
+        "excedente_negro": 30.2769,
+        "excedente_color": 373.7034
+      },
+      {
+        "desde": "2026-09-01",
+        "monto": 566904.59,
+        "excedente_negro": 32.0027,
+        "excedente_color": 395.0045
+      }
+    ]
+  }
 }

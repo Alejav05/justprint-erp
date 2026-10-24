@@ -170,6 +170,20 @@ export async function importarPlanilla(db, datos, { aplicar = false, incluirPrue
         };
         // Contrato que se cobra sin comprobante fiscal: queda como no facturable desde el inicio, sin simular una factura.
         if (sinComprobante.has(c.ID_Contrato)) Object.assign(cond, { motivo: 'sin_facturar', facturable: false, notas: 'Cobro sin comprobante fiscal (acuerdo con el cliente)' });
+        const hist = decisiones.historialPrecios?.[c.ID_Contrato];
+        if (hist?.length) {
+          // Cadena real de precios (cada ajuste trimestral). La última coincide con la condición vigente que figura en la planilla.
+          let previo = null;
+          for (const [k, p] of hist.entries()) {
+            await trx('contrato_condiciones').insert({ ...cond, vigente_desde: p.desde, vigente_hasta: hist[k + 1] ? sumarDias(hist[k + 1].desde, -1) : null, monto_mensual: p.monto,
+              excedente_negro: p.excedente_negro, excedente_color: p.excedente_color, motivo: k === 0 ? cond.motivo : 'ajuste_ipc',
+              ajuste_pct: previo ? Math.round((p.monto / previo - 1) * 100000) / 1000 : null, notas: k === 0 ? cond.notas ?? null : 'Ajuste trimestral por IPC (historial de la planilla de costos)' });
+            previo = p.monto;
+          }
+          aviso(`Contrato ${c.ID_Contrato}: cargué ${hist.length} condiciones con el historial de precios (ajustes trimestrales por IPC).`);
+          contrato.set(c.ID_Contrato, id); contratoInfo.set(c.ID_Contrato, { moneda, inicio, cliente: c.ID_Cliente }); cuenta('contratos');
+          continue;
+        }
         const [condId] = await trx('contrato_condiciones').insert(cond);
         const sf = decisiones.contratosSinFacturar?.[c.ID_Contrato];
         if (sf?.desde) {
