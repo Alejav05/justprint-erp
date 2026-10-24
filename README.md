@@ -13,7 +13,10 @@ Backend en Node.js (Fastify + Knex). Desarrollo y pruebas con SQLite; producció
 - Pantallas: ingreso, menú por permisos, tablero de Dirección (facturado y cobrado separados, USD netos), clientes con detalle y contratos, usuarios y auditoría.
 - Tickets: alta con SLA por zona de la sede (CABA 24 h, resto 48 h hábiles), asignación con fecha de visita, historial, y cierre del técnico en una sola operación (parte, contadores validados, repuestos con baja de stock y remito de servicio, conformidad con firma). Todo o nada.
 - Tablero de Servicio y bloque de SLA en Dirección: tiempo medio, % dentro de SLA y primera respuesta del mes contra el mes anterior y contra el histórico. Los tickets migrados no cuentan (no tienen tiempos reales).
-- 84 pruebas automáticas (`npm test`).
+- Equipos: inventario, ficha con historial (dónde estuvo, contadores, tickets), instalar/retirar/baja, lecturas de contadores validadas y etiqueta con QR (al escanearlo abre la ficha).
+- Insumos: stock por movimientos, mínimo por insumo, entregas por remito (todo o nada) y remito imprimible.
+- Cotización del dólar oficial BNA (vendedor) tomada de DolarAPI al arrancar y cada 6 horas.
+- 89 pruebas automáticas (`npm test`).
 
 ## SLA: cómo se cuenta
 Horas hábiles de lunes a viernes, de 9 a 18 (hora de Buenos Aires), salteando los feriados nacionales. Los feriados se traen solos de ArgentinaDatos al arrancar el servidor y cada 24 horas (`npm run feriados` lo hace a mano); si la API no responde se usan los ya cargados. Los puentes turísticos entran como días hábiles, pero se pueden marcar como no hábiles en la tabla `feriados`. El reloj corre desde que se abre el ticket hasta que se resuelve, sin pausas. Se puede cambiar la jornada con `SLA_JORNADA_DESDE` y `SLA_JORNADA_HASTA`. Con 0 y 24, una hora hábil es una hora corrida de un día hábil. Las firmas se guardan en `storage/` (o en `ARCHIVOS_DIR`): incluirlo en el backup.

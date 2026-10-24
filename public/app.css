@@ -169,3 +169,15 @@ textarea,input[type=datetime-local]{font-family:inherit;font-size:inherit}
   table.tarjetas td::before{content:attr(data-rotulo);color:var(--gris);font-size:12.5px;text-align:left}
 }
 .tarjeta textarea{width:100%;border:1px solid #CBD8DE;border-radius:10px;padding:10px 14px;color:var(--navy);resize:vertical}
+
+.camara{width:100%;max-height:340px;border-radius:12px;background:#0D1B2A;margin-bottom:8px}
+.etiqueta-qr{text-align:center}.etiqueta-qr img{display:block;margin:0 auto}
+details summary{cursor:pointer;font-weight:700;color:var(--navy)}
+.remito h1{font-size:24px}
+@media print{
+  body{background:#fff}.lateral,.barra,.no-imprimir,.velo,.encabezado .acciones,.pestanas,.herramientas,.btn,.apoyo a{display:none!important}
+  .estructura{display:block}.contenido{padding:0;max-width:none}.tarjeta{box-shadow:none}
+  body.imprimiendo-etiqueta .contenido *{visibility:hidden}
+  body.imprimiendo-etiqueta .etiqueta-qr,body.imprimiendo-etiqueta .etiqueta-qr *{visibility:visible}
+  body.imprimiendo-etiqueta .etiqueta-qr{position:absolute;left:0;top:0;width:260px;border:1px dashed #999}
+}

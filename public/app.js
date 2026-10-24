@@ -63,8 +63,8 @@ const MENU = [
   { grupo: 'Servicio' },
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
-  { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver', pronto: true },
-  { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver', pronto: true },
+  { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
+  { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación y cobranzas', permiso: 'importes.ver', pronto: true },
   { grupo: 'Sistema' },
@@ -72,8 +72,6 @@ const MENU = [
   { ruta: 'auditoria', texto: 'Auditoría', permiso: 'auditoria.ver' },
 ];
 const PRONTO = {
-  equipos: ['Equipos', 'Inventario con historial: dónde estuvo, con qué contrato y qué contadores tuvo.'],
-  insumos: ['Insumos', 'Stock, movimientos, entregas por remito y alertas de faltante.'],
   facturacion: ['Facturación y cobranzas', 'Liquidación mensual por contador, facturas con IVA, ventas directas, cobros y aplicaciones.'],
 };
 
@@ -185,7 +183,7 @@ async function vistaInicio(destino) {
   const mes = [...t.serie].reverse().find((s) => s.facturado > 0) ?? t.serie.at(-1);
   const kpi = (rotulo, valor, nota, clase) => h('div', { class: `tarjeta kpi ${clase ?? ''}` }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor), h('div', { class: 'nota' }, nota));
   destino.append(
-    encabezado('Dirección', `Foto completa del negocio · valores en USD netos, sin IVA`),
+    encabezado('Dirección', `Foto completa del negocio · valores en USD netos, sin IVA${t.cotizacion ? ` · dólar BNA ${t.cotizacion.valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })} (${fecha(t.cotizacion.fecha)})` : ''}`),
     h('div', { class: 'rejilla kpis' },
       kpi('Abono mensual vigente', usd(t.abono_mensual), t.abono_no_facturable ? `+ ${usd(t.abono_no_facturable)} de cuentas no facturables` : `${t.contratos_vigentes} contratos vigentes`),
       kpi(`Facturado en ${mesCorto(mes.periodo)}`, usd(mes.facturado), `Cobrado de eso: ${usd(mes.cobrado)}`),
@@ -502,7 +500,7 @@ async function vistaTicket(destino, id) {
           h('p', { style: 'margin:0 0 4px;white-space:pre-line' }, p.trabajo_realizado), h('div', { class: 'apoyo' }, `${p.tecnico} · ${cuando(p.fin)}`),
           (p.contador_negro != null) && h('div', { class: 'apoyo' }, `Contadores: ${p.contador_negro} negro${p.contador_color ? ` / ${p.contador_color} color` : ''}`),
           p.repuestos.length > 0 && h('div', { class: 'apoyo' }, `Insumos usados: ${p.repuestos.reduce((s, r) => s + r.cantidad, 0)}`))),
-          t.remitos.map((r) => h('div', { style: 'margin-top:10px' }, chip(`Remito ${r.numero}`, 'info'), ' ', r.conformidad ? chip(`Conforme: ${r.conformidad.firmante_nombre}`, 'ok') : chip('Sin conformidad', 'aviso')))),
+          t.remitos.map((r) => h('div', { style: 'margin-top:10px' }, h('a', { href: `#/remitos/${r.id}` }, chip(`Remito ${r.numero}`, 'info')), ' ', r.conformidad ? chip(`Conforme: ${r.conformidad.firmante_nombre}`, 'ok') : chip('Sin conformidad', 'aviso')))),
         asignar),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Historial'), t.eventos.map(linea),
         h('div', { style: 'margin-top:12px' }, comentario, h('div', { style: 'margin-top:8px' },
@@ -586,6 +584,201 @@ async function vistaServicio(destino) {
         : h('div', { class: 'vacio' }, 'Ningún equipo reincidente.')));
 }
 
+/* ---------- equipos, insumos, remitos ---------- */
+const ESTADO_EQUIPO = { instalado: ['Instalado', 'ok'], deposito: ['En depósito', 'info'], reparacion: ['En taller', 'aviso'], baja: ['De baja', 'mudo'] };
+const chipEquipo = (e) => chip(...(ESTADO_EQUIPO[e] ?? [e, 'mudo']));
+const ERRORES = {
+  contador_menor_al_anterior: 'El contador es menor al de la última lectura.', contador_color_requerido: 'Es un equipo color: cargá también el contador de color.',
+  equipo_monocromo: 'Es un equipo monocromo: no lleva contador de color.', contador_negro_requerido: 'Cargá el contador negro.', ya_instalado: 'El equipo ya está instalado.',
+  sin_stock: 'No hay stock suficiente.', stock_negativo: 'El stock no puede quedar negativo.', serie_repetida: 'Ya existe un equipo con ese número de serie.', codigo_repetido: 'Ya existe un insumo con ese código.',
+  sin_items: 'Agregá al menos un insumo.', equipo_de_baja: 'El equipo está de baja.', retirar_primero: 'Primero hay que retirarlo del cliente.', no_esta_instalado: 'El equipo no está instalado.',
+};
+const msgError = (e) => ERRORES[e.datos?.error] ?? 'No se pudo guardar. Revisá los datos.';
+const campoF = (rotulo, el, id) => h('div', { class: 'campo' }, h('label', { for: id }, rotulo), el);
+const numIn = (id, ph) => h('input', { id, type: 'number', min: 0, inputmode: 'numeric', placeholder: ph });
+
+/** Formulario simple en tarjeta, con error visible y botón que se bloquea mientras guarda. */
+function formularioEnLinea({ titulo, campos, boton, enviar, alExito }) {
+  const error = h('div', { class: 'error oculto', role: 'alert' }); const b = h('button', { class: 'btn btn-principal', type: 'submit' }, boton);
+  return h('form', { class: 'tarjeta formulario', onsubmit: async (ev) => {
+    ev.preventDefault(); error.classList.add('oculto'); b.disabled = true;
+    try { const r = await enviar(); alExito(r); } catch (e) { if (e.message === 'sesion') return; error.textContent = msgError(e); error.classList.remove('oculto'); b.disabled = false; }
+  } }, h('h2', null, titulo), error, ...campos, b);
+}
+
+async function escanear() {
+  const video = h('video', { autoplay: true, playsinline: true, muted: true, class: 'camara' });
+  const codigo = h('input', { placeholder: 'o escribí el código (ej.: JP-ABC123)', 'aria-label': 'Código del equipo' });
+  const aviso = h('p', { class: 'apoyo' });
+  let flujo; let activo = true;
+  const detener = () => { activo = false; flujo?.getTracks().forEach((t) => t.stop()); };
+  const ir = async (valor) => {
+    const limpio = String(valor).trim(); const m = limpio.match(/equipos\/qr\/([^/?#\s]+)/); const cod = m ? decodeURIComponent(m[1]) : limpio;
+    try { const r = await api(`/api/equipos/qr/${encodeURIComponent(cod)}`); detener(); location.hash = `#/equipos/${r.id}`; } catch (e) { if (e.message !== 'sesion') aviso.textContent = 'No encontramos un equipo con ese código.'; }
+  };
+  const caja = h('div', { class: 'tarjeta' }, h('h2', null, 'Escanear QR del equipo'), video, aviso,
+    h('form', { onsubmit: (ev) => { ev.preventDefault(); ir(codigo.value); }, style: 'display:flex;gap:8px;margin-top:8px' }, codigo, h('button', { class: 'btn btn-principal', type: 'submit' }, 'Buscar')));
+  if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+    try {
+      flujo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); video.srcObject = flujo;
+      const det = new BarcodeDetector({ formats: ['qr_code'] });
+      (async function ciclo() { while (activo) { try { const r = await det.detect(video); if (r[0]) { ir(r[0].rawValue); return; } } catch { /* sigue */ } await new Promise((ok) => setTimeout(ok, 350)); } }());
+    } catch { video.classList.add('oculto'); aviso.textContent = 'No se pudo abrir la cámara. Escribí el código o escaneá con la cámara del celular.'; }
+  } else { video.classList.add('oculto'); aviso.textContent = 'Este navegador no escanea desde acá: usá la cámara del celular sobre el QR, o escribí el código.'; }
+  window.addEventListener('hashchange', detener, { once: true });
+  return caja;
+}
+
+async function vistaEquipos(destino) {
+  const f = { q: '', estado: '', pagina: 1 }; const cuerpo = h('div'); const resumen = h('div', { class: 'rejilla kpis' });
+  const buscar = h('input', { type: 'search', placeholder: 'Buscar por serie, modelo o cliente', 'aria-label': 'Buscar equipo' });
+  const filtro = h('select', { 'aria-label': 'Estado' }, h('option', { value: '' }, 'Todos los estados'), ...Object.entries(ESTADO_EQUIPO).map(([v, [t]]) => h('option', { value: v }, t)));
+  let tiempo;
+  buscar.addEventListener('input', () => { clearTimeout(tiempo); tiempo = setTimeout(() => { f.q = buscar.value; f.pagina = 1; cargar(); }, 250); });
+  filtro.addEventListener('change', () => { f.estado = filtro.value; f.pagina = 1; cargar(); });
+  async function cargar() {
+    vaciar(cuerpo).append(cargando());
+    try {
+      const p = new URLSearchParams({ pagina: f.pagina }); if (f.q) p.set('q', f.q); if (f.estado) p.set('estado', f.estado);
+      const r = await api(`/api/equipos?${p}`);
+      vaciar(resumen).append(...['instalado', 'deposito', 'reparacion', 'baja'].map((k) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, ESTADO_EQUIPO[k][0]), h('div', { class: 'valor' }, String(r.por_estado[k] ?? 0)))));
+      vaciar(cuerpo);
+      if (!r.items.length) { cuerpo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay equipos para mostrar'), 'Probá con otra búsqueda.')); return; }
+      cuerpo.append(h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' },
+        h('thead', null, h('tr', null, ['Equipo', 'Estado', 'Dónde está', 'Última lectura'].map((t) => h('th', null, t)))),
+        h('tbody', null, r.items.map((e) => h('tr', { class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/equipos/${e.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/equipos/${e.id}`; } },
+          h('td', { 'data-rotulo': 'Equipo' }, h('div', { class: 'nombre-cliente' }, `${e.marca} ${e.modelo}`), h('div', { class: 'apoyo' }, `${e.numero_serie} · ${e.tipo}`)),
+          h('td', { 'data-rotulo': 'Estado' }, chipEquipo(e.estado)),
+          h('td', { 'data-rotulo': 'Dónde está' }, e.cliente_id ? (e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—'), e.sede && h('div', { class: 'apoyo' }, e.sede)),
+          h('td', { 'data-rotulo': 'Última lectura' }, e.ultima_lectura ? `${e.ultima_lectura.contador_negro} negro${e.tipo === 'color' ? ` / ${e.ultima_lectura.contador_color} color` : ''}` : '—', e.ultima_lectura && h('div', { class: 'apoyo' }, fecha(e.ultima_lectura.fecha)))))))));
+      const paginas = Math.max(1, Math.ceil(r.total / 25));
+      if (paginas > 1) cuerpo.append(h('div', { class: 'paginacion' }, h('span', { class: 'apoyo' }, `${r.total} equipos · página ${r.pagina} de ${paginas}`),
+        h('div', { style: 'display:flex;gap:8px' }, h('button', { class: 'btn', disabled: r.pagina <= 1, onclick: () => { f.pagina -= 1; cargar(); } }, 'Anterior'), h('button', { class: 'btn', disabled: r.pagina >= paginas, onclick: () => { f.pagina += 1; cargar(); } }, 'Siguiente'))));
+    } catch (e) { if (e.message !== 'sesion') vaciar(cuerpo).append(falla()); }
+  }
+  destino.append(encabezado('Equipos', 'Inventario con su historial', h('div', { class: 'acciones' },
+    h('a', { class: 'btn', href: '#/equipos/escanear' }, 'Escanear QR'), puede('equipos.editar') && h('a', { class: 'btn btn-principal', href: '#/equipos/nuevo' }, '+ Nuevo equipo'))),
+  resumen, h('div', { class: 'herramientas' }, buscar, filtro), cuerpo);
+  await cargar();
+}
+
+async function vistaNuevoEquipo(destino) {
+  const modelos = await api('/api/modelos');
+  const modelo = h('select', { id: 'mo', required: true }, h('option', { value: '' }, 'Elegí un modelo…'), modelos.map((m) => h('option', { value: m.id }, `${m.marca} ${m.modelo} · ${m.tipo}`)));
+  const serie = h('input', { id: 'se', required: true, maxlength: 80, placeholder: 'Número de serie' });
+  const mMarca = h('input', { id: 'ma', placeholder: 'Marca' }); const mModelo = h('input', { id: 'mm', placeholder: 'Modelo' });
+  const mTipo = h('select', { id: 'mt' }, h('option', { value: 'monocromo' }, 'Monocromo'), h('option', { value: 'color' }, 'Color'));
+  const nuevoModelo = h('details', { class: 'tarjeta' }, h('summary', null, 'El modelo no está en la lista'), h('div', { class: 'dos-col', style: 'margin-top:12px' }, mMarca, mModelo), mTipo,
+    h('button', { type: 'button', class: 'btn', style: 'margin-top:12px', onclick: async () => {
+      try { const r = await api('/api/modelos', { metodo: 'POST', cuerpo: { marca: mMarca.value, modelo: mModelo.value, tipo: mTipo.value } }); modelo.append(h('option', { value: r.id, selected: true }, `${mMarca.value} ${mModelo.value} · ${mTipo.value}`)); modelo.value = String(r.id); nuevoModelo.open = false; } catch (e) { if (e.message !== 'sesion') nuevoModelo.append(h('div', { class: 'error' }, 'No se pudo crear el modelo (¿ya existe?).')); }
+    } }, 'Crear modelo'));
+  destino.append(h('a', { href: '#/equipos', class: 'apoyo' }, '← Equipos'), encabezado('Nuevo equipo', 'Entra al depósito con su código QR.'),
+    formularioEnLinea({ titulo: 'Datos del equipo', campos: [campoF('Modelo', modelo, 'mo'), campoF('Número de serie', serie, 'se')], boton: 'Crear equipo',
+      enviar: () => api('/api/equipos', { metodo: 'POST', cuerpo: { modelo_id: Number(modelo.value), numero_serie: serie.value } }), alExito: (r) => { location.hash = `#/equipos/${r.id}`; } }), nuevoModelo);
+}
+
+async function vistaEquipo(destino, id) {
+  const e = await api(`/api/equipos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
+  if (!e) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Volver a equipos'))); return; }
+  const color = e.tipo === 'color'; const recargar = () => navegar();
+  const dato = (k, v) => h('div', null, h('dt', null, k), h('dd', null, v ?? '—'));
+  const ult = e.lecturas[0];
+  const lectura = puede('equipos.editar') || puede('tickets.atender') ? (() => { const n = numIn('ln', 'Contador negro'); const c = color ? numIn('lc', 'Contador color') : null;
+    return formularioEnLinea({ titulo: 'Registrar lectura de contadores', campos: [h('div', { class: 'dos-col' }, n, c)], boton: 'Guardar lectura',
+      enviar: () => api(`/api/equipos/${id}/lecturas`, { metodo: 'POST', cuerpo: { contador_negro: Number(n.value), ...(c && c.value !== '' ? { contador_color: Number(c.value) } : {}) } }), alExito: recargar }); })() : null;
+
+  let mover = null;
+  if (e.puede_editar && e.estado !== 'baja') {
+    if (e.estado === 'instalado') {
+      const n = numIn('rn', 'Contador negro'); const c = color ? numIn('rc', 'Contador color') : null;
+      const dest = h('select', { 'aria-label': 'Destino' }, h('option', { value: 'deposito' }, 'Al depósito'), h('option', { value: 'reparacion' }, 'Al taller'));
+      mover = formularioEnLinea({ titulo: 'Retirar del cliente', campos: [dest, h('div', { class: 'dos-col' }, n, c)], boton: 'Retirar equipo',
+        enviar: () => api(`/api/equipos/${id}/mover`, { metodo: 'POST', cuerpo: { accion: 'retirar', destino: dest.value, contador_negro: Number(n.value), ...(c && c.value !== '' ? { contador_color: Number(c.value) } : {}) } }), alExito: recargar });
+    } else {
+      const contratos = await api('/api/equipos-ayuda/contratos');
+      const sel = h('select', { required: true, 'aria-label': 'Contrato' }, h('option', { value: '' }, 'Elegí el cliente y contrato…'), contratos.map((c) => h('option', { value: c.id }, `${c.nombre_comercial || c.razon_social} · ${c.nombre}`)));
+      const sede = h('select', { 'aria-label': 'Sede' }); const n = numIn('in', 'Contador negro inicial'); const c = color ? numIn('ic', 'Contador color inicial') : null;
+      sel.addEventListener('change', () => { vaciar(sede); (contratos.find((x) => x.id === Number(sel.value))?.sedes ?? []).forEach((s) => sede.append(h('option', { value: s.id }, s.nombre))); });
+      mover = formularioEnLinea({ titulo: 'Instalar en un cliente', campos: [sel, sede, h('div', { class: 'dos-col' }, n, c)], boton: 'Instalar equipo',
+        enviar: () => api(`/api/equipos/${id}/mover`, { metodo: 'POST', cuerpo: { accion: 'instalar', contrato_id: Number(sel.value), ...(sede.value ? { sede_id: Number(sede.value) } : {}), contador_negro: Number(n.value), ...(c && c.value !== '' ? { contador_color: Number(c.value) } : {}) } }), alExito: recargar });
+    }
+  }
+  destino.append(h('a', { href: '#/equipos', class: 'apoyo' }, '← Equipos'), encabezado(`${e.marca} ${e.modelo}`, `Serie ${e.numero_serie}`, chipEquipo(e.estado)),
+    h('div', { class: 'rejilla dos' }, h('div', null,
+      h('div', { class: 'tarjeta' }, h('dl', { class: 'datos', style: 'margin:0' }, dato('Tipo', color ? 'Color (cuenta negro y color)' : 'Monocromo'),
+        dato('Cliente', e.cliente_id ? h('a', { href: `#/clientes/${e.cliente_id}` }, e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—')), dato('Sede', e.sede), dato('Contrato', e.contrato),
+        dato('Última lectura', ult ? `${ult.contador_negro}${color ? ` / ${ult.contador_color}` : ''} · ${fecha(ult.fecha)}` : '—'),
+        dato('Páginas entre las dos últimas', e.periodo ? `${e.periodo.negro}${color ? ` negro / ${e.periodo.color} color` : ''}` : '—'))),
+      lectura, mover,
+      h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''}`))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
+      h('div', { class: 'tarjeta' }, h('h2', null, 'Tickets'), e.tickets.length ? h('ul', { class: 'lista' }, e.tickets.map((t) => h('li', null, h('a', { href: `#/tickets/${t.id}` }, `${t.numero} · ${t.asunto}`), chipTicket(t.estado)))) : h('p', { class: 'apoyo' }, 'Sin tickets.'))),
+    h('div', null,
+      h('div', { class: 'tarjeta etiqueta-qr' }, h('h2', null, 'Etiqueta QR'), h('img', { src: `/api/equipos/${e.id}/qr.svg`, alt: `QR ${e.codigo_qr}`, width: 180, height: 180 }), h('div', { class: 'apoyo' }, e.codigo_qr),
+        h('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: () => { document.body.classList.add('imprimiendo-etiqueta'); window.print(); document.body.classList.remove('imprimiendo-etiqueta'); } }, 'Imprimir etiqueta')),
+      h('div', { class: 'tarjeta' }, h('h2', null, 'Dónde estuvo'), e.asignaciones.length ? e.asignaciones.map((a) => h('div', { class: `linea ${a.hasta ? '' : 'vigente'}` }, h('b', null, a.nombre_comercial || a.razon_social),
+        h('div', { class: 'apoyo' }, `${fecha(a.desde)} → ${a.hasta ? fecha(a.hasta) : 'hoy'}${a.sede ? ` · ${a.sede}` : ''}`), h('div', { class: 'apoyo' }, `Contador inicial ${a.contador_inicial_negro}${a.contador_final_negro != null ? ` · final ${a.contador_final_negro}` : ''}`)))
+        : h('p', { class: 'apoyo' }, 'Nunca estuvo instalado.'), e.movimientos.map((m) => h('div', { class: 'apoyo' }, `${fecha(m.fecha)} · ${m.motivo ?? 'Movimiento'}${m.usuario ? ` (${m.usuario})` : ''}`))))));
+}
+
+async function vistaInsumos(destino) {
+  const r = await api('/api/insumos'); const edita = puede('insumos.mover'); const NIVEL = { sin_stock: ['Sin stock', 'malo'], bajo: ['Bajo el mínimo', 'aviso'], ok: ['Normal', 'ok'] };
+  destino.append(encabezado('Insumos', 'Stock según los movimientos registrados', edita && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/insumos/nuevo' }, '+ Nuevo insumo'), puede('remitos.crear') && h('a', { class: 'btn btn-principal', href: '#/insumos/entrega' }, 'Nueva entrega (remito)'))),
+    h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Insumos'), h('div', { class: 'valor' }, String(r.items.length))),
+      h('div', { class: `tarjeta kpi ${r.sin_stock ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, 'Sin stock'), h('div', { class: 'valor' }, String(r.sin_stock))),
+      h('div', { class: `tarjeta kpi ${r.bajo_minimo ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, 'Bajo el mínimo'), h('div', { class: 'valor' }, String(r.bajo_minimo)))),
+    r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' }, h('thead', null, h('tr', null, ['Insumo', 'Stock', 'Mínimo', 'Nivel'].map((t, k) => h('th', { class: k && k < 3 ? 'num' : '' }, t)))),
+      h('tbody', null, r.items.map((i) => h('tr', { class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/insumos/${i.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/insumos/${i.id}`; } },
+        h('td', { 'data-rotulo': 'Insumo' }, h('div', { class: 'nombre-cliente' }, i.descripcion), h('div', { class: 'apoyo' }, i.codigo)), h('td', { class: 'num', 'data-rotulo': 'Stock' }, i.stock), h('td', { class: 'num', 'data-rotulo': 'Mínimo' }, i.stock_minimo), h('td', { 'data-rotulo': 'Nivel' }, chip(...NIVEL[i.nivel]))))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay insumos'), 'Cargá el primero para empezar a llevar stock.'));
+}
+
+async function vistaInsumo(destino, id) {
+  const i = await api(`/api/insumos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
+  if (!i) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese insumo'), h('a', { href: '#/insumos' }, 'Volver'))); return; }
+  const tipo = h('select', { 'aria-label': 'Tipo' }, h('option', { value: 'entrada' }, 'Entrada (compra o devolución)'), h('option', { value: 'ajuste' }, 'Ajuste de inventario (+/−)'));
+  const cant = h('input', { type: 'number', step: 1, required: true, placeholder: 'Cantidad', 'aria-label': 'Cantidad' }); const motivo = h('input', { required: true, maxlength: 255, placeholder: 'Motivo', 'aria-label': 'Motivo' });
+  const MOV = { entrada: 'Entrada', salida: 'Salida', ajuste: 'Ajuste' };
+  destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado(i.descripcion, i.codigo, chip(`Stock ${i.stock}`, i.stock <= 0 ? 'malo' : i.stock < i.stock_minimo ? 'aviso' : 'ok')),
+    puede('insumos.mover') && formularioEnLinea({ titulo: 'Registrar movimiento', campos: [tipo, h('div', { class: 'dos-col' }, cant, motivo)], boton: 'Guardar',
+      enviar: () => api(`/api/insumos/${id}/movimientos`, { metodo: 'POST', cuerpo: { tipo: tipo.value, cantidad: Number(cant.value), motivo: motivo.value } }), alExito: () => navegar() }),
+    h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Movimientos'), i.movimientos.length ? h('table', null, h('tbody', null, i.movimientos.map((m) => h('tr', null, h('td', null, cuando(m.fecha)), h('td', null, MOV[m.tipo]),
+      h('td', { class: 'num' }, `${m.tipo === 'salida' ? '−' : m.cantidad > 0 ? '+' : ''}${m.cantidad}`), h('td', { class: 'apoyo' }, [m.motivo, m.remito && `remito ${m.remito}`, m.usuario].filter(Boolean).join(' · ')))))) : h('p', { class: 'apoyo' }, 'Sin movimientos.')));
+}
+
+async function vistaNuevoInsumo(destino) {
+  const cod = h('input', { required: true, maxlength: 60, placeholder: 'Código' }); const des = h('input', { required: true, maxlength: 200, placeholder: 'Descripción' }); const min = numIn('mi', 'Stock mínimo');
+  destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado('Nuevo insumo'),
+    formularioEnLinea({ titulo: 'Datos', campos: [campoF('Código', cod, ''), campoF('Descripción', des, ''), campoF('Stock mínimo (avisa cuando baja de acá)', min, 'mi')], boton: 'Crear insumo',
+      enviar: () => api('/api/insumos', { metodo: 'POST', cuerpo: { codigo: cod.value, descripcion: des.value, stock_minimo: Number(min.value || 0) } }), alExito: (r) => { location.hash = `#/insumos/${r.id}`; } }));
+}
+
+async function vistaEntrega(destino) {
+  const [clientes, insumos] = await Promise.all([api('/api/clientes?limite=100'), api('/api/insumos')]);
+  const cli = h('select', { required: true, 'aria-label': 'Cliente' }, h('option', { value: '' }, 'Elegí un cliente…'), clientes.clientes.map((c) => h('option', { value: c.id }, c.nombre_comercial || c.razon_social)));
+  const sede = h('select', { 'aria-label': 'Sede' }); const items = []; const lista = h('div');
+  const sel = h('select', { 'aria-label': 'Insumo' }, h('option', { value: '' }, 'Agregar un insumo…'), insumos.items.map((i) => h('option', { value: i.id, disabled: i.stock <= 0 }, `${i.descripcion} (stock ${i.stock})`)));
+  const pintar = () => vaciar(lista).append(...items.map((it, k) => h('div', { class: 'item-rep' }, h('span', null, `${it.cant} × ${it.nombre}`), h('span', null, h('button', { type: 'button', class: 'rapido', onclick: () => { it.cant += 1; pintar(); } }, '+'), ' ', h('button', { type: 'button', class: 'rapido', onclick: () => { it.cant -= 1; if (!it.cant) items.splice(k, 1); pintar(); } }, '−')))));
+  sel.addEventListener('change', () => { if (!sel.value) return; const i = insumos.items.find((x) => x.id === Number(sel.value)); const ya = items.find((x) => x.id === i.id); if (ya) ya.cant += 1; else items.push({ id: i.id, nombre: i.descripcion, cant: 1 }); sel.value = ''; pintar(); });
+  cli.addEventListener('change', async () => { vaciar(sede); if (!cli.value) return; (await api(`/api/tickets-ayuda/cliente/${cli.value}`)).sedes.forEach((s) => sede.append(h('option', { value: s.id, selected: s.es_principal }, s.nombre))); });
+  const obs = h('input', { maxlength: 1000, placeholder: 'Observaciones (opcional)' });
+  destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado('Nueva entrega', 'Genera el remito y descuenta el stock.'),
+    formularioEnLinea({ titulo: 'Remito de entrega', campos: [campoF('Cliente', cli, ''), campoF('Sede', sede, ''), sel, lista, obs], boton: 'Generar remito',
+      enviar: () => { if (!items.length) { const e = new Error('x'); e.datos = { error: 'sin_items' }; throw e; } return api('/api/remitos/entrega', { metodo: 'POST', cuerpo: { cliente_id: Number(cli.value), ...(sede.value ? { sede_id: Number(sede.value) } : {}), ...(obs.value.trim() ? { observaciones: obs.value } : {}), items: items.map((x) => ({ insumo_id: x.id, cantidad: x.cant })) } }); },
+      alExito: (r) => { location.hash = `#/remitos/${r.id}`; } }));
+}
+
+async function vistaRemito(destino, id) {
+  const r = await api(`/api/remitos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
+  if (!r) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese remito'))); return; }
+  destino.append(h('div', { class: 'acciones no-imprimir', style: 'margin-bottom:16px' }, h('button', { class: 'btn btn-principal', type: 'button', onclick: () => window.print() }, 'Imprimir / guardar PDF')),
+    h('div', { class: 'tarjeta remito' }, h('div', { style: 'display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap' }, h('div', null, h('h1', null, `Remito ${r.numero}`), h('div', { class: 'apoyo' }, r.emisor)),
+      h('div', { style: 'text-align:right' }, h('b', null, fecha(r.fecha)), h('div', { class: 'apoyo' }, r.tipo === 'servicio' ? `Servicio técnico${r.ticket ? ` · ticket ${r.ticket}` : ''}` : 'Entrega'))),
+    h('dl', { class: 'datos', style: 'margin:16px 0' }, h('div', null, h('dt', null, 'Cliente'), h('dd', null, r.cliente.nombre_comercial || r.cliente.razon_social)), h('div', null, h('dt', null, 'CUIT'), h('dd', null, r.cliente.cuit ?? '—')),
+      h('div', null, h('dt', null, 'Sede'), h('dd', null, r.sede ? `${r.sede.nombre}${r.sede.domicilio ? ` · ${r.sede.domicilio}` : ''}` : '—'))),
+    h('table', null, h('thead', null, h('tr', null, h('th', null, 'Descripción'), h('th', { class: 'num' }, 'Cantidad'))), h('tbody', null, r.items.map((i) => h('tr', null, h('td', null, i.descripcion), h('td', { class: 'num' }, i.cantidad))))),
+    r.observaciones && h('p', { style: 'white-space:pre-line' }, r.observaciones),
+    h('div', { style: 'margin-top:28px;border-top:1px solid var(--borde);padding-top:12px' }, r.conformidad ? h('div', null, chip('Conforme', 'ok'), ` ${r.conformidad.firmante_nombre}${r.conformidad.firmante_cargo ? ` · ${r.conformidad.firmante_cargo}` : ''} · ${cuando(r.conformidad.firmado_en)}`) : h('div', { style: 'height:60px' }, h('span', { class: 'apoyo' }, 'Firma y aclaración de quien recibe')))));
+}
+
 /* ---------- navegación ---------- */
 async function navegar() {
   if (!estado.me || !contenedor) return;
@@ -602,7 +795,19 @@ async function navegar() {
       else if (param && sub === 'cierre') await vistaCierre(nuevo, param);
       else if (param) await vistaTicket(nuevo, param);
       else await vistaTickets(nuevo);
-    } else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
+    } else if (ruta === 'equipos' && puede('equipos.ver')) {
+      if (param === 'nuevo' && puede('equipos.editar')) await vistaNuevoEquipo(nuevo);
+      else if (param === 'escanear') nuevo.append(await escanear());
+      else if (param === 'qr' && sub) { const r = await api(`/api/equipos/qr/${encodeURIComponent(sub)}`).catch(() => null); if (r) { location.replace(`#/equipos/${r.id}`); return; } nuevo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Ver equipos'))); }
+      else if (param) await vistaEquipo(nuevo, param);
+      else await vistaEquipos(nuevo);
+    } else if (ruta === 'insumos' && puede('insumos.ver')) {
+      if (param === 'nuevo' && puede('insumos.mover')) await vistaNuevoInsumo(nuevo);
+      else if (param === 'entrega' && puede('remitos.crear')) await vistaEntrega(nuevo);
+      else if (param) await vistaInsumo(nuevo, param);
+      else await vistaInsumos(nuevo);
+    } else if (ruta === 'remitos' && param && puede('insumos.ver')) await vistaRemito(nuevo, param);
+    else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
     else if (ruta === 'usuarios' && puede('usuarios.administrar')) await vistaUsuarios(nuevo);
     else if (ruta === 'auditoria' && puede('auditoria.ver')) await vistaAuditoria(nuevo);
     else if (PRONTO[ruta]) vistaPronto(nuevo, ruta);

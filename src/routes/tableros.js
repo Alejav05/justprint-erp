@@ -1,3 +1,5 @@
+import { ultimaCotizacion } from '../lib/cotizacion.js';
+import { stockDe } from './insumos.js';
 import { aSql } from '../lib/sla.js';
 import { hoy } from '../lib/fechas.js';
 import { abonosUsd } from '../lib/abonos.js';
@@ -69,14 +71,16 @@ export default async function rutasTableros(app, { db }) {
       .where('cerrado_en', '>=', new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 19).replace('T', ' ')).count({ n: '*' }).first();
 
     const equiposPorEstado = Object.fromEntries((await db('equipos').whereNull('deleted_at').groupBy('estado').select('estado').count({ n: '*' })).map((f) => [f.estado, Number(f.n)]));
-    const stock = await db('movimientos_insumo').groupBy('insumo_id').select('insumo_id')
-      .sum({ s: db.raw("case tipo when 'salida' then -cantidad else cantidad end") });
-    const agotados = stock.filter((x) => Number(x.s) <= 0).length;
+    const stock = await stockDe(db);
+    const catalogo = await db('insumos').whereNull('deleted_at').select('id', 'stock_minimo');
+    const agotados = catalogo.filter((i) => (stock.get(i.id) ?? 0) <= 0).length;
+    const bajos = catalogo.filter((i) => (stock.get(i.id) ?? 0) > 0 && (stock.get(i.id) ?? 0) < i.stock_minimo).length;
 
     const alertas = [];
     if (borradoresN) alertas.push({ nivel: 'aviso', texto: `${borradoresN} factura${borradoresN > 1 ? 's' : ''} en borrador sin emitir (USD ${redondear(borradores)})`, destino: '#/facturacion' });
     if (porCobrarN) alertas.push({ nivel: 'aviso', texto: `${porCobrarN} factura${porCobrarN > 1 ? 's' : ''} emitida${porCobrarN > 1 ? 's' : ''} por cobrar (USD ${redondear(porCobrar)})`, destino: '#/facturacion' });
     if (tickets.length) alertas.push({ nivel: tickets.some((t) => t.prioridad === 'urgente') ? 'malo' : 'info', texto: `${tickets.length} ticket${tickets.length > 1 ? 's' : ''} abierto${tickets.length > 1 ? 's' : ''}`, destino: '#/tickets' });
+    if (bajos) alertas.push({ nivel: 'aviso', texto: `${bajos} insumo${bajos > 1 ? 's' : ''} por debajo del stock mínimo`, destino: '#/insumos' });
     if (agotados) alertas.push({ nivel: 'aviso', texto: `${agotados} insumo${agotados > 1 ? 's' : ''} sin stock`, destino: '#/insumos' });
 
     return {
@@ -90,6 +94,7 @@ export default async function rutasTableros(app, { db }) {
       top_clientes: topClientes,
       tickets: { abiertos: tickets.length, cerrados_30_dias: Number(cerrados30.n), lista: tickets.slice(0, 5) },
       sla: await kpiSla(db),
+      cotizacion: await ultimaCotizacion(db),
       equipos: { instalado: equiposPorEstado.instalado ?? 0, deposito: equiposPorEstado.deposito ?? 0, reparacion: equiposPorEstado.reparacion ?? 0 },
       alertas,
     };
