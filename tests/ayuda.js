@@ -9,12 +9,21 @@ export { CLAVE_DEMO };
 /** App con base SQLite en memoria, migrada y con datos de demostración. */
 export async function montar() {
   process.env.NODE_ENV = 'test';
-  const db = knexLib(knexfile.test);
+  let db; let borrar = null;
+  if (process.env.TEST_DB === 'mysql') {
+    // Una base nueva por archivo de prueba, para correr la misma batería contra MySQL/MariaDB (TEST_DB=mysql npm test).
+    const base = { ...knexfile.production.connection, host: process.env.DB_HOST || '127.0.0.1', user: process.env.DB_USER || 'jp', password: process.env.DB_PASSWORD || 'jp' };
+    const nombre = `jp_test_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
+    const admin = knexLib({ ...knexfile.production, connection: { ...base, database: undefined } });
+    await admin.raw(`create database \`${nombre}\` character set utf8mb4`);
+    db = knexLib({ ...knexfile.production, connection: { ...base, database: nombre } });
+    borrar = async () => { await admin.raw(`drop database \`${nombre}\``); await admin.destroy(); };
+  } else db = knexLib(knexfile.test);
   await db.migrate.latest();
   await base(db);
   await demo(db);
   const app = await crearApp({ db });
-  return { db, app, cerrar: async () => { await app.close(); await db.destroy(); } };
+  return { db, app, cerrar: async () => { await app.close(); await db.destroy(); if (borrar) await borrar(); } };
 }
 
 /** Inicia sesión y devuelve una función para llamar a la API con esa cookie. */

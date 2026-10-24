@@ -56,8 +56,8 @@ npm run importar -- planilla.xlsx --aplicar  # guarda
 ```
 Solo corre sobre una base sin clientes. Deja afuera la cuenta de pruebas (`--incluir-prueba` para cargarla), corrige el corrimiento de huso horario de las fechas, carga facturas y cobros por separado y deja el próximo número de remito donde corresponde. El informe lista lo que hay que confirmar.
 
-## Pendiente de verificar
-Todo se probó sobre SQLite. Antes de usar datos reales hay que correr las migraciones y las pruebas contra una base MySQL real (sumas decimales y columnas JSON).
+## Verificado en MySQL
+Las 106 pruebas pasan también contra MariaDB 10.11 (`TEST_DB=mysql DB_HOST=127.0.0.1 DB_USER=… DB_PASSWORD=… npm test`: crea una base descartable por archivo, hay que dar un usuario con permiso para crear bases). La planilla real también se importó completa en MariaDB. Falta confirmar contra la versión exacta del plan de Hostinger cuando esté la base creada.
 
 ## Próximas fases
 Importador desde las hojas actuales, pantallas (a partir del prototipo), tableros por área, app del técnico, motor de alertas, facturación electrónica por proveedor.
