@@ -1,0 +1,36 @@
+{
+  "name": "justprint-erp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ERP/CRM de JustPrint (Europa Haus S.A.S.)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "knex migrate:latest",
+    "rollback": "knex migrate:rollback",
+    "test": "node --test --test-concurrency=1 \"tests/*.test.js\"",
+    "seed:base": "knex seed:run --specific=01_base.js",
+    "seed:demo": "knex seed:run --specific=02_demo.js",
+    "crear-admin": "node scripts/crear-admin.js",
+    "importar": "node scripts/importar-planilla.js",
+    "feriados": "node scripts/sincronizar-feriados.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.3",
+    "@fastify/static": "^8.3.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^18.0.8",
+    "fastify": "^5.12.7",
+    "knex": "^3.3.0",
+    "mysql2": "^3.24.6",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3",
+    "exceljs": "^4.4.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "entidades": {
+    "Europa Haus S.A.S.": { "cuit": "30-71646173-0", "activa": true }
+  },
+  "aliasEntidades": {
+    "Empresa amiga SRL": "Europa Haus S.A.S.",
+    "Justprint": "Europa Haus S.A.S.",
+    "Europa Haus SAS": "Europa Haus S.A.S."
+  },
+  "facturas": {
+    "FC-061": { "estado": "cobrada" },
+    "FC-089": { "estado": "emitida" }
+  },
+  "contratosSinComprobante": ["CN-04"],
+  "equiposEnDeposito": ["U62513K2J366726"],
+  "regularizarStockNegativo": true
+}

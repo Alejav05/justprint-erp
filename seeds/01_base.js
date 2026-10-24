@@ -1,0 +1,48 @@
+import { AREA, PERMISOS, ROLES, NUMERADORES, REGLAS_ALERTA, FERIADOS, PUENTES } from '../src/lib/catalogo.js';
+
+/** Idempotente: se puede correr en cada despliegue sin duplicar nada. */
+export async function seed(knex) {
+  for (const [clave, modulo, descripcion] of PERMISOS) {
+    const hay = await knex('permisos').where({ clave }).first();
+    if (!hay) await knex('permisos').insert({ clave, modulo, descripcion });
+  }
+
+  for (const [nombre, def] of Object.entries(ROLES)) {
+    let rol = await knex('roles').where({ nombre }).first();
+    if (!rol) {
+      await knex('roles').insert({ nombre, descripcion: def.descripcion, es_sistema: true });
+      rol = await knex('roles').where({ nombre }).first();
+    }
+    const permisos = await knex('permisos').whereIn('clave', def.permisos).select('id');
+    for (const p of permisos) {
+      const hay = await knex('rol_permiso').where({ rol_id: rol.id, permiso_id: p.id }).first();
+      if (!hay) await knex('rol_permiso').insert({ rol_id: rol.id, permiso_id: p.id });
+    }
+  }
+
+  for (const nombre of Object.values(AREA)) {
+    const hay = await knex('areas').where({ nombre }).first();
+    if (!hay) await knex('areas').insert({ nombre });
+  }
+
+  for (const [fecha, nombre] of FERIADOS) {
+    if (!(await knex('feriados').where({ fecha }).first())) await knex('feriados').insert({ fecha, nombre, tipo: 'feriado', no_habil: true });
+  }
+  for (const [fecha, nombre] of PUENTES) {
+    if (!(await knex('feriados').where({ fecha }).first())) await knex('feriados').insert({ fecha, nombre, tipo: 'puente', no_habil: false });
+  }
+
+  for (const n of NUMERADORES) {
+    const hay = await knex('numeradores').where({ clave: n.clave }).first();
+    if (!hay) await knex('numeradores').insert(n);
+  }
+
+  for (const [tipo, umbral, unidad, destinatarios] of REGLAS_ALERTA) {
+    const hay = await knex('reglas_alerta').where({ tipo }).first();
+    if (!hay) {
+      await knex('reglas_alerta').insert({
+        tipo, umbral, unidad, destinatarios: JSON.stringify(destinatarios), canales: JSON.stringify(['app', 'mail']),
+      });
+    }
+  }
+}
