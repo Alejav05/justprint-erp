@@ -51,6 +51,7 @@ test('el QR resuelve al equipo y la etiqueta es un SVG; el comercial solo ve equ
   const e = await ctx.db('equipos').where({ numero_serie: 'PRUEBA-003' }).first();
   assert.equal((await head.llamar('GET', `/api/equipos/qr/${e.codigo_qr}`)).json().id, e.id);
   assert.equal((await head.llamar('GET', '/api/equipos/qr/NO-EXISTE')).statusCode, 404);
+  assert.equal((await head.llamar('GET', `/api/equipos/qr/${e.numero_serie}`)).json().id, e.id, 'también por número de serie, que es lo que trae el QR del cliente');
   const svg = await head.llamar('GET', `/api/equipos/${e.id}/qr.svg`);
   assert.match(svg.headers['content-type'], /svg/); assert.match(svg.body, /<svg/);
   const val = await entrar(ctx.app, 'valentina@demo.local');

@@ -171,7 +171,21 @@ textarea,input[type=datetime-local]{font-family:inherit;font-size:inherit}
 .tarjeta textarea{width:100%;border:1px solid #CBD8DE;border-radius:10px;padding:10px 14px;color:var(--navy);resize:vertical}
 
 .camara{width:100%;max-height:340px;border-radius:12px;background:#0D1B2A;margin-bottom:8px}
-.etiqueta-qr{text-align:center}.etiqueta-qr img{display:block;margin:0 auto}
+.etiqueta-qr{text-align:center}
+.label{width:90mm;height:58mm;background:#fff;border-radius:2.2mm;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 10px rgba(13,27,42,.25);margin:0 auto 6mm;text-align:left;max-width:100%}
+.label-header{background:var(--navy);height:15mm;display:flex;align-items:center;padding:0 4mm}
+.label-header img{height:7.5mm;width:auto;display:block}
+.label-body{flex:1;display:flex;padding:3.5mm 4mm 3mm;gap:3.5mm}
+.label-info{flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.label p{margin:0}
+.label-cta{color:var(--cian-os);font-size:3.8mm;font-weight:700;line-height:1.25}
+.label-serie-cap{font-size:2.7mm;color:#7C8B96;margin-bottom:.4mm!important}
+.label-serie-val{font-size:5.6mm;font-weight:700;color:var(--navy);line-height:1.1;word-break:break-all;margin-bottom:1.8mm!important}
+.label-modelo{font-size:3.1mm}
+.label-footer-text{font-size:2.6mm;color:#7C8B96}
+.label-qr{width:32mm;height:32mm;flex-shrink:0;border:.4mm solid var(--cian);border-radius:1.5mm;padding:1.2mm;display:flex;align-items:center;justify-content:center;align-self:center}
+.label-qr img{width:100%;height:100%;display:block}
+td.casilla{width:36px}td.casilla input{width:18px;height:18px}
 details summary{cursor:pointer;font-weight:700;color:var(--navy)}
 .remito h1{font-size:24px}
 @media print{
@@ -179,5 +193,7 @@ details summary{cursor:pointer;font-weight:700;color:var(--navy)}
   .estructura{display:block}.contenido{padding:0;max-width:none}.tarjeta{box-shadow:none}
   body.imprimiendo-etiqueta .contenido *{visibility:hidden}
   body.imprimiendo-etiqueta .etiqueta-qr,body.imprimiendo-etiqueta .etiqueta-qr *{visibility:visible}
-  body.imprimiendo-etiqueta .etiqueta-qr{position:absolute;left:0;top:0;width:260px;border:1px dashed #999}
+  body.imprimiendo-etiqueta .etiqueta-qr{position:absolute;left:0;top:0;width:90mm}
+  body.imprimiendo-etiqueta .label{box-shadow:none;border-radius:0;margin:0;break-after:page}
+  body.imprimiendo-etiqueta .label-header{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }

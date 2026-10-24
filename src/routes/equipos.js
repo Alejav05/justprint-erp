@@ -79,9 +79,10 @@ export default async function rutasEquipos(app, { db }) {
       'c.id as contrato_id', 'c.nombre as contrato', 's.nombre as sede', 'u.nombre as ubicacion').first();
   }
 
-  // Lo que resuelve el QR pegado en el equipo.
+  // Busca por código interno o por número de serie (lo que trae el QR de la etiqueta: el serie va en el texto de WhatsApp).
   app.get('/api/equipos/qr/:codigo', { preHandler: ver }, async (req, reply) => {
-    const e = await cargarEquipo(req.ctx, { 'equipos.codigo_qr': String(req.params.codigo) });
+    const codigo = String(req.params.codigo).trim();
+    const e = (await cargarEquipo(req.ctx, { 'equipos.codigo_qr': codigo })) ?? (await cargarEquipo(req.ctx, { 'equipos.numero_serie': codigo }));
     if (!e) return error(reply, 404, 'no_encontrado');
     return { id: e.id };
   });
@@ -106,12 +107,13 @@ export default async function rutasEquipos(app, { db }) {
     return { ...resto, asignaciones, lecturas, tickets, movimientos, periodo, puede_editar: puede(req.ctx, 'equipos.editar') };
   });
 
-  // Etiqueta con QR: al escanearlo con el celular se abre la ficha del equipo en el sistema.
+  // QR de la etiqueta autoadhesiva del equipo: abre WhatsApp de soporte con el texto y el número de serie ya cargados.
   app.get('/api/equipos/:id/qr.svg', { preHandler: ver }, async (req, reply) => {
     const e = await cargarEquipo(req.ctx, { 'equipos.id': Number(req.params.id) });
-    if (!e || !e.codigo_qr) return error(reply, 404, 'no_encontrado');
-    const base = config.origenPermitido ?? `${req.protocol}://${req.headers.host}`;
-    const svg = await QRCode.toString(`${base}/#/equipos/qr/${encodeURIComponent(e.codigo_qr)}`, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+    if (!e) return error(reply, 404, 'no_encontrado');
+    const mensaje = `Hola, soy usuario de un equipo JustPrint y necesito soporte técnico.\nN° de Serie: ${e.numero_serie}\nModelo: ${e.marca} ${e.modelo}`;
+    const url = `https://wa.me/${config.whatsappSoporte}?text=${encodeURIComponent(mensaje)}`;
+    const svg = await QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
     return reply.type('image/svg+xml').header('Cache-Control', 'private, max-age=3600').send(svg);
   });
 

@@ -77,7 +77,7 @@ const PRONTO = {
 
 /* ---------- ingreso ---------- */
 function logo(extra) {
-  const img = h('img', { src: '/img/logo.png', alt: 'JustPrint' });
+  const img = h('img', { src: '/img/logo-blanco.png', alt: 'JustPrint' });
   const texto = h('span', null, 'Just', h('b', null, 'Print'));
   const caja = h('div', { class: `marca ${extra ?? ''}` }, texto);
   img.addEventListener('load', () => { vaciar(caja); caja.append(img); });
@@ -608,12 +608,13 @@ function formularioEnLinea({ titulo, campos, boton, enviar, alExito }) {
 
 async function escanear() {
   const video = h('video', { autoplay: true, playsinline: true, muted: true, class: 'camara' });
-  const codigo = h('input', { placeholder: 'o escribí el código (ej.: JP-ABC123)', 'aria-label': 'Código del equipo' });
+  const codigo = h('input', { placeholder: 'o escribí el número de serie', 'aria-label': 'Código del equipo' });
   const aviso = h('p', { class: 'apoyo' });
   let flujo; let activo = true;
   const detener = () => { activo = false; flujo?.getTracks().forEach((t) => t.stop()); };
   const ir = async (valor) => {
-    const limpio = String(valor).trim(); const m = limpio.match(/equipos\/qr\/([^/?#\s]+)/); const cod = m ? decodeURIComponent(m[1]) : limpio;
+    const limpio = String(valor).trim(); let cod = limpio;
+    try { const texto = new URL(limpio).searchParams.get('text'); const serie = texto?.match(/N° de Serie:\s*(\S+)/); if (serie) cod = serie[1]; } catch { /* no es una URL: se busca como código */ }
     try { const r = await api(`/api/equipos/qr/${encodeURIComponent(cod)}`); detener(); location.hash = `#/equipos/${r.id}`; } catch (e) { if (e.message !== 'sesion') aviso.textContent = 'No encontramos un equipo con ese código.'; }
   };
   const caja = h('div', { class: 'tarjeta' }, h('h2', null, 'Escanear QR del equipo'), video, aviso,
@@ -624,13 +625,36 @@ async function escanear() {
       const det = new BarcodeDetector({ formats: ['qr_code'] });
       (async function ciclo() { while (activo) { try { const r = await det.detect(video); if (r[0]) { ir(r[0].rawValue); return; } } catch { /* sigue */ } await new Promise((ok) => setTimeout(ok, 350)); } }());
     } catch { video.classList.add('oculto'); aviso.textContent = 'No se pudo abrir la cámara. Escribí el código o escaneá con la cámara del celular.'; }
-  } else { video.classList.add('oculto'); aviso.textContent = 'Este navegador no escanea desde acá: usá la cámara del celular sobre el QR, o escribí el código.'; }
+  } else { video.classList.add('oculto'); aviso.textContent = 'Este navegador no escanea desde acá: usá la cámara del celular sobre el QR, o escribí el número de serie.'; }
   window.addEventListener('hashchange', detener, { once: true });
   return caja;
 }
 
+/** Etiqueta autoadhesiva 90 × 58 mm: logo, serie, modelo y QR que abre WhatsApp de soporte con el serie ya cargado. */
+function etiquetaSoporte(e) {
+  return h('div', { class: 'label' }, h('div', { class: 'label-header' }, h('img', { src: '/img/logo-blanco.png', alt: 'JustPrint' })),
+    h('div', { class: 'label-body' }, h('div', { class: 'label-info' }, h('p', { class: 'label-cta' }, 'Solicitá soporte técnico', h('br'), 'escaneando este código'),
+      h('div', null, h('p', { class: 'label-serie-cap' }, 'N° de Serie'), h('p', { class: 'label-serie-val' }, e.numero_serie), h('p', { class: 'label-modelo' }, `${e.marca} ${e.modelo}`)),
+      h('p', { class: 'label-footer-text' }, 'JustPrint · soporte@justprint.com.ar')),
+    h('div', { class: 'label-qr' }, h('img', { src: `/api/equipos/${e.id}/qr.svg`, alt: `QR ${e.numero_serie}` }))));
+}
+function imprimirEtiquetas() {
+  document.body.classList.add('imprimiendo-etiqueta');
+  const hoja = h('style', { id: 'paginaEtiquetas' }, '@media print { @page { size: 90mm 58mm; margin: 0; } }'); document.head.append(hoja);
+  const fin = () => { document.body.classList.remove('imprimiendo-etiqueta'); hoja.remove(); window.removeEventListener('afterprint', fin); };
+  window.addEventListener('afterprint', fin); window.print();
+}
+
+async function vistaEtiquetas(destino, ids) {
+  const equipos = await Promise.all(ids.split(',').map((i) => api(`/api/equipos/${Number(i)}`).catch(() => null)));
+  const ok = equipos.filter(Boolean);
+  destino.append(h('a', { href: '#/equipos', class: 'apoyo' }, '← Equipos'), encabezado(`Etiquetas (${ok.length})`, 'Una por hoja autoadhesiva de 90 × 58 mm.', h('button', { class: 'btn btn-principal', type: 'button', onclick: imprimirEtiquetas }, 'Imprimir etiquetas')),
+    h('div', { class: 'etiqueta-qr hoja-etiquetas' }, ok.map((e) => etiquetaSoporte(e))));
+}
+
 async function vistaEquipos(destino) {
   const f = { q: '', estado: '', pagina: 1 }; const cuerpo = h('div'); const resumen = h('div', { class: 'rejilla kpis' });
+  const elegidos = new Set(); const botonEtiquetas = h('button', { class: 'btn', type: 'button', disabled: true, onclick: () => { location.hash = `#/equipos/etiquetas/${[...elegidos].join(',')}`; } }, 'Etiquetas');
   const buscar = h('input', { type: 'search', placeholder: 'Buscar por serie, modelo o cliente', 'aria-label': 'Buscar equipo' });
   const filtro = h('select', { 'aria-label': 'Estado' }, h('option', { value: '' }, 'Todos los estados'), ...Object.entries(ESTADO_EQUIPO).map(([v, [t]]) => h('option', { value: v }, t)));
   let tiempo;
@@ -645,8 +669,9 @@ async function vistaEquipos(destino) {
       vaciar(cuerpo);
       if (!r.items.length) { cuerpo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay equipos para mostrar'), 'Probá con otra búsqueda.')); return; }
       cuerpo.append(h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' },
-        h('thead', null, h('tr', null, ['Equipo', 'Estado', 'Dónde está', 'Última lectura'].map((t) => h('th', null, t)))),
+        h('thead', null, h('tr', null, h('th', null, ''), ['Equipo', 'Estado', 'Dónde está', 'Última lectura'].map((t) => h('th', null, t)))),
         h('tbody', null, r.items.map((e) => h('tr', { class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/equipos/${e.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/equipos/${e.id}`; } },
+          h('td', { class: 'casilla', onclick: (ev) => ev.stopPropagation() }, h('input', { type: 'checkbox', 'aria-label': `Elegir ${e.numero_serie}`, onchange: (ev) => { if (ev.target.checked) elegidos.add(e.id); else elegidos.delete(e.id); botonEtiquetas.disabled = !elegidos.size; botonEtiquetas.textContent = elegidos.size ? `Etiquetas (${elegidos.size})` : 'Etiquetas'; } })),
           h('td', { 'data-rotulo': 'Equipo' }, h('div', { class: 'nombre-cliente' }, `${e.marca} ${e.modelo}`), h('div', { class: 'apoyo' }, `${e.numero_serie} · ${e.tipo}`)),
           h('td', { 'data-rotulo': 'Estado' }, chipEquipo(e.estado)),
           h('td', { 'data-rotulo': 'Dónde está' }, e.cliente_id ? (e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—'), e.sede && h('div', { class: 'apoyo' }, e.sede)),
@@ -657,7 +682,7 @@ async function vistaEquipos(destino) {
     } catch (e) { if (e.message !== 'sesion') vaciar(cuerpo).append(falla()); }
   }
   destino.append(encabezado('Equipos', 'Inventario con su historial', h('div', { class: 'acciones' },
-    h('a', { class: 'btn', href: '#/equipos/escanear' }, 'Escanear QR'), puede('equipos.editar') && h('a', { class: 'btn btn-principal', href: '#/equipos/nuevo' }, '+ Nuevo equipo'))),
+    botonEtiquetas, h('a', { class: 'btn', href: '#/equipos/escanear' }, 'Escanear QR'), puede('equipos.editar') && h('a', { class: 'btn btn-principal', href: '#/equipos/nuevo' }, '+ Nuevo equipo'))),
   resumen, h('div', { class: 'herramientas' }, buscar, filtro), cuerpo);
   await cargar();
 }
@@ -713,8 +738,8 @@ async function vistaEquipo(destino, id) {
       h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''}`))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Tickets'), e.tickets.length ? h('ul', { class: 'lista' }, e.tickets.map((t) => h('li', null, h('a', { href: `#/tickets/${t.id}` }, `${t.numero} · ${t.asunto}`), chipTicket(t.estado)))) : h('p', { class: 'apoyo' }, 'Sin tickets.'))),
     h('div', null,
-      h('div', { class: 'tarjeta etiqueta-qr' }, h('h2', null, 'Etiqueta QR'), h('img', { src: `/api/equipos/${e.id}/qr.svg`, alt: `QR ${e.codigo_qr}`, width: 180, height: 180 }), h('div', { class: 'apoyo' }, e.codigo_qr),
-        h('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: () => { document.body.classList.add('imprimiendo-etiqueta'); window.print(); document.body.classList.remove('imprimiendo-etiqueta'); } }, 'Imprimir etiqueta')),
+      h('div', { class: 'tarjeta etiqueta-qr' }, h('h2', null, 'Etiqueta para el equipo'), etiquetaSoporte(e), h('div', { class: 'apoyo', style: 'margin-top:8px' }, 'Autoadhesiva de 90 × 58 mm. El cliente la escanea y le llega a WhatsApp de soporte con el serie ya cargado.'),
+        h('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: () => imprimirEtiquetas() }, 'Imprimir etiqueta')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Dónde estuvo'), e.asignaciones.length ? e.asignaciones.map((a) => h('div', { class: `linea ${a.hasta ? '' : 'vigente'}` }, h('b', null, a.nombre_comercial || a.razon_social),
         h('div', { class: 'apoyo' }, `${fecha(a.desde)} → ${a.hasta ? fecha(a.hasta) : 'hoy'}${a.sede ? ` · ${a.sede}` : ''}`), h('div', { class: 'apoyo' }, `Contador inicial ${a.contador_inicial_negro}${a.contador_final_negro != null ? ` · final ${a.contador_final_negro}` : ''}`)))
         : h('p', { class: 'apoyo' }, 'Nunca estuvo instalado.'), e.movimientos.map((m) => h('div', { class: 'apoyo' }, `${fecha(m.fecha)} · ${m.motivo ?? 'Movimiento'}${m.usuario ? ` (${m.usuario})` : ''}`))))));
@@ -798,6 +823,7 @@ async function navegar() {
     } else if (ruta === 'equipos' && puede('equipos.ver')) {
       if (param === 'nuevo' && puede('equipos.editar')) await vistaNuevoEquipo(nuevo);
       else if (param === 'escanear') nuevo.append(await escanear());
+      else if (param === 'etiquetas' && sub) await vistaEtiquetas(nuevo, sub);
       else if (param === 'qr' && sub) { const r = await api(`/api/equipos/qr/${encodeURIComponent(sub)}`).catch(() => null); if (r) { location.replace(`#/equipos/${r.id}`); return; } nuevo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Ver equipos'))); }
       else if (param) await vistaEquipo(nuevo, param);
       else await vistaEquipos(nuevo);
