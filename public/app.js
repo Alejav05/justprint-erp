@@ -66,14 +66,12 @@ const MENU = [
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
-  { ruta: 'facturacion', texto: 'Facturación y cobranzas', permiso: 'importes.ver', pronto: true },
+  { ruta: 'facturacion', texto: 'Facturación y cobranzas', permiso: 'importes.ver' },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
   { ruta: 'auditoria', texto: 'Auditoría', permiso: 'auditoria.ver' },
 ];
-const PRONTO = {
-  facturacion: ['Facturación y cobranzas', 'Liquidación mensual por contador, facturas con IVA, ventas directas, cobros y aplicaciones.'],
-};
+const PRONTO = {};
 
 /* ---------- ingreso ---------- */
 function logo(extra) {
@@ -804,6 +802,190 @@ async function vistaRemito(destino, id) {
     h('div', { style: 'margin-top:28px;border-top:1px solid var(--borde);padding-top:12px' }, r.conformidad ? h('div', null, chip('Conforme', 'ok'), ` ${r.conformidad.firmante_nombre}${r.conformidad.firmante_cargo ? ` · ${r.conformidad.firmante_cargo}` : ''} · ${cuando(r.conformidad.firmado_en)}`) : h('div', { style: 'height:60px' }, h('span', { class: 'apoyo' }, 'Firma y aclaración de quien recibe')))));
 }
 
+/* ---------- facturación y cobranzas ---------- */
+Object.assign(ERRORES, {
+  sin_cotizacion: 'Todavía no hay cotización del dólar cargada.', no_es_borrador: 'La factura ya no es un borrador.', tiene_cobros: 'Tiene cobros aplicados: no se puede anular.',
+  factura_no_cobrable: 'Esa factura no admite cobros.', moneda_distinta: 'El cobro tiene que ser en la misma moneda de la factura.', supera_saldo: 'El importe supera el saldo de la factura.',
+  fecha_futura: 'La fecha no puede ser futura.', no_se_puede_anular: 'Esa factura no se puede anular.', aplicado_supera_cobro: 'Lo aplicado supera el importe del cobro.',
+  contrato_invalido: 'El contrato no es de ese cliente.', factura_invalida: 'La factura no corresponde a ese cliente.', sin_items: 'Agregá al menos un renglón.',
+});
+const ESTADO_FACTURA = { borrador: ['Borrador', 'info'], emitida: ['Emitida', 'aviso'], cobrada_parcial: ['Cobro parcial', 'aviso'], cobrada: ['Cobrada', 'ok'], anulada: ['Anulada', 'mudo'] };
+const chipFactura = (f) => h('span', null, chip(...(ESTADO_FACTURA[f.estado] ?? [f.estado, 'mudo'])), f.clase === 'interno' && [' ', chip('Sin comprobante', 'mudo')]);
+const mesActual = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
+const mesAnterior = () => { const [a, m] = mesActual().split('-').map(Number); return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`; };
+const nombreMes = (p) => `${mesCorto(p)} ${p.slice(0, 4)}`;
+const verFactura = (id) => { location.hash = `#/facturacion/factura/${id}`; };
+const filaClic = (fn) => ({ class: 'fila', tabindex: '0', onclick: fn, onkeydown: (ev) => { if (ev.key === 'Enter') fn(); } });
+
+function pestanasFact(activa) {
+  const t = [['liquidacion', 'Liquidación del mes', puede('facturas.emitir')], ['facturas', 'Facturas', true], ['cobranzas', 'Cobranzas', true]].filter((x) => x[2]);
+  return h('div', { class: 'pestanas no-imprimir' }, t.map(([k, txt]) => h('button', { type: 'button', class: k === activa ? 'activa' : '', onclick: () => { location.hash = `#/facturacion/${k}`; } }, txt)));
+}
+
+async function vistaFacturacion(destino, tab) {
+  const tabs = ['liquidacion', 'facturas', 'cobranzas'];
+  if (!tabs.includes(tab) || (tab === 'liquidacion' && !puede('facturas.emitir'))) tab = puede('facturas.emitir') ? 'liquidacion' : 'facturas';
+  destino.append(encabezado('Facturación y cobranzas', 'Todo en USD neto de IVA; el IVA se suma al facturar.',
+    puede('facturas.emitir') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/facturacion/nueva' }, '+ Venta directa'))), pestanasFact(tab));
+  const cuerpo = h('div'); destino.append(cuerpo);
+  if (tab === 'liquidacion') await tabLiquidacion(cuerpo); else if (tab === 'facturas') await tabFacturas(cuerpo); else await tabCobranzas(cuerpo);
+}
+
+async function tabLiquidacion(dest) {
+  const per = h('input', { type: 'month', value: mesAnterior(), 'aria-label': 'Período' });
+  const sinC = h('input', { type: 'checkbox', id: 'sinc', style: 'width:auto;min-height:0' });
+  const zona = h('div'); const mensaje = h('div');
+  const cargar = async () => {
+    vaciar(zona).append(cargando());
+    const r = await api(`/api/facturacion/liquidacion?periodo=${per.value}&sin_contadores=${sinC.checked}`).catch(() => null);
+    if (!r) { vaciar(zona).append(falla()); return; }
+    const sel = new Set(r.filas.filter((f) => f.estado === 'completo' && !f.factura_id).map((f) => f.contrato_id));
+    const boton = h('button', { class: 'btn btn-principal', type: 'button' });
+    const rotulo = () => { boton.textContent = `Generar borradores (${sel.size})`; boton.disabled = !sel.size; };
+    boton.addEventListener('click', async () => {
+      boton.disabled = true;
+      try {
+        const g = await api('/api/facturacion/generar', { metodo: 'POST', cuerpo: { periodo: per.value, contrato_ids: [...sel], sin_contadores: sinC.checked } });
+        vaciar(mensaje).append(h('div', { class: 'tarjeta ok-caja' }, `Se crearon ${g.creadas.length} borradores. `, h('a', { href: '#/facturacion/facturas' }, 'Verlos en Facturas'), g.saltadas.length ? ` · ${g.saltadas.length} quedaron afuera.` : ''));
+        await cargar();
+      } catch (e) { if (e.message !== 'sesion') { vaciar(mensaje).append(h('div', { class: 'error' }, msgError(e))); boton.disabled = false; } }
+    });
+    rotulo();
+    const totalUsd = r.filas.filter((f) => !f.interno).reduce((s, f) => s + (f.neto_usd || 0), 0);
+    const ESTADOS = (f) => f.factura_id ? chip(f.factura_estado === 'borrador' ? 'Borrador creado' : 'Ya facturado', 'ok') : f.estado === 'completo' ? chip('Listo', 'ok') : f.estado === 'incompleto' ? chip('Faltan lecturas', 'aviso') : chip('Sin condiciones', 'malo');
+    vaciar(zona).append(
+      h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Contratos del período'), h('div', { class: 'valor' }, String(r.filas.length))),
+        h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'A facturar (USD neto)'), h('div', { class: 'valor' }, usd(totalUsd))),
+        h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Cotización BNA'), h('div', { class: 'valor' }, r.cotizacion ? `$ ${Number(r.cotizacion.valor).toLocaleString('es-AR')}` : '—'))),
+      r.filas.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('table', { class: 'tarjetas' },
+        h('thead', null, h('tr', null, h('th', null, ''), ['Cliente / contrato', 'Consumo N / C', 'Excedente N / C', 'Neto', 'Estado'].map((t, k) => h('th', { class: k > 0 && k < 4 ? 'num' : '' }, t)))),
+        h('tbody', null, r.filas.map((f) => {
+          const ok = f.estado === 'completo' && !f.factura_id;
+          const caja = h('input', { type: 'checkbox', disabled: !ok, checked: ok && sel.has(f.contrato_id), 'aria-label': 'Incluir', onchange: (ev) => { if (ev.target.checked) sel.add(f.contrato_id); else sel.delete(f.contrato_id); rotulo(); } });
+          return h('tr', null, h('td', null, caja),
+            h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, f.cliente), h('div', { class: 'apoyo' }, `${f.contrato}${f.factor < 1 ? ` · prorrateo ${Math.round(f.factor * 100)}%` : ''}${f.interno ? ' · sin comprobante' : ''}`)),
+            h('td', { class: 'num', 'data-rotulo': 'Consumo' }, f.estado === 'sin_condiciones' ? '—' : `${f.consumo_negro} / ${f.consumo_color}`),
+            h('td', { class: 'num', 'data-rotulo': 'Excedente' }, f.estado === 'sin_condiciones' ? '—' : `${f.excedente_negro} / ${f.excedente_color}`),
+            h('td', { class: 'num', 'data-rotulo': 'Neto' }, f.estado === 'sin_condiciones' ? '—' : monto(f.neto, f.moneda)),
+            h('td', { 'data-rotulo': 'Estado' }, ESTADOS(f), f.estado === 'incompleto' && h('div', { class: 'apoyo' }, f.faltan.map((x) => x.serie ?? x).join(', '))));
+        })))) : h('div', { class: 'tarjeta vacio', style: 'margin-top:16px' }, h('b', null, 'No hay contratos para liquidar en ese período')),
+      h('div', { class: 'acciones', style: 'margin-top:16px' }, boton));
+  };
+  dest.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:center' }, h('label', null, 'Período ', per), h('label', null, sinC, ' Permitir sin lecturas (cobra solo el abono)'),
+    h('button', { class: 'btn', type: 'button', onclick: cargar }, 'Calcular')), mensaje, zona);
+  per.addEventListener('change', cargar); sinC.addEventListener('change', cargar);
+  await cargar();
+}
+
+async function tabFacturas(dest) {
+  const est = h('select', { 'aria-label': 'Estado' }, [['', 'Todas'], ['borrador', 'Borradores'], ['por_cobrar', 'Por cobrar'], ['cobrada', 'Cobradas'], ['anulada', 'Anuladas']].map(([v, t]) => h('option', { value: v }, t)));
+  const per = h('input', { type: 'month', 'aria-label': 'Período' }); const q = h('input', { type: 'search', placeholder: 'Cliente o número', 'aria-label': 'Buscar' });
+  const zona = h('div'); let pagina = 1;
+  const cargar = async () => {
+    vaciar(zona).append(cargando());
+    const p = new URLSearchParams({ pagina }); if (est.value) p.set('estado', est.value); if (per.value) p.set('periodo', per.value); if (q.value.trim()) p.set('q', q.value.trim());
+    const r = await api(`/api/facturas?${p}`).catch(() => null);
+    if (!r) { vaciar(zona).append(falla()); return; }
+    const paginas = Math.max(1, Math.ceil(r.total / 25));
+    agregar(vaciar(zona), [r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' },
+      h('thead', null, h('tr', null, ['Cliente', 'Período', 'Comprobante', 'Total', 'Saldo', 'Estado'].map((t, k) => h('th', { class: k === 3 || k === 4 ? 'num' : '' }, t)))),
+      h('tbody', null, r.items.map((f) => h('tr', filaClic(() => verFactura(f.id)),
+        h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, f.cliente)), h('td', { 'data-rotulo': 'Período' }, nombreMes(f.periodo)),
+        h('td', { 'data-rotulo': 'Comprobante' }, f.numero ?? (f.estado === 'borrador' ? '—' : 's/n'), f.fecha_emision && h('div', { class: 'apoyo' }, fecha(f.fecha_emision))),
+        h('td', { class: 'num', 'data-rotulo': 'Total' }, monto(f.total, f.moneda)), h('td', { class: 'num', 'data-rotulo': 'Saldo' }, f.estado === 'borrador' || f.estado === 'anulada' ? '—' : monto(f.saldo, f.moneda)),
+        h('td', { 'data-rotulo': 'Estado' }, chipFactura(f))))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay facturas con esos filtros')),
+    paginas > 1 && h('div', { class: 'acciones', style: 'margin-top:12px;align-items:center' }, h('button', { class: 'btn', type: 'button', disabled: pagina <= 1, onclick: () => { pagina -= 1; cargar(); } }, '← Anterior'),
+      h('span', { class: 'apoyo' }, ` Página ${pagina} de ${paginas} `), h('button', { class: 'btn', type: 'button', disabled: pagina >= paginas, onclick: () => { pagina += 1; cargar(); } }, 'Siguiente →'))]);
+  };
+  const nuevoFiltro = () => { pagina = 1; cargar(); };
+  [est, per].forEach((el) => el.addEventListener('change', nuevoFiltro)); q.addEventListener('input', () => { clearTimeout(q._t); q._t = setTimeout(nuevoFiltro, 300); });
+  dest.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' }, est, per, q), zona);
+  await cargar();
+}
+
+async function tabCobranzas(dest) {
+  const r = await api('/api/cobranzas');
+  agregar(dest, [h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Por cobrar (USD neto)'), h('div', { class: 'valor' }, usd(r.total_usd)), h('div', { class: 'apoyo' }, `${r.facturas} factura${r.facturas === 1 ? '' : 's'}`)),
+    ['0-30', '31-60', '61-90', '+90'].map((t) => h('div', { class: `tarjeta kpi ${t === '+90' && r.tramos[t] > 0 ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, `${t} días`), h('div', { class: 'valor' }, usd(r.tramos[t]))))),
+  r.clientes.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('table', { class: 'tarjetas' },
+    h('thead', null, h('tr', null, ['Cliente', 'Saldo USD', '0-30', '31-60', '61-90', '+90', 'Más vieja'].map((t, k) => h('th', { class: k && k < 6 ? 'num' : '' }, t)))),
+    h('tbody', null, r.clientes.flatMap((c) => [h('tr', null, h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, c.cliente), h('details', null, h('summary', { class: 'apoyo' }, `${c.facturas} factura${c.facturas > 1 ? 's' : ''}`),
+      c.detalle.map((d) => h('div', null, h('a', { href: `#/facturacion/factura/${d.id}` }, `${nombreMes(d.periodo)}${d.numero ? ` · ${d.numero}` : ''}`), ` — ${monto(d.saldo, d.moneda)} · ${d.dias} días${d.estimada ? ' (fecha estimada)' : ''}`)))),
+      h('td', { class: 'num', 'data-rotulo': 'Saldo USD' }, h('b', null, usd(c.saldo_usd))), ...['0-30', '31-60', '61-90', '+90'].map((t) => h('td', { class: 'num', 'data-rotulo': `${t} días` }, c.tramos[t] ? usd(c.tramos[t]) : '—')),
+      h('td', { 'data-rotulo': 'Más vieja' }, `${c.max_dias} días`))])))) : h('div', { class: 'tarjeta vacio', style: 'margin-top:16px' }, h('b', null, 'No hay nada pendiente de cobro')),
+  r.sin_comprobante.facturas > 0 && h('p', { class: 'apoyo' }, `Aparte: ${r.sin_comprobante.facturas} cuenta${r.sin_comprobante.facturas > 1 ? 's' : ''} sin comprobante por ${usd(r.sin_comprobante.usd)} (no entran en el total).`)]);
+}
+
+async function vistaFactura(destino, id) {
+  const f = await api(`/api/facturas/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
+  if (!f) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos esa factura'), h('a', { href: '#/facturacion/facturas' }, 'Volver'))); return; }
+  const edita = puede('facturas.emitir'); const borrador = f.estado === 'borrador'; const porCobrar = f.estado === 'emitida' || f.estado === 'cobrada_parcial';
+  const cli = f.cliente.nombre_comercial || f.cliente.razon_social; const recargar = () => navegar();
+  const titulo = f.numero ? `Factura ${f.numero}` : borrador ? 'Borrador de factura' : f.clase === 'interno' ? 'Cuenta sin comprobante' : 'Factura';
+  const delItem = (it) => h('button', { type: 'button', class: 'rapido', 'aria-label': 'Quitar renglón', onclick: async () => { await api(`/api/facturas/${f.id}/items/${it.id}`, { metodo: 'DELETE' }); recargar(); } }, '✕');
+  destino.append(h('a', { href: '#/facturacion/facturas', class: 'apoyo no-imprimir' }, '← Facturas'), encabezado(titulo, `${cli} · ${nombreMes(f.periodo)}${f.contrato ? ` · ${f.contrato}` : ''}`, chipFactura(f)),
+    h('div', { class: 'tarjeta' }, h('dl', { class: 'datos' },
+      h('div', null, h('dt', null, 'Cliente'), h('dd', null, `${cli}${f.cliente.cuit ? ` · ${f.cliente.cuit}` : ''}`)),
+      h('div', null, h('dt', null, 'Emisor'), h('dd', null, f.entidad ? `${f.entidad.razon_social} · ${f.entidad.cuit}` : 'Sin comprobante')),
+      h('div', null, h('dt', null, 'Emisión'), h('dd', null, f.fecha_emision ? `${fecha(f.fecha_emision)}${f.fecha_emision_estimada ? ' (estimada)' : ''}` : '—')),
+      f.vencimiento && h('div', null, h('dt', null, 'Vencimiento'), h('dd', null, fecha(f.vencimiento))),
+      f.tipo_cambio && h('div', null, h('dt', null, 'Cotización BNA usada'), h('dd', null, `$ ${f.tipo_cambio.toLocaleString('es-AR')}`))),
+    h('table', { style: 'margin-top:16px' }, h('thead', null, h('tr', null, h('th', null, 'Concepto'), h('th', { class: 'num' }, 'Cant.'), h('th', { class: 'num' }, 'Precio'), h('th', { class: 'num' }, 'Subtotal'), borrador && edita && h('th', null, ''))),
+      h('tbody', null, f.items.map((i) => h('tr', null, h('td', null, i.descripcion), h('td', { class: 'num' }, i.cantidad.toLocaleString('es-AR')), h('td', { class: 'num' }, monto(i.precio_unitario, f.moneda)), h('td', { class: 'num' }, monto(i.subtotal, f.moneda)), borrador && edita && h('td', null, delItem(i)))))),
+    h('div', { style: 'text-align:right;margin-top:12px' }, h('div', null, `Neto ${monto(f.neto, f.moneda)}`), f.iva > 0 && h('div', null, `IVA 21% ${monto(f.iva, f.moneda)}`), h('div', null, h('b', null, `Total ${monto(f.total, f.moneda)}`)),
+      f.neto_usd != null && f.moneda === 'ARS' && h('div', { class: 'apoyo' }, `Equivale a ${usd2(f.neto_usd)} neto`),
+      !borrador && f.estado !== 'anulada' && h('div', { class: 'apoyo' }, `Cobrado ${monto(f.cobrado, f.moneda)} · Saldo ${monto(f.saldo, f.moneda)}`))));
+
+  if (borrador && edita) {
+    const tipo = h('select', { 'aria-label': 'Tipo' }, ['servicio', 'insumo', 'equipo', 'abono', 'excedente', 'otro'].map((t) => h('option', { value: t }, t[0].toUpperCase() + t.slice(1))));
+    const des = h('input', { required: true, maxlength: 200, placeholder: 'Concepto', 'aria-label': 'Concepto' }); const cant = h('input', { type: 'number', step: 'any', min: 0, value: 1, 'aria-label': 'Cantidad' }); const pre = h('input', { type: 'number', step: 'any', min: 0, required: true, placeholder: 'Precio unitario', 'aria-label': 'Precio' });
+    const fe = h('input', { type: 'date', value: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), 'aria-label': 'Fecha de emisión' }); const nu = h('input', { maxlength: 20, placeholder: 'N° de comprobante (opcional)', 'aria-label': 'Número' }); const ve = h('input', { type: 'date', 'aria-label': 'Vencimiento' });
+    destino.append(formularioEnLinea({ titulo: 'Agregar renglón', campos: [h('div', { class: 'dos-col' }, tipo, des), h('div', { class: 'dos-col' }, cant, pre)], boton: 'Agregar',
+      enviar: () => api(`/api/facturas/${f.id}/items`, { metodo: 'POST', cuerpo: { tipo: tipo.value, descripcion: des.value, cantidad: Number(cant.value), precio_unitario: Number(pre.value) } }), alExito: recargar }),
+    h('div', { style: 'height:16px' }),
+    formularioEnLinea({ titulo: f.clase === 'interno' || !f.entidad_facturante_id ? 'Confirmar' : 'Emitir', campos: [h('div', { class: 'dos-col' }, campoF('Fecha de emisión', fe, ''), campoF('Vencimiento (opcional)', ve, '')), nu], boton: 'Emitir',
+      enviar: () => api(`/api/facturas/${f.id}/emitir`, { metodo: 'POST', cuerpo: { fecha_emision: fe.value, ...(nu.value.trim() ? { numero: nu.value.trim() } : {}), ...(ve.value ? { vencimiento: ve.value } : {}) } }), alExito: recargar }),
+    h('div', { class: 'acciones', style: 'margin-top:12px' }, h('button', { class: 'btn', type: 'button', onclick: async () => { if (!window.confirm('¿Eliminar este borrador?')) return; await api(`/api/facturas/${f.id}`, { metodo: 'DELETE' }); location.hash = '#/facturacion/facturas'; } }, 'Eliminar borrador')));
+  }
+
+  if (f.cobros.length) destino.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Cobros'), h('table', null, h('tbody', null, f.cobros.map((c) => h('tr', null, h('td', null, fecha(c.fecha_cobro)), h('td', null, c.medio), h('td', { class: 'apoyo' }, c.referencia ?? ''), h('td', { class: 'num' }, monto(c.importe, f.moneda))))))));
+
+  if (porCobrar && puede('cobros.registrar')) {
+    const fe = h('input', { type: 'date', value: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), 'aria-label': 'Fecha' }); const imp = h('input', { type: 'number', step: '0.01', min: 0, value: f.saldo, required: true, 'aria-label': 'Importe' });
+    const medio = h('select', { 'aria-label': 'Medio' }, ['transferencia', 'efectivo', 'cheque', 'mercadopago', 'otro'].map((m) => h('option', { value: m }, m))); const ref = h('input', { maxlength: 120, placeholder: 'Referencia (opcional)', 'aria-label': 'Referencia' });
+    destino.append(h('div', { style: 'height:16px' }), formularioEnLinea({ titulo: 'Registrar cobro', campos: [h('div', { class: 'dos-col' }, campoF('Fecha', fe, ''), campoF(`Importe (${f.moneda})`, imp, '')), h('div', { class: 'dos-col' }, medio, ref)], boton: 'Registrar cobro',
+      enviar: () => api('/api/cobros', { metodo: 'POST', cuerpo: { cliente_id: f.cliente_id, fecha_cobro: fe.value, medio: medio.value, importe: Number(imp.value), moneda: f.moneda, ...(ref.value.trim() ? { referencia: ref.value.trim() } : {}), aplicaciones: [{ factura_id: f.id, importe: Number(imp.value) }] } }), alExito: recargar }));
+  }
+  if (porCobrar && edita && !f.cobros.length) {
+    const mot = h('input', { required: true, minlength: 3, maxlength: 255, placeholder: 'Motivo de la anulación', 'aria-label': 'Motivo' });
+    destino.append(h('div', { style: 'height:16px' }), formularioEnLinea({ titulo: 'Anular', campos: [mot], boton: 'Anular factura', enviar: () => api(`/api/facturas/${f.id}/anular`, { metodo: 'POST', cuerpo: { motivo: mot.value } }), alExito: recargar }));
+  }
+  if (f.estado !== 'borrador') destino.append(h('div', { class: 'acciones no-imprimir', style: 'margin-top:16px' }, h('button', { class: 'btn', type: 'button', onclick: () => window.print() }, 'Imprimir')));
+}
+
+async function vistaVentaDirecta(destino) {
+  const [clientes] = await Promise.all([api('/api/clientes?limite=100')]);
+  const cli = h('select', { required: true, 'aria-label': 'Cliente' }, h('option', { value: '' }, 'Elegí un cliente…'), clientes.clientes.map((c) => h('option', { value: c.id }, c.nombre_comercial || c.razon_social)));
+  const mon = h('select', { 'aria-label': 'Moneda' }, h('option', { value: 'USD' }, 'Dólares (USD)'), h('option', { value: 'ARS' }, 'Pesos (ARS)'));
+  const inter = h('input', { type: 'checkbox', id: 'inter', style: 'width:auto;min-height:0' });
+  const filas = []; const lista = h('div');
+  const nuevaFila = () => {
+    const tipo = h('select', { 'aria-label': 'Tipo' }, ['equipo', 'insumo', 'servicio', 'otro'].map((t) => h('option', { value: t }, t[0].toUpperCase() + t.slice(1)))); const des = h('input', { maxlength: 200, placeholder: 'Concepto', 'aria-label': 'Concepto' });
+    const cant = h('input', { type: 'number', step: 'any', min: 0, value: 1, 'aria-label': 'Cantidad' }); const pre = h('input', { type: 'number', step: 'any', min: 0, placeholder: 'Precio unitario', 'aria-label': 'Precio' });
+    const fila = { tipo, des, cant, pre }; filas.push(fila);
+    fila.el = h('div', { class: 'item-rep', style: 'display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))' }, tipo, des, cant, pre, h('button', { type: 'button', class: 'rapido', onclick: () => { filas.splice(filas.indexOf(fila), 1); fila.el.remove(); } }, 'Quitar'));
+    lista.append(fila.el);
+  };
+  nuevaFila();
+  destino.append(h('a', { href: '#/facturacion/facturas', class: 'apoyo' }, '← Facturas'), encabezado('Venta directa', 'Equipos, insumos o servicios fuera del abono mensual. Se crea como borrador.'),
+    formularioEnLinea({ titulo: 'Datos', campos: [campoF('Cliente', cli, ''), campoF('Moneda', mon, ''), h('label', null, inter, ' Sin comprobante (cuenta interna, sin IVA)'), lista, h('button', { type: 'button', class: 'btn', onclick: nuevaFila }, '+ Otro renglón')], boton: 'Crear borrador',
+      enviar: () => {
+        const items = filas.filter((x) => x.des.value.trim() && x.pre.value !== '').map((x) => ({ tipo: x.tipo.value, descripcion: x.des.value.trim(), cantidad: Number(x.cant.value), precio_unitario: Number(x.pre.value) }));
+        if (!items.length) { const e = new Error('x'); e.datos = { error: 'sin_items' }; throw e; }
+        return api('/api/facturas', { metodo: 'POST', cuerpo: { cliente_id: Number(cli.value), moneda: mon.value, interno: inter.checked, items } });
+      }, alExito: (r) => verFactura(r.id) }));
+}
+
 /* ---------- navegación ---------- */
 async function navegar() {
   if (!estado.me || !contenedor) return;
@@ -834,7 +1016,11 @@ async function navegar() {
       else await vistaInsumos(nuevo);
     } else if (ruta === 'remitos' && param && puede('insumos.ver')) await vistaRemito(nuevo, param);
     else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
-    else if (ruta === 'usuarios' && puede('usuarios.administrar')) await vistaUsuarios(nuevo);
+    else if (ruta === 'facturacion' && puede('importes.ver')) {
+      if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
+      else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
+      else await vistaFacturacion(nuevo, param);
+    } else if (ruta === 'usuarios' && puede('usuarios.administrar')) await vistaUsuarios(nuevo);
     else if (ruta === 'auditoria' && puede('auditoria.ver')) await vistaAuditoria(nuevo);
     else if (PRONTO[ruta]) vistaPronto(nuevo, ruta);
     else nuevo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos esa pantalla'), h('a', { href: '#/inicio' }, 'Ir al inicio')));

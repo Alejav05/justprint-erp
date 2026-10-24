@@ -197,3 +197,4 @@ details summary{cursor:pointer;font-weight:700;color:var(--navy)}
   body.imprimiendo-etiqueta .label{box-shadow:none;border-radius:0;margin:0;break-after:page}
   body.imprimiendo-etiqueta .label-header{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+.ok-caja{background:var(--ok-bg,#e6f6ec);color:var(--ok,#14693a);padding:10px 14px;margin:0 0 16px;font-weight:700;font-size:13.5px}

@@ -13,9 +13,10 @@ Backend en Node.js (Fastify + Knex). Desarrollo y pruebas con SQLite; producció
 - Pantallas: ingreso, menú por permisos, tablero de Dirección (facturado y cobrado separados, USD netos), clientes con detalle y contratos, usuarios y auditoría.
 - Tickets: alta con SLA por zona de la sede (CABA 24 h, resto 48 h hábiles), asignación con fecha de visita, historial, y cierre del técnico en una sola operación (parte, contadores validados, repuestos con baja de stock y remito de servicio, conformidad con firma). Todo o nada.
 - Tablero de Servicio y bloque de SLA en Dirección: tiempo medio, % dentro de SLA y primera respuesta del mes contra el mes anterior y contra el histórico. Los tickets migrados no cuentan (no tienen tiempos reales).
-- Equipos: inventario, ficha con historial (dónde estuvo, contadores, tickets), instalar/retirar/baja, lecturas de contadores validadas y etiqueta con QR (al escanearlo abre la ficha).
+- Equipos: inventario, ficha con historial (dónde estuvo, contadores, tickets), instalar/retirar/baja, lecturas de contadores validadas y etiqueta autoadhesiva de soporte (el QR abre WhatsApp con el número de serie ya cargado).
 - Insumos: stock por movimientos, mínimo por insumo, entregas por remito (todo o nada) y remito imprimible.
 - Cotización del dólar oficial BNA (vendedor) tomada de DolarAPI al arrancar y cada 6 horas.
+- Facturación y cobranzas: liquidación mensual por contador (prorrateo, franquicia, excedentes; verificada contra la planilla), borradores, emisión con IVA 21 %, venta directa, cobros aplicados a facturas, antigüedad de deuda y cuentas sin comprobante aparte. Todo en USD neto con cotización BNA.
 - 98 pruebas automáticas (`npm test`).
 
 ## SLA: cómo se cuenta
