@@ -9,4 +9,5 @@ export const config = {
   whatsappSoporte: (process.env.WHATSAPP_SOPORTE || '5491135104320').replace(/\D/g, ''),
   archivosDir: process.env.ARCHIVOS_DIR || new URL('../storage/', import.meta.url).pathname,
   origenPermitido: process.env.ALLOWED_ORIGIN || null,
+  appUrl: (process.env.APP_URL || process.env.ALLOWED_ORIGIN || '').replace(/\/$/, ''),
 };

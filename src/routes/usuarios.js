@@ -15,6 +15,7 @@ const crearSchema = z.object({
   password: z.string(),
   rol: z.string(),
   areas: z.array(areaSchema).max(5).default([]),
+  telefono: z.string().trim().max(30).regex(/^\+?[\d\s()-]{6,30}$/).optional(),
 });
 
 const editarSchema = z.object({
@@ -22,6 +23,7 @@ const editarSchema = z.object({
   rol: z.string().optional(),
   activo: z.boolean().optional(),
   areas: z.array(areaSchema).max(5).optional(),
+  telefono: z.string().trim().max(30).regex(/^\+?[\d\s()-]{6,30}$/).nullable().optional(),
 });
 
 export default async function rutasUsuarios(app, { db }) {
@@ -41,7 +43,7 @@ export default async function rutasUsuarios(app, { db }) {
 
   const listar = async () => {
     const usuarios = await db('usuarios').join('roles', 'roles.id', 'usuarios.rol_id').whereNull('usuarios.deleted_at')
-      .select('usuarios.id', 'usuarios.nombre', 'usuarios.email', 'usuarios.activo', 'usuarios.ultimo_ingreso', 'roles.nombre as rol')
+      .select('usuarios.id', 'usuarios.nombre', 'usuarios.email', 'usuarios.activo', 'usuarios.telefono', 'usuarios.ultimo_ingreso', 'roles.nombre as rol')
       .orderBy('usuarios.nombre');
     const areas = await db('usuario_area').join('areas', 'areas.id', 'usuario_area.area_id')
       .select('usuario_area.usuario_id', 'areas.nombre as area', 'usuario_area.funcion', 'usuario_area.alcance');
@@ -67,7 +69,7 @@ export default async function rutasUsuarios(app, { db }) {
 
     const id = await db.transaction(async (trx) => {
       const [nuevo] = await trx('usuarios').insert({
-        nombre: d.nombre, email, password_hash: await hashear(d.password), rol_id: res.rol.id, created_by: req.ctx.id,
+        nombre: d.nombre, email, password_hash: await hashear(d.password), rol_id: res.rol.id, telefono: d.telefono ?? null, created_by: req.ctx.id,
       });
       if (res.areas.length) await trx('usuario_area').insert(res.areas.map((a) => ({ ...a, usuario_id: nuevo })));
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'usuarios', nuevo, null,
@@ -87,6 +89,7 @@ export default async function rutasUsuarios(app, { db }) {
     const cambios = {};
     if (d.nombre) cambios.nombre = d.nombre;
     if (d.activo !== undefined) cambios.activo = d.activo;
+    if (d.telefono !== undefined) cambios.telefono = d.telefono;
     let res = null;
     if (d.rol || d.areas) {
       res = await resolverRolYAreas(d.rol ?? (await db('roles').where({ id: antes.rol_id }).first()).nombre, d.areas);

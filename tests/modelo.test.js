@@ -11,7 +11,7 @@ test('las migraciones crean las 45 tablas del modelo más la de sesiones, y se p
   const db = knexLib(knexfile.test);
   await db.migrate.latest();
   const nombres = (await tablas(db)).map((t) => t.name);
-  assert.equal(nombres.length, 47);
+  assert.equal(nombres.length, 49);
   assert.ok(nombres.includes('sesiones'));
   for (const esperada of ['cartera_asignaciones', 'ticket_eventos', 'cobro_aplicaciones', 'contrato_condiciones', 'audit_log']) {
     assert.ok(nombres.includes(esperada), `falta ${esperada}`);

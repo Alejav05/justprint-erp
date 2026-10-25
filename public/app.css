@@ -199,3 +199,5 @@ details summary{cursor:pointer;font-weight:700;color:var(--navy)}
 }
 .ok-caja{background:var(--ok-bg,#e6f6ec);color:var(--ok,#14693a);padding:10px 14px;margin:0 0 16px;font-weight:700;font-size:13.5px}
 .visita .hora{font-size:20px;color:var(--navy)}.visita .acciones{margin-top:8px}
+.insignia{display:inline-block;min-width:18px;padding:1px 6px;margin-left:8px;border-radius:9px;background:#E5484D;color:#fff;font-size:11px;font-weight:700;text-align:center}
+.campana{position:relative;color:#fff;display:inline-flex;align-items:center;min-width:44px;min-height:44px;justify-content:center}.campana svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2}.campana .insignia{position:absolute;top:2px;right:0;margin:0}

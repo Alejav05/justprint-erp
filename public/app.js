@@ -53,11 +53,14 @@ const ICONOS = {
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   auditoria: 'M9 12l2 2 4-4M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  notificaciones: 'M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0',
+  alertas: 'M12 9v4M12 17h.01M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
 };
 const icono = (n) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: ICONOS[n] }));
 
 const MENU = [
   { ruta: 'inicio', texto: 'Inicio' },
+  { ruta: 'notificaciones', texto: 'Notificaciones' },
   { grupo: 'Comercial' },
   { ruta: 'clientes', texto: 'Clientes', permiso: 'clientes.ver' },
   { grupo: 'Servicio' },
@@ -69,6 +72,7 @@ const MENU = [
   { ruta: 'facturacion', texto: 'Facturación y cobranzas', permiso: 'importes.ver' },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
+  { ruta: 'alertas', texto: 'Alertas', permiso: 'alertas.configurar' },
   { ruta: 'auditoria', texto: 'Auditoría', permiso: 'auditoria.ver' },
 ];
 const PRONTO = {};
@@ -126,14 +130,20 @@ function armarEstructura() {
     if (it.grupo) { pendienteGrupo = it.grupo; continue; }
     if (it.permiso && !puede(it.permiso)) continue;
     if (pendienteGrupo) { menu.append(h('div', { class: 'menu-titulo' }, pendienteGrupo)); pendienteGrupo = null; }
-    menu.append(h('a', { href: `#/${it.ruta}`, class: it.pronto ? 'pronto' : '', 'data-ruta': it.ruta, onclick: cerrarMenu }, icono(it.ruta), it.texto));
+    menu.append(h('a', { href: `#/${it.ruta}`, class: it.pronto ? 'pronto' : '', 'data-ruta': it.ruta, onclick: cerrarMenu }, icono(it.ruta), it.texto, it.ruta === 'notificaciones' && h('span', { class: 'insignia oculto' })));
   }
   lateral.append(logo(), menu, h('div', { class: 'lateral-pie' }, h('b', null, estado.me.nombre),
     h('span', { class: 'apoyo' }, [...new Set(estado.me.areas.map((a) => a.area))].join(' · ') || estado.me.rol),
     h('div', null, h('button', { type: 'button', onclick: async () => { await api('/api/auth/logout', { metodo: 'POST' }).catch(() => {}); estado.me = null; mostrarIngreso(); } }, 'Salir'))));
   contenedor = h('main', { class: 'contenido', id: 'contenido', tabindex: '-1' });
-  const barra = h('div', { class: 'barra' }, logo(), h('button', { type: 'button', 'aria-label': 'Abrir menú', onclick: () => { lateral.classList.add('abierto'); velo.classList.remove('oculto'); } }, '☰'));
+  const barra = h('div', { class: 'barra' }, logo(), h('span', { style: 'display:flex;align-items:center' }, h('a', { href: '#/notificaciones', class: 'campana', 'aria-label': 'Notificaciones' }, icono('notificaciones'), h('span', { class: 'insignia oculto' })), h('button', { type: 'button', 'aria-label': 'Abrir menú', onclick: () => { lateral.classList.add('abierto'); velo.classList.remove('oculto'); } }, '☰')));
   vaciar(raiz).append(h('div', { class: 'estructura' }, lateral, h('div', { class: 'principal' }, barra, contenedor)), velo);
+  actualizarInsignia(); clearInterval(estado.timerInsignia); estado.timerInsignia = setInterval(actualizarInsignia, 60000);
+}
+
+async function actualizarInsignia() {
+  if (!estado.me) return;
+  try { const { sin_leer: n } = await api('/api/notificaciones/contador'); document.querySelectorAll('.insignia').forEach((el) => { el.textContent = n > 99 ? '99+' : String(n); el.classList.toggle('oculto', !n); }); } catch { /* sin conexión: queda como estaba */ }
 }
 
 /* ---------- vistas ---------- */
@@ -199,11 +209,148 @@ async function vistaMiDia(destino) {
 }
 
 
+
+/* ---------- notificaciones y alertas ---------- */
+async function vistaNotificaciones(destino) {
+  const r = await api('/api/notificaciones');
+  const abrirItem = async (n) => { if (!n.leida) await api('/api/notificaciones/leer', { metodo: 'POST', cuerpo: { ids: [n.id] } }).catch(() => {}); actualizarInsignia(); if (n.destino) location.hash = n.destino; else navegar(); };
+  agregar(destino, [encabezado('Notificaciones', r.sin_leer ? `${r.sin_leer} sin leer` : 'Estás al día', r.sin_leer > 0 && h('div', { class: 'acciones' }, h('button', { class: 'btn', type: 'button', onclick: async () => { await api('/api/notificaciones/leer', { metodo: 'POST', cuerpo: {} }); actualizarInsignia(); navegar(); } }, 'Marcar todas como leídas'))),
+    r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('ul', { class: 'lista' }, r.items.map((n) => h('li', { class: 'fila', tabindex: '0', style: 'display:block;cursor:pointer', onclick: () => abrirItem(n), onkeydown: (ev) => { if (ev.key === 'Enter') abrirItem(n); } },
+      h('div', { style: 'display:flex;justify-content:space-between;gap:8px' }, h('b', null, n.leida ? n.titulo : ['● ', n.titulo]), h('span', { class: 'apoyo' }, cuando(n.creada))), h('div', { class: 'apoyo' }, n.cuerpo))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay notificaciones'), 'Cuando pase algo que requiera tu atención, aparece acá.')]);
+}
+
+const RESPONSABLES = { sla_por_vencer: ['tecnico'], sla_vencido: ['tecnico'], factura_vencida: ['comercial'], contrato_por_vencer: ['comercial'] };
+const ROTULO_CANAL = { sistema: 'En el sistema', mail: 'Por mail', whatsapp: 'Por WhatsApp' };
+const ROTULO_RESP = { tecnico: 'El técnico asignado', comercial: 'El comercial responsable' };
+
+function tarjetaRegla(r, datos) {
+  const f = { activa: r.activa, umbral: r.umbral, canales: [...r.canales], roles: [...r.destinatarios.roles], responsables: [...r.destinatarios.responsables], usuarios: [...r.destinatarios.usuarios], frecuencia: r.frecuencia_horas, asunto: r.plantilla_asunto, cuerpo: r.plantilla_cuerpo };
+  const msg = h('div', { class: 'oculto', role: 'status' });
+  const caja = (rotulo, activo, alCambiar, off = false, nota = null) => { const i = h('input', { type: 'checkbox', checked: activo, disabled: off, style: 'width:auto;min-height:0', onchange: (ev) => alCambiar(ev.target.checked) }); return h('label', { style: 'display:inline-flex;gap:6px;align-items:center;margin-right:14px' + (off ? ';opacity:.55' : '') }, i, rotulo, nota && h('span', { class: 'apoyo' }, `(${nota})`)); };
+  const alternar = (lista, v) => (on) => { const i = lista.indexOf(v); if (on && i < 0) lista.push(v); if (!on && i >= 0) lista.splice(i, 1); };
+  const umbral = r.unidad ? h('input', { type: 'number', min: 0, value: f.umbral ?? '', style: 'max-width:110px', 'aria-label': 'Umbral', oninput: (ev) => { f.umbral = ev.target.value === '' ? null : Number(ev.target.value); } }) : null;
+  const frec = h('input', { type: 'number', min: 1, value: f.frecuencia, style: 'max-width:110px', 'aria-label': 'Frecuencia', oninput: (ev) => { f.frecuencia = Number(ev.target.value); } });
+  const asunto = h('input', { value: f.asunto, maxlength: 200, 'aria-label': 'Asunto', oninput: (ev) => { f.asunto = ev.target.value; } });
+  const cuerpo = h('textarea', { rows: 3, maxlength: 2000, 'aria-label': 'Mensaje', oninput: (ev) => { f.cuerpo = ev.target.value; } }, f.cuerpo);
+  const usuarios = h('select', { multiple: true, size: 4, 'aria-label': 'Personas', onchange: (ev) => { f.usuarios = [...ev.target.selectedOptions].map((o) => Number(o.value)); } }, datos.usuarios.map((u) => h('option', { value: u.id, selected: f.usuarios.includes(u.id) }, u.nombre)));
+  const guardado = (ok) => { msg.className = ok ? 'ok-caja' : 'error'; msg.textContent = ok === true ? 'Guardado.' : ''; if (ok !== true) msg.classList.add('oculto'); };
+  const restaurar = async (ev) => { if (!window.confirm('¿Volver esta alerta a los valores de fábrica?')) return; const d = r.de_fabrica; Object.assign(f, { umbral: d.umbral, canales: [...d.canales], roles: [...d.destinatarios.roles], responsables: [...d.destinatarios.responsables], usuarios: [...d.destinatarios.usuarios], frecuencia: d.frecuencia_horas, asunto: d.plantilla_asunto, cuerpo: d.plantilla_cuerpo }); await guardar(ev, true); navegar(); };
+  const guardar = async (ev, silencioso = false) => {
+    ev.target.disabled = true;
+    try {
+      await api(`/api/alertas/reglas/${r.clave}`, { metodo: 'PUT', cuerpo: { activa: f.activa, umbral: r.unidad ? f.umbral : null, canales: f.canales, destinatarios: { roles: f.roles, responsables: f.responsables, usuarios: f.usuarios }, frecuencia_horas: f.frecuencia, plantilla_asunto: f.asunto, plantilla_cuerpo: f.cuerpo } });
+      if (!silencioso) guardado(true);
+    } catch (e) { if (e.message === 'sesion') return; msg.className = 'error'; msg.textContent = e.datos?.error === 'variables_desconocidas' ? `El texto usa variables que no existen: ${e.datos.variables.map((v) => `{${v}}`).join(', ')}.` : e.datos?.error === 'falta_umbral' ? 'Falta el umbral.' : 'No se pudo guardar. Revisá los datos.'; }
+    ev.target.disabled = false;
+  };
+  const sinConfig = (c) => (!datos.canales[c] && !f.canales.includes(c) ? 'sin configurar' : null);
+  return h('div', { class: 'tarjeta', style: 'margin-bottom:16px' },
+    h('div', { style: 'display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start' }, h('div', null, h('h2', { style: 'margin:0' }, r.nombre), h('div', { class: 'apoyo' }, r.descripcion)),
+      caja('Activa', f.activa, (v) => { f.activa = v; })),
+    h('div', { class: 'dos-col', style: 'margin:12px 0' }, r.unidad && h('div', { class: 'campo' }, h('label', null, `Avisar cuando… (${r.unidad})`), umbral), h('div', { class: 'campo' }, h('label', null, 'No repetir el mismo aviso antes de (horas)'), frec)),
+    h('div', { class: 'campo' }, h('label', null, 'Cómo avisar'), h('div', null, ['sistema', 'mail', 'whatsapp'].map((c) => caja(ROTULO_CANAL[c], f.canales.includes(c), alternar(f.canales, c), !datos.canales[c] && !f.canales.includes(c), sinConfig(c))))),
+    h('div', { class: 'campo' }, h('label', null, 'A quién avisar'), h('div', null, datos.roles.map((ro) => caja(ro.descripcion || ro.nombre, f.roles.includes(ro.nombre), alternar(f.roles, ro.nombre))),
+      (RESPONSABLES[r.clave] ?? []).map((x) => caja(ROTULO_RESP[x], f.responsables.includes(x), alternar(f.responsables, x))))),
+    h('details', null, h('summary', null, 'Además, a estas personas'), usuarios, h('div', { class: 'apoyo' }, 'Mantené Ctrl (o Cmd) para elegir varias.')),
+    h('details', { style: 'margin-top:8px' }, h('summary', null, 'Texto del aviso'), h('div', { class: 'campo' }, h('label', null, 'Asunto'), asunto), h('div', { class: 'campo' }, h('label', null, 'Mensaje'), cuerpo),
+      h('div', { class: 'apoyo' }, 'Se completa con los datos del momento. Variables: ', r.variables.map((v) => `{${v}}`).join(' · '))),
+    h('div', { class: 'acciones', style: 'margin-top:12px;align-items:center' }, h('button', { class: 'btn btn-principal', type: 'button', onclick: (ev) => guardar(ev) }, 'Guardar'), h('button', { class: 'btn', type: 'button', onclick: restaurar }, 'Valores de fábrica'), msg));
+}
+
+async function vistaAlertas(destino) {
+  const datos = await api('/api/alertas/reglas');
+  const resultado = h('div', { class: 'oculto' });
+  const probar = (canal) => async (ev) => { ev.target.disabled = true; resultado.className = 'tarjeta'; resultado.textContent = 'Enviando prueba…';
+    try { await api('/api/alertas/prueba', { metodo: 'POST', cuerpo: { canal } }); resultado.textContent = `Listo: te mandamos una prueba por ${canal === 'mail' ? 'mail' : 'WhatsApp'}.`; }
+    catch (e) { resultado.textContent = { canal_no_configurado: 'Ese canal todavía no está configurado en el servidor.', sin_email: 'Tu usuario no tiene email.', sin_telefono: 'Tu usuario no tiene teléfono cargado (se carga en Usuarios).', fallo_envio: `El proveedor rechazó el envío${e.datos?.detalle ? `: ${e.datos.detalle}` : ''}.` }[e.datos?.error] ?? 'No se pudo enviar la prueba.'; }
+    ev.target.disabled = false; };
+  const ejecutar = async (ev) => { ev.target.disabled = true; resultado.className = 'tarjeta'; resultado.textContent = 'Evaluando las reglas…';
+    try { const r = await api('/api/alertas/ejecutar', { metodo: 'POST', cuerpo: {} }); actualizarInsignia(); cargarHist(); resultado.textContent = `Se generaron ${r.eventos} aviso${r.eventos === 1 ? '' : 's'} (sistema ${r.envios.sistema}, mail ${r.envios.mail}, WhatsApp ${r.envios.whatsapp})${r.errores ? ` · ${r.errores} envío${r.errores === 1 ? '' : 's'} con error` : ''}.`; } catch { resultado.textContent = 'No se pudo ejecutar.'; }
+    ev.target.disabled = false; };
+  const estadoCanal = (c, rotulo, ayuda) => h('div', { class: 'tarjeta' }, h('div', { style: 'display:flex;justify-content:space-between;gap:8px;align-items:center' }, h('b', null, rotulo), datos.canales[c] ? chip('Configurado', 'ok') : chip('Sin configurar', 'aviso')),
+    datos.canales[c] ? h('div', { style: 'margin-top:8px' }, h('button', { class: 'btn', type: 'button', onclick: probar(c) }, 'Enviarme una prueba')) : h('p', { class: 'apoyo' }, ayuda));
+  const hist = h('div');
+  const cargarHist = async () => { const r = await api('/api/alertas/historial'); vaciar(hist).append(r.items.length ? h('table', { class: 'tarjetas' }, h('thead', null, h('tr', null, ['Cuándo', 'Aviso', 'Salió por'].map((t) => h('th', null, t)))),
+    h('tbody', null, r.items.map((e) => h('tr', null, h('td', { 'data-rotulo': 'Cuándo' }, cuando(e.disparada_en)), h('td', { 'data-rotulo': 'Aviso' }, h('b', null, e.titulo), h('div', { class: 'apoyo' }, e.cuerpo)),
+      h('td', { 'data-rotulo': 'Salió por' }, e.envios.map((x) => `${ROTULO_CANAL[x.canal]}: ${x.enviados}${x.fallidos ? ` (${x.fallidos} con error)` : ''}`).join(' · ')))))) : h('p', { class: 'apoyo' }, 'Todavía no se disparó ningún aviso.')); };
+  agregar(destino, [encabezado('Alertas', 'Qué avisar, a quién y por dónde. Los textos se completan con los datos del momento.', h('div', { class: 'acciones' }, h('button', { class: 'btn', type: 'button', onclick: ejecutar }, 'Evaluar ahora'))),
+    h('div', { class: 'rejilla dos-iguales' }, estadoCanal('mail', 'Mail', 'Faltan las variables SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS y MAIL_FROM en el servidor (los datos de la casilla que te da Hostinger).'),
+      estadoCanal('whatsapp', 'WhatsApp', 'Hace falta una cuenta de WhatsApp Business (API de Meta): variables WHATSAPP_API_TOKEN y WHATSAPP_PHONE_ID, y cada persona con su teléfono cargado en Usuarios.')),
+    resultado, h('div', { style: 'height:16px' }), datos.reglas.map((r) => tarjetaRegla(r, datos)),
+    h('div', { class: 'tarjeta' }, h('h2', null, 'Últimos avisos'), hist)]);
+  await cargarHist();
+}
+
+/* ---------- usuarios (alta y edición) ---------- */
+const AREAS_SISTEMA = ['Dirección', 'Comercial', 'Atención', 'Técnica', 'Finanzas'];
+const ROTULO_ALCANCE = { propio: 'Lo propio', equipo: 'Su equipo', todo: 'Todo' };
+async function vistaUsuarios(destino) {
+  const r = await api('/api/usuarios');
+  agregar(destino, [encabezado('Usuarios', 'Quién accede al sistema y con qué rol', h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/usuarios/nuevo' }, '+ Nuevo usuario'))),
+    h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' },
+      h('thead', null, h('tr', null, ['Nombre', 'Email', 'Rol', 'Áreas', 'Estado'].map((t) => h('th', null, t)))),
+      h('tbody', null, r.usuarios.map((u) => h('tr', filaClic(() => { location.hash = `#/usuarios/${u.id}`; }),
+        h('td', { 'data-rotulo': 'Nombre' }, h('span', { class: 'nombre-cliente' }, u.nombre), u.telefono && h('div', { class: 'apoyo' }, u.telefono)), h('td', { 'data-rotulo': 'Email' }, u.email),
+        h('td', { 'data-rotulo': 'Rol' }, chip(u.rol, 'info')),
+        h('td', { 'data-rotulo': 'Áreas' }, (u.areas ?? []).map((a) => `${a.area}${a.funcion === 'lider' ? ' (líder)' : ''}`).join(', ') || '—'),
+        h('td', { 'data-rotulo': 'Estado' }, u.activo ? chip('Activo', 'ok') : chip('Inactivo', 'mudo'))))))) ]);
+}
+
+async function vistaUsuario(destino, id) {
+  const [{ usuarios }, { roles }] = await Promise.all([api('/api/usuarios'), api('/api/roles')]);
+  const u = id === 'nuevo' ? null : usuarios.find((x) => x.id === Number(id));
+  if (id !== 'nuevo' && !u) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese usuario'), h('a', { href: '#/usuarios' }, 'Volver'))); return; }
+  const nombre = h('input', { required: true, maxlength: 120, value: u?.nombre ?? '' }); const email = h('input', { type: 'email', required: true, maxlength: 160, value: u?.email ?? '', disabled: Boolean(u) });
+  const tel = h('input', { maxlength: 30, placeholder: '+54 9 11 …', value: u?.telefono ?? '' }); const pass = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Mínimo 10 caracteres' });
+  const rol = h('select', { 'aria-label': 'Rol' }, roles.map((x) => h('option', { value: x.nombre, selected: x.nombre === u?.rol }, `${x.nombre} — ${x.descripcion ?? ''}`)));
+  const activo = h('input', { type: 'checkbox', checked: u ? u.activo : true, style: 'width:auto;min-height:0' });
+  const filas = AREAS_SISTEMA.map((a) => { const act = u?.areas.find((x) => x.area === a);
+    const on = h('input', { type: 'checkbox', checked: Boolean(act), style: 'width:auto;min-height:0' });
+    const fun = h('select', { 'aria-label': `Función en ${a}` }, ['miembro', 'lider'].map((v) => h('option', { value: v, selected: act?.funcion === v }, v === 'lider' ? 'Líder' : 'Miembro')));
+    const alc = h('select', { 'aria-label': `Alcance en ${a}` }, ['propio', 'equipo', 'todo'].map((v) => h('option', { value: v, selected: act?.alcance === v }, ROTULO_ALCANCE[v])));
+    return { a, on, fun, alc, el: h('div', { style: 'display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px' }, on, h('span', null, a), fun, alc) }; });
+  const areas = () => filas.filter((f) => f.on.checked).map((f) => ({ area: f.a, funcion: f.fun.value, alcance: f.alc.value }));
+  const ERR = { email_en_uso: 'Ese email ya está en uso.', contrasena_debil: 'La contraseña es débil: usá al menos 10 caracteres.', no_podes_desactivarte: 'No podés desactivarte a vos mismo.', rol_invalido: 'Rol inválido.' };
+  Object.assign(ERRORES, ERR);
+  const form = formularioEnLinea({ titulo: u ? 'Datos' : 'Nuevo usuario', campos: [campoF('Nombre', nombre, ''), campoF('Email', email, ''), campoF('Teléfono (para avisos por WhatsApp)', tel, ''), campoF('Rol (define qué puede hacer)', rol, ''),
+    h('div', { class: 'campo' }, h('label', null, 'Áreas (definen qué datos ve)'), ...filas.map((f) => f.el)), u ? h('label', null, activo, ' Usuario activo') : campoF('Contraseña inicial', pass, '')], boton: u ? 'Guardar cambios' : 'Crear usuario',
+    enviar: () => (u
+      ? api(`/api/usuarios/${u.id}`, { metodo: 'PATCH', cuerpo: { nombre: nombre.value, telefono: tel.value.trim() || null, rol: rol.value, activo: activo.checked, areas: areas() } })
+      : api('/api/usuarios', { metodo: 'POST', cuerpo: { nombre: nombre.value, email: email.value, ...(tel.value.trim() ? { telefono: tel.value.trim() } : {}), password: pass.value, rol: rol.value, areas: areas() } })),
+    alExito: () => { location.hash = '#/usuarios'; } });
+  const nueva = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Nueva contraseña' }); const aviso = h('div', { class: 'oculto' });
+  agregar(destino, [h('a', { href: '#/usuarios', class: 'apoyo' }, '← Usuarios'), encabezado(u ? u.nombre : 'Nuevo usuario', u?.email), form,
+    u && h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Restablecer contraseña'), aviso, nueva, h('div', { class: 'acciones', style: 'margin-top:8px' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
+      try { await api(`/api/usuarios/${u.id}/password`, { metodo: 'POST', cuerpo: { password: nueva.value } }); aviso.className = 'ok-caja'; aviso.textContent = 'Contraseña cambiada. Se cerraron sus sesiones abiertas.'; nueva.value = ''; }
+      catch (e) { aviso.className = 'error'; aviso.textContent = ERR[e.datos?.error] ?? 'No se pudo cambiar.'; } } }, 'Cambiar contraseña')))]);
+}
+
 /* ---------- tableros por área ---------- */
 const kpiTarjeta = (rotulo, valor, nota, clase, href) => h(href ? 'a' : 'div', { class: `tarjeta kpi ${clase ?? ''}`, href, style: href ? 'text-decoration:none;color:inherit' : null }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor), nota && h('div', { class: 'nota' }, nota));
 const listaTickets = (items, vacio) => (items.length ? h('ul', { class: 'lista' }, items.map((k) => h('li', null,
   h('div', null, h('a', { href: `#/tickets/${k.id}` }, h('b', null, `${k.numero} · ${k.cliente}`)), h('div', { class: 'apoyo' }, k.asunto, k.tecnico ? ` · ${k.tecnico}` : '')),
   h('span', null, k.prioridad !== 'normal' && chip(k.prioridad, PRIORIDAD[k.prioridad]), ' ', chipSla(k.sla))))) : h('div', { class: 'vacio' }, vacio));
+
+
+async function vistaEquipoTecnico(destino) {
+  const [t, sinAsignar, porVencer, mio] = await Promise.all([api('/api/tableros/servicio'), api('/api/tickets?asignado=sin&estado=activos&limite=6'), api('/api/tickets?vencidos=true&limite=6'), api('/api/mi-dia').catch(() => null)]);
+  const lista = (r, vacio) => (r.items.length ? h('ul', { class: 'lista' }, r.items.map((k) => h('li', null, h('div', null, h('a', { href: `#/tickets/${k.id}` }, h('b', null, `${k.numero} · ${k.nombre_comercial || k.cliente}`)), h('div', { class: 'apoyo' }, k.asunto, k.tecnico ? ` · ${k.tecnico}` : '')),
+    h('span', null, k.prioridad !== 'normal' && chip(k.prioridad, PRIORIDAD[k.prioridad]), ' ', chipSla(k.sla))))) : h('div', { class: 'vacio' }, vacio));
+  agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, 'Equipo técnico · horas hábiles', h('div', { class: 'acciones' }, mio && h('a', { class: 'btn', href: '#/mi-dia' }, `Mi día (${mio.visitas_hoy.length} visita${mio.visitas_hoy.length === 1 ? '' : 's'})`), h('a', { class: 'btn', href: '#/servicio' }, 'Tablero completo'))),
+    h('div', { class: 'rejilla kpis' }, kpiTarjeta('Tickets abiertos', String(t.abiertos), t.antiguedad_media_horas != null ? `${t.antiguedad_media_horas} h de antigüedad media` : null, '', '#/tickets'), kpiTarjeta('Sin asignar', String(t.sin_asignar), null, t.sin_asignar ? 'alerta' : ''),
+      kpiTarjeta('SLA vencido', String(t.vencidos), null, t.vencidos ? 'alerta' : ''), kpiTarjeta('Urgentes', String(t.por_prioridad.urgente ?? 0), `${t.por_prioridad.alta ?? 0} de prioridad alta`, (t.por_prioridad.urgente ?? 0) ? 'alerta' : '')),
+    h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-bottom:16px' }, h('p', { class: 'etiqueta', style: 'padding:8px 8px 0' }, 'Cada técnico este mes'),
+      h('table', { class: 'tarjetas' }, h('thead', null, h('tr', null, ['Técnico', 'Abiertos', 'Vencidos', 'Resueltos', 'Tiempo medio', '% en SLA'].map((x, k) => h('th', { class: k ? 'num' : '' }, x)))),
+        h('tbody', null, t.tecnicos.map((x) => h('tr', null, h('td', { 'data-rotulo': 'Técnico' }, h('span', { class: 'nombre-cliente' }, x.nombre)), h('td', { class: 'num', 'data-rotulo': 'Abiertos' }, x.abiertos),
+          h('td', { class: 'num', 'data-rotulo': 'Vencidos' }, x.vencidos ? chip(String(x.vencidos), 'malo') : '0'), h('td', { class: 'num', 'data-rotulo': 'Resueltos' }, x.resueltos_mes),
+          h('td', { class: 'num', 'data-rotulo': 'Tiempo medio' }, x.horas_medias == null ? '—' : `${x.horas_medias} h`), h('td', { class: 'num', 'data-rotulo': '% en SLA' }, x.pct_sla == null ? '—' : `${x.pct_sla}%${x.muestra_chica ? ' *' : ''}`))))),
+      h('p', { class: 'apoyo', style: 'padding:0 8px' }, '* menos de 5 tickets resueltos: dato poco representativo.')),
+    h('div', { class: 'rejilla dos-iguales' }, h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Para asignar'), lista(sinAsignar, 'No hay tickets sin asignar.')),
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'SLA vencido'), lista(porVencer, 'Ningún ticket vencido.'))),
+    t.reincidencia.length > 0 && h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('p', { class: 'etiqueta' }, 'Equipos con fallas repetidas (30 días)'),
+      h('ul', { class: 'lista' }, t.reincidencia.map((e) => h('li', null, h('a', { href: `#/equipos/${e.id}` }, h('b', null, `${e.modelo} · ${e.numero_serie}`)), chip(`${e.tickets} tickets`, 'aviso'))))),
+    h('div', { style: 'margin-top:16px' }, bloqueSla(t.sla, 'SLA de resolución del equipo'))]);
+}
 
 async function vistaAtencion(destino) {
   const t = await api('/api/tableros/atencion');
@@ -258,6 +405,7 @@ async function vistaInicio(destino) {
   if (!puede('tableros.direccion')) {
     const areas = estado.me.areas.map((a) => a.area);
     if (areas.includes('Atención') && puede('tickets.crear')) { await vistaAtencion(destino); return; }
+    if (estado.me.areas.some((a) => a.area === 'Técnica' && a.funcion === 'lider') && puede('tableros.servicio')) { await vistaEquipoTecnico(destino); return; }
     if (areas.includes('Técnica') && puede('tickets.atender')) { await vistaMiDia(destino); return; }
     if (areas.includes('Comercial') && puede('crm.gestionar')) { await vistaComercial(destino); return; }
     if (puede('facturas.emitir')) { await vistaFinanzas(destino); return; }
@@ -434,17 +582,6 @@ async function vistaCliente(destino, id) {
   await mostrar('resumen');
 }
 
-async function vistaUsuarios(destino) {
-  const r = await api('/api/usuarios');
-  destino.append(encabezado('Usuarios', 'Quién accede al sistema y con qué rol'),
-    h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' },
-      h('thead', null, h('tr', null, ['Nombre', 'Email', 'Rol', 'Áreas', 'Estado'].map((t) => h('th', null, t)))),
-      h('tbody', null, r.usuarios.map((u) => h('tr', null,
-        h('td', { 'data-rotulo': 'Nombre' }, h('span', { class: 'nombre-cliente' }, u.nombre)), h('td', { 'data-rotulo': 'Email' }, u.email),
-        h('td', { 'data-rotulo': 'Rol' }, chip(u.rol, 'info')),
-        h('td', { 'data-rotulo': 'Áreas' }, (u.areas ?? []).map((a) => `${a.area}${a.funcion === 'lider' ? ' (líder)' : ''}`).join(', ') || '—'),
-        h('td', { 'data-rotulo': 'Estado' }, u.activo ? chip('Activo', 'ok') : chip('Inactivo', 'mudo'))))))));
-}
 
 async function vistaAuditoria(destino) {
   const r = await api('/api/auditoria');
@@ -1146,7 +1283,10 @@ async function navegar() {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
       else await vistaFacturacion(nuevo, param);
-    } else if (ruta === 'usuarios' && puede('usuarios.administrar')) await vistaUsuarios(nuevo);
+    } else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
+    else if (ruta === 'notificaciones') await vistaNotificaciones(nuevo);
+    else if (ruta === 'alertas' && puede('alertas.configurar')) await vistaAlertas(nuevo);
+    else if (ruta === 'mi-dia' && puede('tickets.atender')) await vistaMiDia(nuevo);
     else if (ruta === 'auditoria' && puede('auditoria.ver')) await vistaAuditoria(nuevo);
     else if (PRONTO[ruta]) vistaPronto(nuevo, ruta);
     else nuevo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos esa pantalla'), h('a', { href: '#/inicio' }, 'Ir al inicio')));

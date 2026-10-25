@@ -3,7 +3,7 @@
 Backend en Node.js (Fastify + Knex). Desarrollo y pruebas con SQLite; producción con MySQL.
 
 ## Qué incluye
-- 47 tablas (44 del modelo + `sesiones`, `feriados` e `indices_ipc`) con migraciones que suben y bajan.
+- 49 tablas (44 del modelo + `sesiones`, `feriados`, `indices_ipc`, `alertas_eventos` y `alertas_envios`) con migraciones que suben y bajan.
 - Ingreso con sesión en cookie httpOnly, bloqueo tras 5 fallos, límite por IP, control de Origin, cabeceras de seguridad.
 - Permisos por rol y alcance de datos (propio / equipo / todo). Un cliente fuera de alcance responde 404.
 - Cartera comercial con historial: una sola responsable vigente por cuenta, reasignación por el head, todo auditado.
@@ -20,7 +20,8 @@ Backend en Node.js (Fastify + Knex). Desarrollo y pruebas con SQLite; producció
 - Ajuste trimestral por IPC compuesto: se cargan los índices mensuales a mano, el contrato propone los precios nuevos (abono y páginas, franquicia sin cambios) y al aplicar cierra la condición anterior. Las bonificaciones manuales en una factura quedan marcadas.
 - Mi día (técnico): al entrar ve sus visitas de hoy por hora, las atrasadas, lo pendiente ordenado por urgencia de SLA, cuántos cerró hoy y su propio SLA contra el mes anterior y el histórico. Cada tarjeta lleva al cierre móvil y al domicilio en el mapa.
 - Tableros de inicio por área: Atención (para asignar, SLA por vencer, esperando al cliente, insumos), Comercial (cartera, abono, deuda, contratos por vencer, clientes con tickets abiertos; el head ve además al equipo y lo que no tiene responsable) y Facturación (listos para facturar, faltan lecturas, borradores y deuda más antigua).
-- 108 pruebas automáticas (`npm test`).
+- Alertas configurables por regla (canales sistema, mail y WhatsApp, destinatarios, umbral, frecuencia y texto con datos del momento), campana de notificaciones y alta de usuarios desde la pantalla.
+- 114 pruebas automáticas (`npm test`).
 
 ## SLA: cómo se cuenta
 Horas hábiles de lunes a viernes, de 9 a 18 (hora de Buenos Aires), salteando los feriados nacionales. Los feriados se traen solos de ArgentinaDatos al arrancar el servidor y cada 24 horas (`npm run feriados` lo hace a mano); si la API no responde se usan los ya cargados. Los puentes turísticos entran como días hábiles, pero se pueden marcar como no hábiles en la tabla `feriados`. El reloj corre desde que se abre el ticket hasta que se resuelve, sin pausas. Se puede cambiar la jornada con `SLA_JORNADA_DESDE` y `SLA_JORNADA_HASTA`. Con 0 y 24, una hora hábil es una hora corrida de un día hábil. Las firmas se guardan en `storage/` (o en `ARCHIVOS_DIR`): incluirlo en el backup.
@@ -58,7 +59,7 @@ npm run importar -- planilla.xlsx --aplicar  # guarda
 Solo corre sobre una base sin clientes. Deja afuera la cuenta de pruebas (`--incluir-prueba` para cargarla), corrige el corrimiento de huso horario de las fechas, carga facturas y cobros por separado y deja el próximo número de remito donde corresponde. El informe lista lo que hay que confirmar.
 
 ## Verificado en MySQL
-Las 108 pruebas pasan también contra MariaDB 10.11 (`TEST_DB=mysql DB_HOST=127.0.0.1 DB_USER=… DB_PASSWORD=… npm test`: crea una base descartable por archivo, hay que dar un usuario con permiso para crear bases). La planilla real también se importó completa en MariaDB. Falta confirmar contra la versión exacta del plan de Hostinger cuando esté la base creada.
+Las pruebas pasan también contra MariaDB 10.11 (`TEST_DB=mysql DB_HOST=127.0.0.1 DB_USER=… DB_PASSWORD=… npm test`: crea una base descartable por archivo, hay que dar un usuario con permiso para crear bases). La planilla real también se importó completa en MariaDB. Falta confirmar contra la versión exacta del plan de Hostinger cuando esté la base creada.
 
 ## Próximas fases
 Importador desde las hojas actuales, pantallas (a partir del prototipo), tableros por área, app del técnico, motor de alertas, facturación electrónica por proveedor.
