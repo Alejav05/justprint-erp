@@ -198,8 +198,71 @@ async function vistaMiDia(destino) {
     h('div', { style: 'margin-top:20px' }, bloqueSla(r.kpi, 'Tu SLA de resolución'))]);
 }
 
+
+/* ---------- tableros por área ---------- */
+const kpiTarjeta = (rotulo, valor, nota, clase, href) => h(href ? 'a' : 'div', { class: `tarjeta kpi ${clase ?? ''}`, href, style: href ? 'text-decoration:none;color:inherit' : null }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor), nota && h('div', { class: 'nota' }, nota));
+const listaTickets = (items, vacio) => (items.length ? h('ul', { class: 'lista' }, items.map((k) => h('li', null,
+  h('div', null, h('a', { href: `#/tickets/${k.id}` }, h('b', null, `${k.numero} · ${k.cliente}`)), h('div', { class: 'apoyo' }, k.asunto, k.tecnico ? ` · ${k.tecnico}` : '')),
+  h('span', null, k.prioridad !== 'normal' && chip(k.prioridad, PRIORIDAD[k.prioridad]), ' ', chipSla(k.sla))))) : h('div', { class: 'vacio' }, vacio));
+
+async function vistaAtencion(destino) {
+  const t = await api('/api/tableros/atencion');
+  agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, 'Atención al cliente · lo que hay que mover hoy',
+    puede('tickets.crear') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/tickets/nuevo' }, '+ Nuevo ticket'))),
+  h('div', { class: 'rejilla kpis' }, kpiTarjeta('Tickets abiertos', String(t.abiertos), `${t.nuevos_hoy} nuevos hoy`, '', '#/tickets'),
+    kpiTarjeta('Sin asignar', String(t.sin_asignar_total), null, t.sin_asignar_total ? 'alerta' : ''), kpiTarjeta('SLA vencido', String(t.vencidos), null, t.vencidos ? 'alerta' : ''),
+    kpiTarjeta('Esperando al cliente', String(t.esperando_cliente_total))),
+  h('div', { class: 'rejilla dos-iguales' },
+    h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Para asignar'), listaTickets(t.sin_asignar, 'No hay tickets sin asignar.')),
+    h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Por vencer o vencidos'), listaTickets(t.por_vencer, 'Nada en riesgo de SLA.'))),
+  h('div', { class: 'rejilla dos-iguales', style: 'margin-top:16px' },
+    h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Esperando respuesta del cliente'), listaTickets(t.esperando_cliente, 'Ninguno por ahora.')),
+    h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Insumos'),
+      t.insumos.agotados || t.insumos.bajos ? h('div', null, t.insumos.agotados ? h('div', { class: 'alerta-item malo' }, `${t.insumos.agotados} sin stock`, h('a', { href: '#/insumos' }, 'Ver')) : null,
+        t.insumos.bajos ? h('div', { class: 'alerta-item aviso' }, `${t.insumos.bajos} bajo el mínimo`, h('a', { href: '#/insumos' }, 'Ver')) : null) : h('div', { class: 'vacio' }, 'Stock en orden.'))),
+  h('div', { style: 'margin-top:16px' }, bloqueSla(t.sla))]);
+}
+
+async function vistaComercial(destino) {
+  const t = await api('/api/tableros/comercial');
+  const lista = (items, fila, vacio) => (items.length ? h('ul', { class: 'lista' }, items.map(fila)) : h('div', { class: 'vacio' }, vacio));
+  const enlace = (c) => h('a', { href: `#/clientes/${c.cliente_id}` }, h('b', null, c.cliente));
+  agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, `Tu cartera · valores en USD netos, sin IVA`, puede('clientes.editar') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/clientes' }, 'Ver clientes'))),
+    h('div', { class: 'rejilla kpis' }, kpiTarjeta('Clientes en cartera', String(t.clientes.total), `${t.clientes.activo} activos · ${t.clientes.prospecto} prospectos`), kpiTarjeta('Abono mensual', usd(t.abono_mensual), `${t.contratos_vigentes} contratos vigentes`),
+      kpiTarjeta('Por cobrar', usd(t.por_cobrar.usd), null, t.por_cobrar.usd > 0 ? 'alerta' : ''), t.sin_responsable != null ? kpiTarjeta('Sin responsable', String(t.sin_responsable), null, t.sin_responsable ? 'alerta' : '') : kpiTarjeta('Contratos por vencer', String(t.por_vencer.length))),
+    h('div', { class: 'rejilla dos-iguales' },
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Contratos que vencen en 3 meses'), lista(t.por_vencer, (c) => h('li', null, h('div', null, enlace(c), h('div', { class: 'apoyo' }, c.contrato)), chip(`Vence ${fecha(c.vence)}`, c.vence < new Date().toISOString().slice(0, 10) ? 'malo' : 'aviso')), 'No hay vencimientos cerca.')),
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Clientes con deuda'), lista(t.por_cobrar.clientes, (c) => h('li', null, h('div', null, enlace(c), h('div', { class: 'apoyo' }, `${c.max_dias} día${c.max_dias === 1 ? '' : 's'} la más vieja`)), h('b', null, usd(c.usd))), 'Nadie debe nada.'))),
+    h('div', { class: 'rejilla dos-iguales', style: 'margin-top:16px' },
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Con tickets abiertos (antes de llamar)'), lista(t.con_tickets, (c) => h('li', null, enlace(c), chip(`${c.tickets} ticket${c.tickets > 1 ? 's' : ''}`, 'aviso')), 'Ningún cliente tiene tickets abiertos.')),
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Prospectos recientes'), lista(t.prospectos, (c) => h('li', null, enlace(c), h('span', { class: 'apoyo' }, fecha(c.alta))), 'No hay prospectos.'))),
+    t.equipo && h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('p', { class: 'etiqueta' }, 'Equipo comercial'),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, 'Comercial'), h('th', { class: 'num' }, 'Clientes'), h('th', { class: 'num' }, 'Abono USD'))),
+        h('tbody', null, t.equipo.map((e) => h('tr', null, h('td', null, e.nombre), h('td', { class: 'num' }, e.clientes), h('td', { class: 'num' }, usd(e.abono_usd)))))))]);
+}
+
+async function vistaFinanzas(destino) {
+  const periodo = mesAnterior();
+  const [liq, cob, borr] = await Promise.all([api(`/api/facturacion/liquidacion?periodo=${periodo}`), api('/api/cobranzas'), api('/api/facturas?estado=borrador')]);
+  const listos = liq.filas.filter((f) => f.estado === 'completo' && !f.factura_id); const incompletos = liq.filas.filter((f) => f.estado === 'incompleto' && !f.factura_id);
+  const usdListos = listos.filter((f) => !f.interno).reduce((s, f) => s + (f.neto_usd || 0), 0);
+  agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, `Facturación y cobranzas · liquidación de ${nombreMes(periodo)} · USD netos`, h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/facturacion/liquidacion' }, 'Ir a liquidar'))),
+    h('div', { class: 'rejilla kpis' }, kpiTarjeta('Listos para facturar', String(listos.length), usd(usdListos), '', '#/facturacion/liquidacion'), kpiTarjeta('Faltan lecturas', String(incompletos.length), null, incompletos.length ? 'alerta' : '', '#/facturacion/liquidacion'),
+      kpiTarjeta('Borradores por emitir', String(borr.total), null, borr.total ? 'alerta' : '', '#/facturacion/facturas'), kpiTarjeta('Por cobrar', usd(cob.total_usd), `${cob.facturas} factura${cob.facturas === 1 ? '' : 's'}`, cob.tramos['+90'] > 0 ? 'alerta' : '', '#/facturacion/cobranzas')),
+    h('div', { class: 'rejilla dos-iguales' },
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Falta cargar contadores'), incompletos.length ? h('ul', { class: 'lista' }, incompletos.map((f) => h('li', null, h('div', null, h('b', null, f.cliente), h('div', { class: 'apoyo' }, f.contrato)), chip('Sin lectura', 'aviso')))) : h('div', { class: 'vacio' }, 'Todos los contratos tienen lecturas.')),
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Deuda más antigua'), cob.clientes.length ? h('ul', { class: 'lista' }, cob.clientes.slice().sort((a, b) => b.max_dias - a.max_dias).slice(0, 6).map((c) => h('li', null, h('div', null, h('b', null, c.cliente), h('div', { class: 'apoyo' }, `${c.max_dias} día${c.max_dias === 1 ? '' : 's'}`)), h('b', null, usd(c.saldo_usd))))) : h('div', { class: 'vacio' }, 'No hay deuda pendiente.')))]);
+}
+
 async function vistaInicio(destino) {
-  if (!puede('tableros.direccion') && puede('tickets.atender')) { await vistaMiDia(destino); return; }
+  if (!puede('tableros.direccion')) {
+    const areas = estado.me.areas.map((a) => a.area);
+    if (areas.includes('Atención') && puede('tickets.crear')) { await vistaAtencion(destino); return; }
+    if (areas.includes('Técnica') && puede('tickets.atender')) { await vistaMiDia(destino); return; }
+    if (areas.includes('Comercial') && puede('crm.gestionar')) { await vistaComercial(destino); return; }
+    if (puede('facturas.emitir')) { await vistaFinanzas(destino); return; }
+    if (puede('tickets.atender')) { await vistaMiDia(destino); return; }
+  }
   if (!puede('tableros.direccion')) {
     destino.append(encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, 'Tu tablero por área llega en las próximas etapas.'),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Mientras tanto'), h('p', null, 'Ya podés consultar los clientes que te corresponden desde el menú de la izquierda.'),
