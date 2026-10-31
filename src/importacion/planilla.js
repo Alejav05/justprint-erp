@@ -425,7 +425,11 @@ export async function importarPlanilla(db, datos, { aplicar = false, incluirPrue
       }
       aviso('Las facturas pagadas quedaron con fecha de emisión estimada (fin del período) porque la planilla la reemplazaba por la de pago. Los cobros usan esa fecha de pago y llevan la marca "Migrado de la planilla".');
       aviso('Las fechas de la planilla venían corridas por huso horario (las de fin de mes figuraban como día 29 o 30); se corrigieron. Conviene mirar al azar un par de fechas de contratos e instalaciones.');
-      for (const [f, valor] of [...cotizaciones.entries()].sort()) { await trx('cotizaciones_usd').insert({ fecha: f, valor, fuente: 'planilla' }); cuenta('cotizaciones_usd'); }
+      // El sistema ya trae solo la cotización del día: si hay una cargada para esa fecha, se respeta.
+      for (const [f, valor] of [...cotizaciones.entries()].sort()) {
+        if (await trx('cotizaciones_usd').where({ fecha: f }).first()) continue;
+        await trx('cotizaciones_usd').insert({ fecha: f, valor, fuente: 'planilla' }); cuenta('cotizaciones_usd');
+      }
       if (sinComprobante.size) aviso(`Contratos que se cobran sin comprobante fiscal (${[...sinComprobante].join(', ')}): sus registros se cargaron como internos, sin IVA, sin entidad facturante y marcados como no facturables. No cuentan como facturado.`);
       aviso('Los importes de la planilla son sin IVA: se cargaron como neto y se les sumó el 21% para armar el total de lo histórico (como se factura siempre). El valor en USD de referencia de cada factura es el neto.');
 
