@@ -13,11 +13,12 @@ export function crearConfiguracion(U) {
   const msg = (e) => ERR[e.datos?.error] ?? 'No se pudo guardar. Probá de nuevo.';
 
   async function vistaConfiguracion(destino, tab = 'valores') {
-    const pestanas = [['valores', 'Valores'], ['modulos', 'Módulos'], ['roles', 'Roles y permisos']];
+    const pestanas = [['valores', 'Valores'], ['modulos', 'Módulos'], ['roles', 'Roles y permisos'], ['importar', 'Importar planilla']];
     const cuerpo = h('div');
     agregar(destino, [encabezado('Configuración', 'Todo lo que se puede ajustar del sistema, en un solo lugar.',
       h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/usuarios' }, 'Usuarios'), h('a', { class: 'btn', href: '#/alertas' }, 'Alertas'), h('a', { class: 'btn', href: '#/auditoria' }, 'Auditoría'))),
     h('div', { class: 'pestanas' }, pestanas.map(([k, t]) => h('button', { type: 'button', class: k === tab ? 'activa' : '', onclick: () => { location.hash = `#/configuracion/${k}`; } }, t))), cuerpo]);
+    if (tab === 'importar') return importar(cuerpo);
     const [cfg, perm] = await Promise.all([api('/api/admin/config'), tab === 'roles' ? api('/api/admin/permisos') : null]);
     if (tab === 'modulos') return modulos(cuerpo, cfg);
     if (tab === 'roles') return roles(cuerpo, perm);
@@ -74,6 +75,34 @@ export function crearConfiguracion(U) {
     }
     dest.append(h('div', { class: 'tarjeta' }, h('p', { class: 'apoyo', style: 'margin:0 0 12px' }, 'Marcá qué puede hacer cada rol. Cada cambio se guarda al instante y queda en Auditoría. Dirección siempre tiene todo. Lo que cada persona ve de clientes y tickets depende además de su área y alcance (lo propio, su equipo o todo), que se define en Usuarios.'),
       h('div', { class: 'matriz-caja' }, h('table', { class: 'matriz' }, h('thead', null, h('tr', null, h('th', null, 'Permiso'), d.roles.map((r) => h('th', { class: 'celda-check' }, rolNombre(r.nombre), r.fijo && h('div', { class: 'apoyo' }, 'fijo'))))), h('tbody', null, filas)))));
+  }
+
+  /** Carga inicial desde la planilla vieja: ensayo primero, después carga. Solo sobre una base sin clientes. */
+  function importar(dest) {
+    const ERR_IMP = { archivo_invalido: 'El archivo no parece una planilla .xlsx.' };
+    const archivo = h('input', { type: 'file', accept: '.xlsx', id: 'archivo-planilla' });
+    const informe = h('pre', { class: 'informe-importacion', style: 'white-space:pre-wrap;margin:12px 0 0' });
+    const botonCargar = h('button', { type: 'button', class: 'btn btn-principal', hidden: true }, 'Cargar de verdad');
+    const botonProbar = h('button', { type: 'button', class: 'btn' }, 'Probar sin guardar');
+    const enviar = async (aplicar) => {
+      const f = archivo.files[0]; if (!f) { aviso('Elegí primero el archivo .xlsx.'); return; }
+      botonProbar.disabled = true; botonCargar.disabled = true; botonCargar.hidden = true;
+      informe.textContent = aplicar ? 'Cargando… puede tardar un minuto.' : 'Revisando la planilla…';
+      try {
+        const r = await fetch(`/api/admin/importar${aplicar ? '?aplicar=1' : ''}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: await f.arrayBuffer() });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { informe.textContent = d.mensaje ?? ERR_IMP[d.error] ?? 'No se pudo importar.'; return; }
+        informe.textContent = d.informe;
+        if (!d.aplicado) botonCargar.hidden = false;
+        else aviso('Importación aplicada');
+      } catch { informe.textContent = 'No se pudo conectar. Probá de nuevo.'; }
+      finally { botonProbar.disabled = false; botonCargar.disabled = false; }
+    };
+    botonProbar.addEventListener('click', () => enviar(false));
+    botonCargar.addEventListener('click', () => { if (confirm('Esto carga todos los datos de la planilla en el sistema. Solo se puede hacer una vez. ¿Cargar?')) enviar(true); });
+    dest.append(h('div', { class: 'tarjeta' },
+      h('p', { class: 'apoyo', style: 'margin:0 0 12px' }, 'Carga inicial de clientes, contratos, equipos, facturas, cobros, insumos y remitos desde la planilla de Google Sheets descargada como .xlsx. Primero se hace una prueba que no guarda nada y muestra qué se cargaría y qué dudas quedan. Solo funciona mientras el sistema no tenga clientes.'),
+      h('div', { class: 'acciones' }, archivo, botonProbar, botonCargar), informe));
   }
 
   return { vistaConfiguracion };
