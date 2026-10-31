@@ -38,6 +38,7 @@ export const PERMISOS = [
   ['tableros.servicio', 'analitica', 'Ver el tablero de Servicio: SLA, carga y reincidencias'],
   ['reportes.equipo', 'analitica', 'Ver indicadores de las personas de su equipo'],
   ['alertas.configurar', 'sistema', 'Configurar reglas de alerta'],
+  ['sistema.configurar', 'sistema', 'Configurar el sistema: valores, módulos y permisos por rol'],
   ['usuarios.administrar', 'sistema', 'Administrar usuarios, roles y áreas'],
   ['auditoria.ver', 'sistema', 'Ver el registro de auditoría'],
 ];

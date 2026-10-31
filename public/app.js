@@ -1,5 +1,6 @@
 // JustPrint ERP — pantalla. Sin librerías: todo se arma con nodos del DOM (nunca con innerHTML sobre datos).
 import { crearCobranzas } from './cobranzas.js';
+import { crearConfiguracion } from './configuracion.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -54,6 +55,7 @@ const ICONOS = {
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+  configuracion: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
   auditoria: 'M9 12l2 2 4-4M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
   notificaciones: 'M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0',
   alertas: 'M12 9v4M12 17h.01M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
@@ -77,6 +79,7 @@ const MENU = [
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
   { ruta: 'alertas', texto: 'Alertas', permiso: 'alertas.configurar' },
   { ruta: 'auditoria', texto: 'Auditoría', permiso: 'auditoria.ver' },
+  { ruta: 'configuracion', texto: 'Configuración', permiso: 'sistema.configurar' },
 ];
 const PRONTO = {};
 
@@ -113,11 +116,12 @@ function mostrarIngreso() {
   h('div', { class: 'campo' }, h('label', { for: 'clave' }, 'Contraseña'), clave), boton);
   vaciar(raiz).append(h('div', { class: 'ingreso' },
     h('div', { class: 'ingreso-marca' }, logo(),
-      h('div', null, h('div', { class: 'lema' }, 'Todo el negocio de alquiler de impresoras, ', h('span', null, 'en un solo lugar.')),
+      h('div', null, h('div', { class: 'lema', id: 'lema' }, 'En cada página, ', h('span', null, 'en cada proyecto')),
         h('p', null, 'Clientes, contratos, servicio técnico, facturación y cobranzas, con cada área viendo lo suyo.')),
-      h('div', { class: 'apoyo' }, 'Europa Haus S.A.S.')),
+      h('div', { class: 'apoyo', id: 'empresa' }, 'Europa Haus S.A.S.')),
     h('div', { class: 'ingreso-form' }, form)));
   email.focus();
+  api('/api/publico').then((p) => { const l = document.getElementById('lema'); if (l && p.slogan) { vaciar(l); l.append(p.slogan); } const e = document.getElementById('empresa'); if (e && p.empresa) e.textContent = p.empresa; }).catch(() => {});
 }
 
 /* ---------- estructura ---------- */
@@ -131,6 +135,7 @@ function armarEstructura() {
   let pendienteGrupo = null;
   for (const it of MENU) {
     if (it.grupo) { pendienteGrupo = it.grupo; continue; }
+    if (estado.me.config?.modulos_ocultos?.includes(it.ruta)) continue;
     if (it.alguno ? !it.alguno.some(puede) : it.permiso && !puede(it.permiso)) continue;
     if (pendienteGrupo) { menu.append(h('div', { class: 'menu-titulo' }, pendienteGrupo)); pendienteGrupo = null; }
     menu.append(h('a', { href: `#/${it.ruta}`, class: it.pronto ? 'pronto' : '', 'data-ruta': it.ruta, onclick: cerrarMenu }, icono(it.ruta), it.texto, it.ruta === 'notificaciones' && h('span', { class: 'insignia oculto' })));
@@ -499,7 +504,8 @@ function tarjetaContrato(c) {
       h('div', null, h('h2', { style: 'margin:0' }, c.nombre), h('div', { class: 'apoyo' }, `Desde ${fecha(c.fecha_inicio)} · ${c.duracion_meses ? `${c.duracion_meses} meses` : 'sin fin de vigencia'} · en ${c.moneda === 'ARS' ? 'pesos' : 'dólares'}`)),
       chip(c.estado === 'vigente' ? 'Vigente' : c.estado, c.estado === 'vigente' ? 'ok' : 'mudo')),
     cob.plazoContrato(c),
-    puede('contratos.editar') && puede('importes.ver') && c.estado === 'vigente' && c.condiciones?.length && panelAjuste(c),
+    c.moneda === 'ARS' && c.estado === 'vigente' && c.condiciones?.length && proximoAjuste(c),
+    puede('contratos.editar') && puede('importes.ver') && c.moneda === 'ARS' && c.estado === 'vigente' && c.condiciones?.length && panelAjuste(c),
     c.condiciones ? c.condiciones.map((x) => h('div', { class: `linea ${vigente(x) ? 'vigente' : ''}` },
       h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' },
         h('b', null, monto(x.monto_mensual, c.moneda), ' / mes'), x.motivo !== 'sin_facturar' && chip(MOTIVO[x.motivo] ?? x.motivo, 'info'),
@@ -510,6 +516,14 @@ function tarjetaContrato(c) {
       x.notas && h('div', { class: 'apoyo' }, x.notas))) : h('p', { class: 'apoyo' }, 'Las condiciones económicas no están disponibles para tu rol.'));
 }
 
+
+/** Cuándo toca revisar el precio de un contrato en pesos. Es un aviso: el ajuste lo acuerda y carga una persona. */
+function proximoAjuste(c) {
+  const vig = c.condiciones.find((x) => !x.vigente_hasta); if (!vig) return null;
+  const meses = estado.me.config?.ipc_meses ?? 3; const d = new Date(`${String(vig.vigente_desde).slice(0, 10)}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + meses);
+  const iso = d.toISOString().slice(0, 10); const vencido = iso <= new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  return h('div', { style: 'margin-bottom:12px' }, 'Próximo ajuste: ', h('b', null, fecha(iso)), ' ', vencido ? chip('Toca revisarlo', 'aviso') : null, h('div', { class: 'apoyo' }, 'Se acuerda con el cliente. El sistema calcula con el IPC y vos lo confirmás.'));
+}
 
 /** Ajuste trimestral por IPC: acumulado compuesto de los 3 meses que terminan en el período elegido. */
 function panelAjuste(c) {
@@ -1247,6 +1261,7 @@ async function vistaVentaDirecta(destino) {
 }
 
 /* ---------- navegación ---------- */
+const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
 
 async function navegar() {
@@ -1283,6 +1298,7 @@ async function navegar() {
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
       else await vistaFacturacion(nuevo, param);
     } else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
+    else if (ruta === 'configuracion' && puede('sistema.configurar')) await conf.vistaConfiguracion(nuevo, param);
     else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
     else if (ruta === 'notificaciones') await vistaNotificaciones(nuevo);
     else if (ruta === 'alertas' && puede('alertas.configurar')) await vistaAlertas(nuevo);

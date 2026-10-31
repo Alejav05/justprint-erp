@@ -4,7 +4,7 @@ import { clientesVisibles } from '../lib/contexto.js';
 import { aDia, hoy } from '../lib/fechas.js';
 import { IVA, liquidar, redondear } from '../lib/liquidacion.js';
 import { ultimaCotizacion } from '../lib/cotizacion.js';
-import { PLAZO_DEFECTO_DIAS, sumarDias } from '../lib/cobranzas.js';
+import { plazoDefecto, sumarDias } from '../lib/cobranzas.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const error = (reply, code, e, extra = {}) => reply.code(code).send({ error: e, ...extra });
@@ -200,7 +200,7 @@ export default async function rutasFacturacion(app, { db }) {
     const fecha = d.fecha_emision ?? hoy();
     if (fecha > hoy()) return error(reply, 400, 'fecha_futura');
     // Desde la emisión corre el plazo del contrato (o el que se fijó a mano). Es una referencia: no hay conexión con ARCA.
-    const plazo = f.plazo_pago_dias ?? (f.contrato_id ? (await db('contratos').where({ id: f.contrato_id }).first())?.plazo_pago_dias : null) ?? PLAZO_DEFECTO_DIAS;
+    const plazo = f.plazo_pago_dias ?? (f.contrato_id ? (await db('contratos').where({ id: f.contrato_id }).first())?.plazo_pago_dias : null) ?? plazoDefecto();
     const vencimiento = d.vencimiento ?? sumarDias(fecha, plazo);
     await db.transaction(async (trx) => {
       await trx('facturas').where({ id: f.id }).update({ estado: 'emitida', fecha_emision: fecha, fecha_emision_estimada: false, numero: d.numero ?? null, tipo_comprobante: d.tipo_comprobante ?? null,

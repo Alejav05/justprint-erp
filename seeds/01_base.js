@@ -2,18 +2,21 @@ import { AREA, PERMISOS, ROLES, NUMERADORES, REGLAS_ALERTA, FERIADOS, PUENTES } 
 
 /** Idempotente: se puede correr en cada despliegue sin duplicar nada. */
 export async function seed(knex) {
+  const nuevos = new Set(); // permisos creados en esta corrida
   for (const [clave, modulo, descripcion] of PERMISOS) {
     const hay = await knex('permisos').where({ clave }).first();
-    if (!hay) await knex('permisos').insert({ clave, modulo, descripcion });
+    if (!hay) { await knex('permisos').insert({ clave, modulo, descripcion }); nuevos.add(clave); }
   }
 
   for (const [nombre, def] of Object.entries(ROLES)) {
     let rol = await knex('roles').where({ nombre }).first();
+    const rolNuevo = !rol;
     if (!rol) {
       await knex('roles').insert({ nombre, descripcion: def.descripcion, es_sistema: true });
       rol = await knex('roles').where({ nombre }).first();
     }
-    const permisos = await knex('permisos').whereIn('clave', def.permisos).select('id');
+    // Un rol que ya existe conserva los permisos que Dirección le dejó: solo se le suman los permisos nuevos del sistema.
+    const permisos = await knex('permisos').whereIn('clave', rolNuevo ? def.permisos : def.permisos.filter((c) => nuevos.has(c))).select('id');
     for (const p of permisos) {
       const hay = await knex('rol_permiso').where({ rol_id: rol.id, permiso_id: p.id }).first();
       if (!hay) await knex('rol_permiso').insert({ rol_id: rol.id, permiso_id: p.id });

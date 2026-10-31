@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles, puede } from '../lib/contexto.js';
 import { aDia, hoy } from '../lib/fechas.js';
-import { GRACIA_DIAS, PLAZO_DEFECTO_DIAS, plazoDe, semaforo, sumarDias } from '../lib/cobranzas.js';
+import { gracia, plazoDe, plazoDefecto, semaforo, sumarDias } from '../lib/cobranzas.js';
 import { redondear } from '../lib/liquidacion.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
@@ -59,7 +59,7 @@ export default async function rutasCobranzas(app, { db }) {
     for (const c of ['verde', 'amarillo', 'rojo']) { const l = items.filter((i) => i.color === c); resumen[c] = { n: l.length, usd: redondear(l.reduce((s, i) => s + i.saldo_usd, 0)) }; }
     resumen.total_usd = redondear(resumen.verde.usd + resumen.amarillo.usd + resumen.rojo.usd);
     const internas = await db('facturas').whereNull('deleted_at').whereIn('estado', ESTADOS_ABIERTOS).whereNull('entidad_facturante_id').count({ n: '*' }).first();
-    return { gracia: GRACIA_DIAS, plazo_defecto: PLAZO_DEFECTO_DIAS, solo_escaladas: soloEscaladas(req.ctx), resumen, items, sin_comprobante: Number(internas.n) };
+    return { gracia: gracia(), plazo_defecto: plazoDefecto(), solo_escaladas: soloEscaladas(req.ctx), resumen, items, sin_comprobante: Number(internas.n) };
   });
 
   async function cargar(req, reply) {
@@ -141,7 +141,7 @@ export default async function rutasCobranzas(app, { db }) {
     const f = await db('facturas').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
     if (!f || (v !== null && !v.includes(f.cliente_id))) return error(reply, 404, 'no_encontrado');
     if (f.estado === 'borrador' || f.estado === 'anulada') return error(reply, 409, 'no_emitida');
-    const plazo = f.plazo_pago_dias ?? (f.contrato_id ? (await db('contratos').where({ id: f.contrato_id }).first())?.plazo_pago_dias : null) ?? PLAZO_DEFECTO_DIAS;
+    const plazo = f.plazo_pago_dias ?? (f.contrato_id ? (await db('contratos').where({ id: f.contrato_id }).first())?.plazo_pago_dias : null) ?? plazoDefecto();
     const venc = sumarDias(d.fecha_emision, plazo);
     await db.transaction(async (trx) => {
       await trx('facturas').where({ id: f.id }).update({ fecha_emision: d.fecha_emision, fecha_emision_estimada: false, plazo_pago_dias: plazo, vencimiento: venc, updated_by: req.ctx.id, updated_at: trx.fn.now() });

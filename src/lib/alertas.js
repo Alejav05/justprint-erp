@@ -2,6 +2,7 @@
 import { canales } from './canales.js';
 import { aDia, hoy } from './fechas.js';
 import { semaforo } from './cobranzas.js';
+import { valor } from './ajustes_sistema.js';
 import { estadoSla } from './servicio.js';
 import { aSql, cargarFeriados, deSql } from './sla.js';
 import { config } from '../config.js';
@@ -167,16 +168,16 @@ export const REGLAS = [
     },
   },
   {
-    clave: 'ajuste_ipc_pendiente', nombre: 'Ajuste por IPC pendiente', descripcion: 'Un contrato en pesos lleva meses sin actualizar sus precios.', unidad: 'meses sin ajustar', umbral: 3,
-    canales: ['sistema', 'mail'], destinatarios: { roles: ['direccion', 'head_comercial'], responsables: [], usuarios: [] }, frecuencia_horas: 168,
-    asunto: 'Ajuste por IPC pendiente: {cliente}', cuerpo: 'El contrato "{contrato}" de {cliente} tiene los mismos precios desde {desde}. Toca el ajuste trimestral por IPC.', variables: ['cliente', 'contrato', 'desde'],
-    async evaluar(db, { umbral }) {
-      const h = hoy(); const out = [];
+    clave: 'ajuste_ipc_pendiente', nombre: 'Ajuste por IPC pendiente', descripcion: 'Un contrato en pesos cumplió el intervalo de ajuste sin actualizar sus precios (el intervalo se define en Configuración).', unidad: null, umbral: null,
+    canales: ['sistema', 'mail'], destinatarios: { roles: ['direccion', 'head_comercial'], responsables: ['comercial'], usuarios: [] }, frecuencia_horas: 168,
+    asunto: 'Ajuste por IPC pendiente: {cliente}', cuerpo: 'El contrato "{contrato}" de {cliente} tiene los mismos precios desde {desde}. Toca revisar el ajuste con el cliente. Lo valida y lo carga una persona; el sistema solo calcula y avisa.', variables: ['cliente', 'contrato', 'desde'],
+    async evaluar(db) {
+      const h = hoy(); const out = []; const cartera = await carteraDe(db); const umbral = valor('ipc.meses_ajuste') ?? 3;
       const cs = await db('contratos as c').join('clientes', 'clientes.id', 'c.cliente_id').where({ 'c.estado': 'vigente', 'c.moneda': 'ARS' }).whereNull('c.deleted_at').select('c.id', 'c.nombre', 'c.cliente_id', 'clientes.razon_social', 'clientes.nombre_comercial');
       for (const c of cs) {
         const cond = await db('contrato_condiciones').where({ contrato_id: c.id }).whereNull('vigente_hasta').orderBy('vigente_desde', 'desc').first(); if (!cond) continue;
         const desde = aDia(cond.vigente_desde);
-        if (sumarMeses(desde, umbral) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: `#/clientes/${c.cliente_id}`, responsables: {} });
+        if (sumarMeses(desde, umbral) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: `#/clientes/${c.cliente_id}`, responsables: { comercial: cartera.get(c.cliente_id) } });
       }
       return out;
     },

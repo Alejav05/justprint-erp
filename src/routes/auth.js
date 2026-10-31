@@ -1,3 +1,4 @@
+import { valor } from '../lib/ajustes_sistema.js';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { auditar } from '../lib/audit.js';
@@ -66,6 +67,6 @@ export default async function rutasAuth(app, { db }) {
 
   app.get('/api/me', { preHandler: requerirSesion(db) }, async (req) => {
     const c = req.ctx;
-    return { id: c.id, nombre: c.nombre, email: c.email, rol: c.rol, permisos: [...c.permisos].sort(), areas: c.areas };
+    return { id: c.id, nombre: c.nombre, email: c.email, rol: c.rol, permisos: [...c.permisos].sort(), areas: c.areas, config: { modulos_ocultos: valor('modulos.ocultos'), ipc_meses: valor('ipc.meses_ajuste') } };
   });
 }
