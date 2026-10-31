@@ -4,8 +4,6 @@ import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { leerPlanilla } from '../importacion/lector.js';
-import { importarPlanilla, formatearInforme } from '../importacion/planilla.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const DECISIONES = new URL('../../scripts/decisiones-importacion.json', import.meta.url);
@@ -20,6 +18,9 @@ export default async function rutasImportar(app, { db }) {
     const ruta = join(tmpdir(), `planilla-${randomUUID()}.xlsx`);
     await writeFile(ruta, req.body);
     try {
+      // Carga perezosa: si faltara la librería, solo falla esta pantalla y no toda la app.
+      const { leerPlanilla } = await import('../importacion/lector.js');
+      const { importarPlanilla, formatearInforme } = await import('../importacion/planilla.js');
       const datos = await leerPlanilla(ruta);
       const decisiones = JSON.parse(await readFile(DECISIONES, 'utf8').catch(() => '{}'));
       const inf = await importarPlanilla(db, datos, { aplicar, decisiones });
