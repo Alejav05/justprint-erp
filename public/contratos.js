@@ -48,14 +48,14 @@ export function crearContratos(U) {
   /* ---------- alta ---------- */
   async function vistaNuevoContrato(destino, clienteInicial) {
     const [cl, ent] = await Promise.all([api('/api/clientes?limite=100'), api('/api/entidades-facturantes')]); const cot = {};
-    let moneda = 'USD'; let estadoNuevo = 'vigente';
+    const previo = estado.nuevoContrato; estado.nuevoContrato = null; let moneda = 'USD'; let estadoNuevo = 'vigente';
     const cliente = h('select', { id: 'k-cli' }, h('option', { value: '' }, 'Elegí un cliente'), cl.clientes.map((c) => h('option', { value: c.id, selected: String(c.id) === String(clienteInicial) }, c.nombre_comercial || c.razon_social)));
     const sede = h('select', { id: 'k-sede' }, h('option', { value: '' }, 'Sin sede específica'));
-    const nombre = h('input', { id: 'k-nom', type: 'text', maxlength: '160', placeholder: 'Ej: Alquiler multifunción, oficina central' });
+    const nombre = h('input', { id: 'k-nom', type: 'text', maxlength: '160', placeholder: 'Ej: Alquiler multifunción, oficina central', value: previo ? `Alquiler ${previo.empresa}` : '' });
     const ini = h('input', { id: 'k-ini', type: 'date', value: hoyISO() }); const dur = nIn('k-dur', '', { step: '1', ph: 'Sin fecha de fin' });
     const entidad = h('select', { id: 'k-ent' }, h('option', { value: '' }, 'La habitual'), ent.items.map((e) => h('option', { value: e.id }, e.razon_social)));
     const plazo = nIn('k-plz', '', { step: '1', ph: 'Usa el general' }); const notas = h('textarea', { id: 'k-not', maxlength: '2000', placeholder: 'Condiciones especiales, quién firmó, qué se acordó…' });
-    const abono = nIn('k-ab', '', { ph: '0' }); const fn = nIn('k-fn', 0, { step: '1' }); const fc = nIn('k-fc', 0, { step: '1' }); const en = nIn('k-en', 0, { step: '0.0001' }); const ec = nIn('k-ec', 0, { step: '0.0001' });
+    const abono = nIn('k-ab', previo?.abono ?? '', { ph: '0' }); const fn = nIn('k-fn', 0, { step: '1' }); const fc = nIn('k-fc', 0, { step: '1' }); const en = nIn('k-en', 0, { step: '0.0001' }); const ec = nIn('k-ec', 0, { step: '0.0001' });
     const noFact = h('input', { id: 'k-nf', type: 'checkbox' });
     const err = h('div', { class: 'error oculto', role: 'alert' }); const resumen = h('div', { class: 'bloque resumen-contrato' });
     const segMoneda = h('div', { class: 'seg', role: 'group', 'aria-label': 'Moneda' }); const segEstado = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado inicial' });
@@ -90,6 +90,7 @@ export function crearContratos(U) {
     });
     pintarSeg(); pintarResumen(); await cargarSedes();
     agregar(destino, [h('a', { href: '#/contratos', class: 'apoyo' }, '← Contratos'), encabezado('Nuevo contrato', 'Cargá todo lo acordado: de acá sale la facturación.'),
+      previo && h('div', { class: 'alerta-item aviso', style: 'margin-bottom:16px' }, `¡Cerraste con ${previo.empresa}! Cargá el contrato acordado${previo.abono ? ` (el abono estimado era USD ${previo.abono}: confirmalo)` : ''}. Si todavía no tenés los datos, volvé a la ficha del cliente.`, h('a', { href: `#/clientes/${clienteInicial}` }, 'Ver cliente')),
       h('div', { class: 'rejilla dos' },
         h('div', null,
           h('div', { class: 'tarjeta' }, h('h2', null, 'Quién y qué'), campo('Cliente', cliente, null, 'k-cli'), campo('Nombre del contrato', nombre, null, 'k-nom'), campo('Sede donde se presta el servicio', sede, null, 'k-sede'),

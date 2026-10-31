@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles, esArea, puede, puedeVerCliente } from '../lib/contexto.js';
 import { AREA } from '../lib/catalogo.js';
-import { hoy, json } from '../lib/fechas.js';
+import { aDia, hoy, json } from '../lib/fechas.js';
 import { abonosUsd } from '../lib/abonos.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 import { normalizarCuit } from '../lib/cuit.js';
@@ -84,7 +84,12 @@ export default async function rutasClientes(app, { db }) {
     const rn = cliente.rubro_id || cliente.subrubro_id ? await db('rubros').whereIn('id', [cliente.rubro_id, cliente.subrubro_id].filter(Boolean)).select('id', 'nombre') : [];
     cliente.rubro_nombre = rn.find((r) => r.id === cliente.rubro_id)?.nombre ?? cliente.rubro ?? null;
     cliente.subrubro_nombre = rn.find((r) => r.id === cliente.subrubro_id)?.nombre ?? null;
-    const salida = { cliente, sedes: await db('sedes').where({ cliente_id: id }).whereNull('deleted_at') };
+    const sedes = await db('sedes').where({ cliente_id: id }).whereNull('deleted_at').orderBy([{ column: 'es_principal', order: 'desc' }, 'id']);
+    // Equipos instalados hoy y contratos vigentes de cada local: el resumen que se ve al entrar al cliente.
+    const instalados = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').where('c.cliente_id', id).whereNull('a.hasta').select('a.sede_id', 'a.contrato_id');
+    const vigentes = await db('contratos').where({ cliente_id: id, estado: 'vigente' }).whereNull('deleted_at').select('id', 'sede_id');
+    const salida = { cliente, sedes: sedes.map((x) => ({ ...x, es_principal: !!x.es_principal, equipos: instalados.filter((i) => i.sede_id === x.id).length, contratos: new Set([...instalados.filter((i) => i.sede_id === x.id).map((i) => i.contrato_id), ...vigentes.filter((v) => v.sede_id === x.id).map((v) => v.id)]).size })),
+      resumen: { sedes: sedes.length, contratos_vigentes: vigentes.length, equipos_instalados: instalados.length } };
 
     const resp = await db('cartera_asignaciones as ca').join('usuarios as u', 'u.id', 'ca.usuario_id')
       .where('ca.cliente_id', id).whereNull('ca.hasta').select('u.id', 'u.nombre', 'ca.desde').first();
@@ -133,7 +138,7 @@ export default async function rutasClientes(app, { db }) {
       if (respId && (!puede(req.ctx, 'cartera.asignar') || !(await trx('usuarios').where({ id: respId, activo: true }).whereNull('deleted_at').first()))) return { error: 'responsable_invalido' };
       if (sede && contactos.some((k) => k.sede_id)) return { error: 'sede_en_alta' };
       const [id] = await trx('clientes').insert({
-        ...datos, cuit: cu.cuit, rubro: rub.nombre ?? datos.rubro ?? null, estado: datos.estado ?? 'prospecto', fecha_alta: hoy(), created_by: req.ctx.id, updated_by: req.ctx.id,
+        ...datos, cuit: cu.cuit, rubro: rub.nombre ?? datos.rubro ?? null, estado: datos.estado ?? 'activo', fecha_alta: hoy(), created_by: req.ctx.id, updated_by: req.ctx.id,
       });
       let sedeId = null;
       if (sede) [sedeId] = await trx('sedes').insert({ cliente_id: id, nombre: sede.nombre, domicilio: sede.domicilio ?? null, localidad: sede.localidad ?? null, zona: sede.zona, indicaciones: sede.indicaciones ?? null, es_principal: true, created_by: req.ctx.id, updated_by: req.ctx.id });
@@ -207,6 +212,85 @@ export default async function rutasClientes(app, { db }) {
     const items = filas.map((c) => ({ id: c.id, nombre: [c.nombre, c.apellido].filter(Boolean).join(' '), cargo: c.cargo, roles: json(c.roles, []), cliente_id: c.cliente_id, cliente: c.nombre_comercial || c.razon_social, intereses: c.intereses, ...datosDeNacimiento(c.fecha_nacimiento) }))
       .filter((c) => c.dias_para_cumple <= dias).sort((a, b) => a.dias_para_cumple - b.dias_para_cumple);
     return { items };
+  });
+
+  /* ---------- sedes: los locales o domicilios donde hay equipos ---------- */
+  const sedeSchema = z.object({
+    nombre: z.string().trim().min(1).max(120), domicilio: z.string().trim().max(200).optional().nullable(), localidad: z.string().trim().max(100).optional().nullable(),
+    zona: z.enum(['caba', 'resto']).default('caba'), indicaciones: z.string().trim().max(1000).optional().nullable(), es_principal: z.boolean().default(false),
+  });
+  const permisosSede = [auth, requerirPermiso('clientes.editar')];
+  const sedeDe = async (req) => { const x = await db('sedes').where({ id: Number(req.params.id) }).whereNull('deleted_at').first(); return x && (await puedeVerCliente(db, req.ctx, x.cliente_id)) ? x : null; };
+
+  app.post('/api/clientes/:id/sedes', { preHandler: permisosSede }, async (req, reply) => {
+    const id = Number(req.params.id); if (!Number.isInteger(id) || !(await puedeVerCliente(db, req.ctx, id))) return reply.code(404).send({ error: 'no_encontrado' });
+    const d = sedeSchema.parse(req.body);
+    const nueva = await db.transaction(async (trx) => {
+      const hay = await trx('sedes').where({ cliente_id: id }).whereNull('deleted_at').first();
+      const principal = d.es_principal || !hay; if (principal) await trx('sedes').where({ cliente_id: id }).update({ es_principal: false });
+      const [sid] = await trx('sedes').insert({ ...d, es_principal: principal, cliente_id: id, created_by: req.ctx.id, updated_by: req.ctx.id });
+      const fila = await trx('sedes').where({ id: sid }).first(); await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'sedes', sid, null, fila); return fila;
+    });
+    return reply.code(201).send(nueva);
+  });
+
+  app.patch('/api/sedes/:id', { preHandler: permisosSede }, async (req, reply) => {
+    const antes = await sedeDe(req); if (!antes) return reply.code(404).send({ error: 'no_encontrado' });
+    const d = sedeSchema.parse(req.body);
+    await db.transaction(async (trx) => {
+      if (d.es_principal) await trx('sedes').where({ cliente_id: antes.cliente_id }).whereNot({ id: antes.id }).update({ es_principal: false });
+      await trx('sedes').where({ id: antes.id }).update({ ...d, es_principal: d.es_principal || !!antes.es_principal, updated_at: trx.fn.now(), updated_by: req.ctx.id });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'sedes', antes.id, antes, d);
+    });
+    return db('sedes').where({ id: antes.id }).first();
+  });
+
+  /** Un local con equipos instalados o contratos vigentes no se borra: primero se mueven los equipos. */
+  app.delete('/api/sedes/:id', { preHandler: permisosSede }, async (req, reply) => {
+    const antes = await sedeDe(req); if (!antes) return reply.code(404).send({ error: 'no_encontrado' });
+    if (antes.es_principal) return reply.code(409).send({ error: 'sede_principal' });
+    const eq = Number((await db('asignaciones_equipo').where({ sede_id: antes.id }).whereNull('hasta').count({ n: '*' }).first()).n);
+    if (eq) return reply.code(409).send({ error: 'sede_con_equipos', equipos: eq });
+    if (await db('contratos').where({ sede_id: antes.id, estado: 'vigente' }).whereNull('deleted_at').first()) return reply.code(409).send({ error: 'sede_con_contratos' });
+    await db.transaction(async (trx) => {
+      await trx('contactos').where({ sede_id: antes.id }).update({ sede_id: null });
+      await trx('sedes').where({ id: antes.id }).update({ deleted_at: trx.fn.now(), updated_by: req.ctx.id });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'eliminar', 'sedes', antes.id, antes, null);
+    });
+    return { ok: true };
+  });
+
+  /* ---------- seguimiento de la cuenta (farming): gestiones y próximos pasos ---------- */
+  const gestionar = [auth, requerirPermiso('crm.gestionar')];
+  app.get('/api/clientes/:id/seguimiento', { preHandler: gestionar }, async (req, reply) => {
+    const id = Number(req.params.id); if (!Number.isInteger(id) || !(await puedeVerCliente(db, req.ctx, id))) return reply.code(404).send({ error: 'no_encontrado' });
+    const interacciones = await db('interacciones as i').join('usuarios as u', 'u.id', 'i.usuario_id').leftJoin('contactos as k', 'k.id', 'i.contacto_id').where('i.cliente_id', id)
+      .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.id', order: 'desc' }]).limit(100).select('i.id', 'i.tipo', 'i.resumen', 'i.fecha', 'u.nombre as usuario', 'k.nombre as contacto_nombre', 'k.apellido as contacto_apellido');
+    const tareas = await db('tareas_crm as t').join('usuarios as u', 'u.id', 't.asignado_a').where('t.cliente_id', id).whereNull('t.deleted_at').whereIn('t.estado', ['pendiente'])
+      .orderBy('t.vence').select('t.id', 't.titulo', 't.vence', 't.estado', 'u.nombre as asignado');
+    const h = hoy();
+    return { interacciones: interacciones.map((i) => ({ ...i, fecha: String(i.fecha).slice(0, 10), contacto: [i.contacto_nombre, i.contacto_apellido].filter(Boolean).join(' ') || null })),
+      tareas: tareas.map((t) => ({ ...t, vence: aDia(t.vence), vencida: !!t.vence && aDia(t.vence) < h })) };
+  });
+
+  app.post('/api/clientes/:id/seguimiento', { preHandler: gestionar }, async (req, reply) => {
+    const id = Number(req.params.id); if (!Number.isInteger(id) || !(await puedeVerCliente(db, req.ctx, id))) return reply.code(404).send({ error: 'no_encontrado' });
+    const d = z.object({ tipo: z.enum(['llamada', 'visita', 'mail', 'whatsapp', 'reunion', 'nota']), resumen: z.string().trim().min(1).max(2000), contacto_id: z.number().int().positive().optional().nullable(),
+      proxima_tarea: z.string().trim().max(200).optional().nullable(), proxima_fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable() }).parse(req.body);
+    if (d.contacto_id && !(await db('contactos').where({ id: d.contacto_id, cliente_id: id }).whereNull('deleted_at').first())) return reply.code(400).send({ error: 'contacto_invalido' });
+    await db.transaction(async (trx) => {
+      const [iid] = await trx('interacciones').insert({ cliente_id: id, contacto_id: d.contacto_id ?? null, usuario_id: req.ctx.id, tipo: d.tipo, resumen: d.resumen });
+      if (d.proxima_tarea) await trx('tareas_crm').insert({ cliente_id: id, contacto_id: d.contacto_id ?? null, asignado_a: req.ctx.id, titulo: d.proxima_tarea, vence: d.proxima_fecha ?? null, created_by: req.ctx.id, updated_by: req.ctx.id });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'interacciones', iid, null, { cliente_id: id, tipo: d.tipo });
+    });
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post('/api/tareas/:id/hecha', { preHandler: gestionar }, async (req, reply) => {
+    const t = await db('tareas_crm').where({ id: Number(req.params.id), estado: 'pendiente' }).whereNull('deleted_at').first();
+    if (!t || !t.cliente_id || !(await puedeVerCliente(db, req.ctx, t.cliente_id))) return reply.code(404).send({ error: 'no_encontrado' });
+    await db('tareas_crm').where({ id: t.id }).update({ estado: 'hecha', completada_en: db.fn.now(), updated_by: req.ctx.id, updated_at: db.fn.now() });
+    return { ok: true };
   });
 
   app.patch('/api/clientes/:id', { preHandler: [auth, requerirPermiso('clientes.editar')] }, async (req, reply) => {

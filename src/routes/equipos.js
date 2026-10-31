@@ -15,6 +15,7 @@ const listaSchema = z.object({
   q: z.string().trim().max(80).optional(),
   cliente: z.coerce.number().int().positive().optional(),
   pagina: z.coerce.number().int().min(1).default(1),
+  limite: z.coerce.number().int().min(1).max(200).default(25),
 });
 
 const nuevoSchema = z.object({
@@ -61,9 +62,9 @@ export default async function rutasEquipos(app, { db }) {
     if (f.cliente) q.where('cl.id', f.cliente);
     if (f.q) q.where((w) => w.where('equipos.numero_serie', 'like', `%${f.q}%`).orWhere('m.modelo', 'like', `%${f.q}%`).orWhere('cl.razon_social', 'like', `%${f.q}%`).orWhere('cl.nombre_comercial', 'like', `%${f.q}%`));
     const [{ total }] = await q.clone().count({ total: 'equipos.id' });
-    const filas = await q.clone().orderBy('equipos.numero_serie').limit(25).offset((f.pagina - 1) * 25)
+    const filas = await q.clone().orderBy([{ column: 'cl.razon_social' }, { column: 'c.nombre' }, { column: 'equipos.numero_serie' }]).limit(f.limite).offset((f.pagina - 1) * f.limite)
       .select('equipos.id', 'equipos.numero_serie', 'equipos.estado', 'equipos.codigo_qr', 'm.marca', 'm.modelo', 'm.tipo',
-        'cl.id as cliente_id', 'cl.razon_social', 'cl.nombre_comercial', 's.nombre as sede', 'u.nombre as ubicacion');
+        'cl.id as cliente_id', 'cl.razon_social', 'cl.nombre_comercial', 'c.id as contrato_id', 'c.nombre as contrato', 's.nombre as sede', 's.domicilio', 's.localidad', 'u.nombre as ubicacion');
     const ids = filas.map((x) => x.id);
     const lecturas = ids.length ? await db('lecturas_contador').whereIn('equipo_id', ids).orderBy('fecha', 'desc').orderBy('id', 'desc').select('equipo_id', 'fecha', 'contador_negro', 'contador_color') : [];
     const ultima = new Map(); for (const l of lecturas) if (!ultima.has(l.equipo_id)) ultima.set(l.equipo_id, l);

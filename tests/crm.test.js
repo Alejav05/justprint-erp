@@ -34,7 +34,7 @@ test('alta completa: cliente, sede, contactos con roles y responsable, todo en u
   const dir = await entrar('direccion@demo.local'); const nicoId = (await ctx.db('usuarios').where({ email: 'nicolas@demo.local' }).first()).id;
   const r = await dir.llamar('POST', '/api/clientes', alta({ responsable_id: nicoId })); assert.equal(r.statusCode, 201, r.body);
   const d = (await dir.llamar('GET', `/api/clientes/${r.json().id}`)).json();
-  assert.equal(d.cliente.cuit, '30-71646173-0'); assert.equal(d.cliente.rubro_nombre, 'Salud'); assert.ok(d.cliente.subrubro_nombre); assert.equal(d.sedes.length, 1); assert.equal(d.sedes[0].es_principal, 1);
+  assert.equal(d.cliente.cuit, '30-71646173-0'); assert.equal(d.cliente.rubro_nombre, 'Salud'); assert.ok(d.cliente.subrubro_nombre); assert.equal(d.sedes.length, 1); assert.equal(d.sedes[0].es_principal, true);
   assert.equal(d.contactos.length, 2); assert.equal(d.responsable.id, nicoId);
   const laura = d.contactos.find((c) => c.nombre === 'Laura'); assert.equal(laura.fecha_nacimiento, '1985-11-03'); assert.ok(laura.edad >= 40); assert.deepEqual(laura.roles, ['comercial']);
   assert.deepEqual(d.contactos.find((c) => c.nombre === 'Marta').roles, ['facturacion', 'cobranzas']);
@@ -119,7 +119,7 @@ test('Hunting: convertir crea el cliente con sede, contacto y responsable; despu
   const r = await nico.llamar('POST', `/api/leads/${K.l1}/convertir`, { cuit: '30-71646173-0' }); assert.equal(r.statusCode, 409); assert.equal(r.json().error, 'cuit_duplicado');
   const ok = await nico.llamar('POST', `/api/leads/${K.l1}/convertir`, { roles: ['decisor', 'comercial'] }); assert.equal(ok.statusCode, 201, ok.body);
   const c = (await nico.llamar('GET', `/api/clientes/${ok.json().cliente_id}`)).json();
-  assert.equal(c.cliente.estado, 'prospecto'); assert.equal(c.cliente.rubro_nombre, 'Salud'); assert.equal(c.responsable.id, nicoId); assert.equal(c.contactos.length, 1); assert.deepEqual(c.contactos[0].roles, ['decisor', 'comercial']);
+  assert.equal(c.cliente.estado, 'activo'); assert.equal(c.cliente.rubro_nombre, 'Salud'); assert.equal(c.responsable.id, nicoId); assert.equal(c.contactos.length, 1); assert.deepEqual(c.contactos[0].roles, ['decisor', 'comercial']);
   assert.equal((await nico.llamar('POST', `/api/leads/${K.l1}/convertir`, {})).json().error, 'ya_convertido');
   assert.equal((await nico.llamar('POST', `/api/leads/${K.l1}/mover`, { etapa: 'nuevo' })).json().error, 'ya_convertido');
   assert.equal((await nico.llamar('GET', `/api/leads/${K.l1}`)).json().lead.etapa, 'ganado');
@@ -133,8 +133,39 @@ test('Hunting: perdido guarda el motivo; Dirección puede reasignar, un comercia
   assert.equal((await dir.llamar('PATCH', `/api/leads/${K.l2}`, { responsable_id: nico })).statusCode, 200);
 });
 
-test('activar un contrato vuelve activo al cliente que era prospecto', async () => {
-  const dir = await entrar('direccion@demo.local');
+test('activar un contrato vuelve activo a un cliente que estaba prospecto o inactivo', async () => {
+  const dir = await entrar('direccion@demo.local'); await ctx.db('clientes').where({ id: K.cli }).update({ estado: 'inactivo', motivo_baja: 'prueba' });
   const id = (await dir.llamar('POST', '/api/contratos', { cliente_id: K.cli, nombre: 'Primero', moneda: 'USD', fecha_inicio: '2026-10-01', precios: { monto_mensual: 100, franquicia_negro: 0, franquicia_color: 0, excedente_negro: 0, excedente_color: 0, facturable: true } })).json().id;
   assert.ok(id); assert.equal((await ctx.db('clientes').where({ id: K.cli }).first()).estado, 'activo');
+});
+
+test('sedes: varios locales por cliente, una sola principal, y no se borra uno con equipos', async () => {
+  const dir = await entrar('direccion@demo.local');
+  const a = await dir.llamar('POST', `/api/clientes/${K.cli}/sedes`, { nombre: 'Sucursal Belgrano', domicilio: 'Cabildo 2000', localidad: 'CABA', zona: 'caba' }); assert.equal(a.statusCode, 201); K.sedeB = a.json().id;
+  const b = await dir.llamar('POST', `/api/clientes/${K.cli}/sedes`, { nombre: 'Depósito Pilar', domicilio: 'Ruta 8 km 50', localidad: 'Pilar', zona: 'resto', es_principal: true }); assert.equal(b.statusCode, 201); K.sedeP = b.json().id;
+  let d = (await dir.llamar('GET', `/api/clientes/${K.cli}`)).json();
+  assert.equal(d.sedes.length, 3); assert.equal(d.sedes.filter((x) => x.es_principal).length, 1); assert.equal(d.sedes[0].nombre, 'Depósito Pilar'); assert.equal(d.resumen.sedes, 3);
+  assert.equal((await dir.llamar('DELETE', `/api/sedes/${K.sedeP}`)).json().error, 'sede_principal');
+  // un equipo instalado en Belgrano bajo un contrato: aparece en el resumen y en Equipos con su domicilio
+  const cId = (await ctx.db('contratos').where({ cliente_id: K.cli }).first()).id; const mod = (await ctx.db('modelos_equipo').first()).id;
+  const eq = (await ctx.db('equipos').insert({ modelo_id: mod, numero_serie: 'CRM-001', estado: 'instalado', codigo_qr: 'CRMQR1' }))[0];
+  await ctx.db('asignaciones_equipo').insert({ equipo_id: eq, contrato_id: cId, sede_id: K.sedeB, desde: '2026-10-01' });
+  d = (await dir.llamar('GET', `/api/clientes/${K.cli}`)).json();
+  assert.equal(d.resumen.equipos_instalados, 1); assert.equal(d.resumen.contratos_vigentes >= 1, true); assert.equal(d.sedes.find((x) => x.id === K.sedeB).equipos, 1);
+  assert.equal((await dir.llamar('DELETE', `/api/sedes/${K.sedeB}`)).json().error, 'sede_con_equipos');
+  const lista = (await dir.llamar('GET', `/api/equipos?q=CRM-001`)).json().items[0]; assert.equal(lista.contrato.length > 0, true); assert.equal(lista.domicilio, 'Cabildo 2000'); assert.equal(lista.sede, 'Sucursal Belgrano');
+  assert.equal((await dir.llamar('PATCH', `/api/sedes/${K.sedeB}`, { nombre: 'Belgrano', domicilio: 'Cabildo 2100', zona: 'caba' })).statusCode, 200);
+  assert.equal((await dir.llamar('DELETE', `/api/sedes/${(await dir.llamar('POST', `/api/clientes/${K.cli}/sedes`, { nombre: 'Temporal' })).json().id}`)).statusCode, 200);
+  assert.equal((await (await entrar('julia@demo.local')).llamar('POST', `/api/clientes/${K.cli}/sedes`, { nombre: 'X' })).statusCode, 403);
+});
+
+test('seguimiento de la cuenta: gestiones, próxima tarea y alcance', async () => {
+  const dir = await entrar('direccion@demo.local'); const val = await entrar('valentina@demo.local');
+  const r = await dir.llamar('POST', `/api/clientes/${K.cli}/seguimiento`, { tipo: 'llamada', resumen: 'Saludó por el cumpleaños', contacto_id: K.laura, proxima_tarea: 'Mandar propuesta de renovación', proxima_fecha: '2020-01-01' }); assert.equal(r.statusCode, 201);
+  const s = (await dir.llamar('GET', `/api/clientes/${K.cli}/seguimiento`)).json();
+  assert.equal(s.interacciones[0].contacto, 'Laura Paz'); assert.equal(s.tareas.length, 1); assert.equal(s.tareas[0].vencida, true);
+  assert.equal((await dir.llamar('POST', `/api/clientes/${K.cli}/seguimiento`, { tipo: 'nota', resumen: 'x', contacto_id: 999999 })).json().error, 'contacto_invalido');
+  assert.equal((await val.llamar('GET', `/api/clientes/${K.cli}/seguimiento`)).statusCode, 404, 'una cuenta ajena no se ve');
+  assert.equal((await dir.llamar('POST', `/api/tareas/${s.tareas[0].id}/hecha`)).statusCode, 200);
+  assert.equal((await dir.llamar('GET', `/api/clientes/${K.cli}/seguimiento`)).json().tareas.length, 0);
 });

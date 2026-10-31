@@ -117,6 +117,66 @@ export function crearCrm(U) {
       d.contactos.length ? h('div', { class: 'rejilla dos-iguales' }, d.contactos.map((k) => tarjetaContacto(k, { sedes, alCambiar }))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay contactos'), 'Cargá a quien decide, a quien recibe las facturas y a quien reclama los cobros.'));
   }
 
+  /* ---------- sedes: locales y domicilios del cliente ---------- */
+  function formSede({ inicial = {}, clienteId, cerrar, alGuardar }) {
+    let zona = inicial.zona ?? 'caba'; const zonaEl = h('div', { class: 'seg', role: 'group', 'aria-label': 'Zona' });
+    const nombre = inp('s-nom', inicial.nombre, { max: 120, ph: 'Ej: Sucursal Belgrano' }); const dom = inp('s-dom', inicial.domicilio, { max: 200 }); const loc = inp('s-loc', inicial.localidad, { max: 100 });
+    const ind = area('s-ind', inicial.indicaciones, 'Cómo llegar, piso, quién recibe al técnico…'); const prin = h('input', { id: 's-pri', type: 'checkbox', checked: !!inicial.es_principal });
+    const pintar = () => vaciar(zonaEl).append(...[['caba', 'CABA · 24 h'], ['resto', 'Resto del país · 48 h']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(zona === k), onclick: () => { zona = k; pintar(); } }, t))); pintar();
+    const e = err(); const ok = h('button', { class: 'btn btn-principal', type: 'button' }, inicial.id ? 'Guardar cambios' : 'Agregar local');
+    ok.addEventListener('click', async () => {
+      if (!nombre.value.trim()) { mostrarErr(e, 'Poné un nombre para el local.'); return; } ok.disabled = true;
+      const cuerpo = { nombre: nombre.value.trim(), domicilio: dom.value.trim() || null, localidad: loc.value.trim() || null, zona, indicaciones: ind.value.trim() || null, es_principal: prin.checked };
+      try { await api(inicial.id ? `/api/sedes/${inicial.id}` : `/api/clientes/${clienteId}/sedes`, { metodo: inicial.id ? 'PATCH' : 'POST', cuerpo }); cerrar(); aviso(inicial.id ? 'Local actualizado' : 'Local agregado'); alGuardar(); }
+      catch (x) { mostrarErr(e, x.datos?.error ? msg(x) : 'No se pudo guardar.'); ok.disabled = false; }
+    });
+    return h('div', null, campo('Nombre del local', nombre, null, 's-nom'), campo('Domicilio', dom, null, 's-dom'), campo('Localidad', loc, null, 's-loc'),
+      h('div', { class: 'campo' }, h('label', null, 'Zona del servicio técnico'), zonaEl, h('div', { class: 'apoyo' }, 'Define en cuánto tiempo se atiende un ticket.')), campo('Indicaciones', ind, null, 's-ind'),
+      h('label', { class: 'interruptor', for: 's-pri' }, prin, h('span', null, 'Es la sede principal (donde está el contacto)')), e, h('div', { class: 'acciones-cajon' }, ok, h('button', { class: 'btn', type: 'button', onclick: cerrar }, 'Cancelar')));
+  }
+
+  /** Locales del cliente con cuántos equipos y contratos tiene cada uno. El detalle por contrato está en Equipos. */
+  function pestanaSedes(d, alCambiar) {
+    const editable = puede('clientes.editar');
+    const nueva = () => cajon('Nuevo local', (x) => formSede({ clienteId: d.cliente.id, cerrar: x, alGuardar: alCambiar }));
+    return h('div', null, editable && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('button', { class: 'btn btn-principal', type: 'button', onclick: nueva }, '+ Nuevo local')),
+      d.sedes.length ? h('div', { class: 'rejilla dos-iguales' }, d.sedes.map((x) => h('div', { class: 'tarjeta' },
+        h('div', { style: 'display:flex;justify-content:space-between;gap:8px;align-items:flex-start' }, h('div', null, h('b', { class: 'nombre-cliente' }, x.nombre), h('div', { class: 'apoyo' }, [x.domicilio, x.localidad].filter(Boolean).join(', ') || 'Sin domicilio')),
+          h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end' }, x.es_principal && chip('Principal', 'info'), chip(x.zona === 'caba' ? 'CABA · 24 h' : 'Resto · 48 h', 'mudo'))),
+        h('div', { class: 'hechos', style: 'grid-template-columns:1fr 1fr;margin-top:12px' }, h('div', null, 'Equipos', h('b', null, String(x.equipos))), h('div', null, 'Contratos', h('b', null, String(x.contratos)))),
+        x.indicaciones && h('div', { class: 'apoyo', style: 'margin-top:8px;white-space:pre-line' }, x.indicaciones),
+        h('div', { class: 'acciones-cajon', style: 'margin-top:10px' },
+          x.equipos > 0 && puede('equipos.ver') && h('a', { class: 'btn btn-chico', href: `#/equipos?cliente=${d.cliente.id}` }, 'Ver equipos'),
+          editable && h('button', { class: 'btn btn-chico', type: 'button', onclick: () => cajon('Editar local', (c) => formSede({ inicial: x, clienteId: d.cliente.id, cerrar: c, alGuardar: alCambiar })) }, 'Editar'),
+          editable && !x.es_principal && h('button', { class: 'btn btn-chico', type: 'button', onclick: (ev) => { const b = ev.currentTarget; if (!b.dataset.seguro) { b.dataset.seguro = '1'; b.textContent = 'Confirmar: eliminar'; setTimeout(() => { delete b.dataset.seguro; b.textContent = 'Eliminar'; }, 3500); return; } api(`/api/sedes/${x.id}`, { metodo: 'DELETE' }).then(() => { aviso('Local eliminado'); alCambiar(); }).catch((er) => aviso(msg(er))); } }, 'Eliminar')))))
+        : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin locales cargados'), 'Cargá cada domicilio donde haya equipos.'));
+  }
+
+  /** Seguimiento de la cuenta (farming): qué se habló, con quién y qué sigue. */
+  async function pestanaSeguimiento(d, alCambiar) {
+    const caja = h('div'); const TIPOS = { llamada: 'Llamada', visita: 'Visita', mail: 'Mail', whatsapp: 'WhatsApp', reunion: 'Reunión', nota: 'Nota' };
+    async function pintar() {
+      const r = await api(`/api/clientes/${d.cliente.id}/seguimiento`); let tipo = 'llamada';
+      const txt = area('sg-txt', '', 'Qué se habló, qué pidió, cómo está la relación…'); const ctc = h('select', { id: 'sg-ctc', 'aria-label': 'Con quién' }, opciones((d.contactos ?? []).map((k) => [k.id, nombreCompleto(k)]), '', 'Sin contacto puntual'));
+      const sig = inp('sg-sig', '', { max: 200, ph: 'Próximo paso (opcional)' }); const sigF = inp('sg-sigf', '', { tipo: 'date' }); const tipos = h('div', { class: 'seg', role: 'group', 'aria-label': 'Tipo de gestión' }); const e = err();
+      const pt = () => vaciar(tipos).append(...Object.entries(TIPOS).map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(tipo === k), onclick: () => { tipo = k; pt(); } }, t))); pt();
+      const ok = h('button', { class: 'btn btn-principal', type: 'button' }, 'Registrar');
+      ok.addEventListener('click', async () => {
+        if (!txt.value.trim()) { mostrarErr(e, 'Contá brevemente qué pasó.'); return; } ok.disabled = true;
+        try { await api(`/api/clientes/${d.cliente.id}/seguimiento`, { metodo: 'POST', cuerpo: { tipo, resumen: txt.value.trim(), contacto_id: ctc.value ? Number(ctc.value) : null, proxima_tarea: sig.value.trim() || null, proxima_fecha: sigF.value || null } }); aviso('Gestión registrada'); pintar(); }
+        catch (x) { mostrarErr(e, msg(x)); ok.disabled = false; }
+      });
+      vaciar(caja).append(h('div', { class: 'rejilla dos' },
+        h('div', null, h('div', { class: 'tarjeta' }, h('h2', null, 'Historial de la cuenta'), r.interacciones.length ? h('div', { class: 'historia' }, r.interacciones.map((i) => h('div', { class: 'evento' }, h('b', null, TIPOS[i.tipo] ?? i.tipo), ' ',
+          h('span', { class: 'apoyo' }, `${i.usuario} · ${fecha(i.fecha)}${i.contacto ? ` · con ${i.contacto}` : ''}`), h('div', { style: 'white-space:pre-line' }, i.resumen)))) : h('p', { class: 'apoyo' }, 'Todavía no hay gestiones. Cada llamada, visita o charla suma a conocer mejor la cuenta.'))),
+        h('div', null,
+          h('div', { class: 'tarjeta' }, h('h2', null, 'Próximos pasos'), r.tareas.length ? h('ul', { class: 'lista' }, r.tareas.map((t) => h('li', null, h('div', null, h('b', null, t.titulo), h('div', { class: 'apoyo' }, t.vence ? `Para el ${fecha(t.vence)}` : 'Sin fecha')),
+            h('div', { style: 'display:flex;gap:8px;align-items:center' }, t.vencida && chip('Vencida', 'malo'), h('button', { class: 'btn btn-chico', type: 'button', onclick: () => api(`/api/tareas/${t.id}/hecha`, { metodo: 'POST' }).then(() => { aviso('Listo'); pintar(); }) }, 'Hecha'))))) : h('p', { class: 'apoyo' }, 'No hay pasos pendientes.')),
+          h('div', { class: 'tarjeta' }, h('h2', null, 'Registrar una gestión'), tipos, campo('Con quién', ctc, null, 'sg-ctc'), txt, h('div', { class: 'dos-col', style: 'margin-top:10px' }, sig, sigF), e, h('div', { style: 'margin-top:10px' }, ok)))));
+    }
+    caja.append(cargando()); pintar(); return caja;
+  }
+
   /* ---------- editar datos del cliente ---------- */
   async function formCliente(d, cerrar, alGuardar) {
     const c = d.cliente; const rub = await selectorRubro(c.rubro_id, c.subrubro_id);
@@ -124,9 +184,9 @@ export function crearCrm(U) {
     const iva = h('select', { id: 'e-iva' }, opciones([['responsable_inscripto', 'Responsable inscripto'], ['monotributo', 'Monotributo'], ['exento', 'Exento'], ['consumidor_final', 'Consumidor final']], c.condicion_iva, 'Sin definir'));
     const web = inp('e-web', c.sitio_web, { max: 160 }); const tel = inp('e-tel', c.telefono, { max: 40, tipo: 'tel' }); const mail = inp('e-mail', c.email_general, { max: 160, tipo: 'email' });
     const dom = inp('e-dom', c.domicilio_fiscal, { max: 200 }); const loc = inp('e-loc', c.localidad_fiscal, { max: 100 }); const prov = inp('e-prov', c.provincia, { max: 60 });
-    const emp = inp('e-emp', c.cantidad_empleados, { tipo: 'number', min: '0', modo: 'numeric' }); const notas = area('e-not', c.notas); let est = c.estado;
+    const emp = inp('e-emp', c.cantidad_empleados, { tipo: 'number', min: '0', modo: 'numeric' }); const notas = area('e-not', c.notas); let est = c.estado === 'inactivo' ? 'inactivo' : 'activo';
     const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado' }); const motivo = inp('e-mot', c.motivo_baja, { max: 255, ph: 'Por qué dejó de ser cliente' }); const campoMotivo = campo('Motivo de la baja', motivo, null, 'e-mot');
-    const pint = () => { vaciar(seg).append(...[['activo', 'Activo'], ['prospecto', 'Prospecto'], ['inactivo', 'Inactivo']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(est === k), onclick: () => { est = k; pint(); } }, t))); campoMotivo.style.display = est === 'inactivo' ? '' : 'none'; }; pint();
+    const pint = () => { vaciar(seg).append(...[['activo', 'Activo'], ['inactivo', 'Inactivo']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(est === k), onclick: () => { est = k; pint(); } }, t))); campoMotivo.style.display = est === 'inactivo' ? '' : 'none'; }; pint();
     const e = err(); const ok = h('button', { class: 'btn btn-principal', type: 'button' }, 'Guardar cambios');
     ok.addEventListener('click', async () => {
       e.classList.add('oculto'); if (rs.value.trim().length < 2) { mostrarErr(e, 'Falta la razón social.'); return; } ok.disabled = true;
@@ -154,12 +214,10 @@ export function crearCrm(U) {
     const mismaSede = h('input', { id: 'n-misma', type: 'checkbox', checked: true }); const sNom = inp('n-snom', 'Sede principal', { max: 120 }); const sDom = inp('n-sdom', '', { max: 200 }); const sLoc = inp('n-sloc', '', { max: 100 });
     let zona = 'caba'; const zonaEl = h('div', { class: 'seg', role: 'group', 'aria-label': 'Zona' }); const sedeExtra = h('div'); const notas = area('n-not', '', 'Cómo llegó, qué necesita, quién la recomendó…');
     const origen = h('select', { id: 'n-ori' }, opciones(['Hunting', 'Referido', 'Web', 'Llamado entrante', 'Evento', 'Otro'].map((x) => [x, x]), '', 'Sin definir'));
-    let inicial = 'prospecto'; const estEl = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado inicial' });
     const resp = h('select', { id: 'n-resp' }, opciones(eq.items.map((u) => [u.id, u.nombre]), estado.me.id, 'Sin asignar'));
     const contactos = []; const listaK = h('div'); const faltan = h('div'); const resumen = h('div', { class: 'bloque resumen-contrato' });
     const e = err(); const guardar = h('button', { class: 'btn btn-principal', type: 'button' }, 'Crear cliente');
     const pintarZona = () => vaciar(zonaEl).append(...[['caba', 'CABA · atención en 24 h'], ['resto', 'Resto del país · 48 h']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(zona === k), onclick: () => { zona = k; pintarZona(); } }, t)));
-    const pintarEst = () => vaciar(estEl).append(...[['prospecto', 'Prospecto: todavía no tiene contrato'], ['activo', 'Activo']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(inicial === k), onclick: () => { inicial = k; pintarEst(); } }, t)));
     const pintarSede = () => { vaciar(sedeExtra); if (!mismaSede.checked) sedeExtra.append(campo('Nombre de la sede', sNom, null, 'n-snom'), campo('Domicilio de la sede', sDom, null, 'n-sdom'), campo('Localidad', sLoc, null, 'n-sloc')); };
     mismaSede.addEventListener('change', pintarSede);
     const sedesAlta = () => [{ id: 1, nombre: 'Sede principal' }];
@@ -189,14 +247,14 @@ export function crearCrm(U) {
       try {
         const r = await api('/api/clientes', { metodo: 'POST', cuerpo: { razon_social: rs.value.trim(), nombre_comercial: nc.value.trim() || null, cuit: cuit.value.trim() || null, condicion_iva: iva.value || undefined, ...rub.valor(), tamano: tam.value || undefined, cantidad_empleados: emp.value === '' ? null : Number(emp.value),
           sitio_web: web.value.trim() || null, telefono: tel.value.trim() || null, email_general: mail.value.trim() || null, domicilio_fiscal: dom.value.trim() || null, localidad_fiscal: loc.value.trim() || null, provincia: prov.value.trim() || null,
-          origen: origen.value || undefined, notas: notas.value.trim() || undefined, estado: inicial,
+          origen: origen.value || undefined, notas: notas.value.trim() || undefined, estado: 'activo',
           sede: { nombre: misma ? 'Sede principal' : sNom.value.trim() || 'Sede principal', domicilio: (misma ? dom.value : sDom.value).trim() || null, localidad: (misma ? loc.value : sLoc.value).trim() || null, zona },
           contactos, responsable_id: eq.puede_elegir && resp.value ? Number(resp.value) : null } });
         aviso('Cliente creado'); location.hash = `#/clientes/${r.id}`;
       } catch (x) { mostrarErr(e, x.datos?.error ? msg(x) : 'No se pudo crear el cliente.'); guardar.disabled = false; }
     });
-    pintarZona(); pintarEst(); pintarSede(); pintarContactos();
-    agregar(destino, [h('a', { href: '#/clientes', class: 'apoyo' }, '← Clientes'), encabezado('Nuevo cliente', 'Cargá todo lo que sepas: lo demás se completa con el tiempo.'),
+    pintarZona(); pintarSede(); pintarContactos();
+    agregar(destino, [h('a', { href: '#/clientes', class: 'apoyo' }, '← Clientes'), encabezado('Nuevo cliente', 'Para cuentas que ya trabajan con nosotros. Los prospectos nuevos se cargan en Hunting.'),
       h('div', { class: 'rejilla dos' },
         h('div', null,
           h('div', { class: 'tarjeta' }, h('h2', null, 'La empresa'), campo('Razón social', rs, null, 'n-rs'), campo('Nombre comercial', nc, null, 'n-nc'),
@@ -209,7 +267,7 @@ export function crearCrm(U) {
           h('div', { class: 'tarjeta' }, h('h2', null, 'Contactos'), h('p', { class: 'apoyo', style: 'margin-top:0' }, 'Quien decide, quien recibe las facturas, quien reclama los cobros. Puede ser uno o varios.'), listaK, faltan,
             h('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: () => cajon('Nuevo contacto', (x) => formContacto({ sedes: [], cerrar: x, etiqueta: 'Agregar', enviar: async (d) => { contactos.push(d); pintarContactos(); } })) }, '+ Agregar contacto')),
           h('div', { class: 'tarjeta' }, h('h2', null, 'Cuenta'), h('div', { class: 'dos-col' }, campo('De dónde llegó', origen, null, 'n-ori'), eq.puede_elegir ? campo('Comercial responsable', resp, null, 'n-resp') : h('div')),
-            h('div', { class: 'campo' }, h('label', null, 'Estado inicial'), estEl, h('div', { class: 'apoyo' }, 'Pasa a Activo solo cuando se activa su primer contrato.')), campo('Notas', notas, null, 'n-not')),
+            campo('Notas', notas, null, 'n-not')),
           e, h('div', { class: 'acciones' }, guardar, h('a', { class: 'btn', href: '#/clientes' }, 'Cancelar'))),
         h('div', null, resumen, h('div', { class: 'bloque', style: 'margin-top:16px' }, h('h3', null, 'Después'), h('p', { class: 'apoyo', style: 'margin:0' }, 'Desde la ficha del cliente cargás su contrato: de ahí sale todo lo que se factura.'))))]);
     pintarResumen();
@@ -264,13 +322,13 @@ export function crearCrm(U) {
   function formConvertir(lead, cerrar) {
     const rs = inp('v-rs', lead.empresa, { max: 160 }); const cuit = inp('v-cuit', '', { max: 13, modo: 'numeric', ph: '30-12345678-9' }); const roles = new Set(['decisor']); const rolesEl = h('div', { class: 'seg', role: 'group', 'aria-label': 'Rol del contacto' });
     const pint = () => vaciar(rolesEl).append(...['decisor', 'comercial', 'compras', 'administracion', 'facturacion', 'cobranzas'].map((k) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(roles.has(k)), onclick: () => { roles.has(k) ? roles.delete(k) : roles.add(k); pint(); } }, ROL[k]))); pint();
-    const e = err(); const ok = h('button', { class: 'btn btn-principal', type: 'button' }, 'Crear el cliente');
+    const e = err(); const ok = h('button', { class: 'btn btn-principal', type: 'button' }, puede('contratos.editar') ? 'Crear cliente y cargar contrato' : 'Crear el cliente');
     ok.addEventListener('click', async () => {
       ok.disabled = true; e.classList.add('oculto');
-      try { const r = await api(`/api/leads/${lead.id}/convertir`, { metodo: 'POST', cuerpo: { razon_social: rs.value.trim() || undefined, cuit: cuit.value.trim() || null, roles: [...roles] } }); cerrar(); aviso('¡Ganado! Ya es cliente'); location.hash = `#/clientes/${r.cliente_id}`; }
+      try { const r = await api(`/api/leads/${lead.id}/convertir`, { metodo: 'POST', cuerpo: { razon_social: rs.value.trim() || undefined, cuit: cuit.value.trim() || null, roles: [...roles] } }); cerrar(); aviso('¡Ganado! Ya es cliente'); if (puede('contratos.editar') && puede('importes.ver')) { estado.nuevoContrato = { empresa: lead.empresa, abono: lead.valor_estimado_usd, equipos: lead.equipos_estimados }; location.hash = `#/contratos/nuevo/${r.cliente_id}`; } else location.hash = `#/clientes/${r.cliente_id}`; }
       catch (x) { mostrarErr(e, msg(x)); ok.disabled = false; }
     });
-    return h('div', null, h('p', { class: 'apoyo', style: 'margin-top:0' }, 'Se crea el cliente con la sede, el contacto y la cuenta a tu nombre. Después cargás su contrato.'), campo('Razón social', rs, null, 'v-rs'), campo('CUIT (si ya lo tenés)', cuit, null, 'v-cuit'),
+    return h('div', null, h('p', { class: 'apoyo', style: 'margin-top:0' }, 'Se crea el cliente con su sede, el contacto y la cuenta a tu nombre, y seguís con el contrato cerrado. Desde ahí el lead sale de Hunting y pasa a Clientes.'), campo('Razón social', rs, null, 'v-rs'), campo('CUIT (si ya lo tenés)', cuit, null, 'v-cuit'),
       lead.contacto_nombre && h('div', { class: 'campo' }, h('label', null, `Qué hace ${lead.contacto_nombre} en la empresa`), rolesEl), e, h('div', { class: 'acciones-cajon' }, ok, h('button', { class: 'btn', type: 'button', onclick: cerrar }, 'Cancelar')));
   }
 
@@ -302,7 +360,7 @@ export function crearCrm(U) {
           abierto && h('div', { class: 'bloque' }, h('h3', null, 'Registrar una gestión'), tipos, txt, h('div', { class: 'dos-col', style: 'margin-top:10px' }, sig, sigF), e, h('div', { style: 'margin-top:10px' }, guardarAct)),
           h('div', { class: 'bloque' }, h('h3', null, 'Historial'), h('div', { class: 'historia' }, d.actividades.map((a) => h('div', { class: `evento${a.tipo === 'etapa' ? ' e-escalada' : ''}` }, h('b', null, a.tipo === 'etapa' ? 'Etapa' : TIPO_ACT[a.tipo] ?? a.tipo), ' ', h('span', { class: 'apoyo' }, `${a.usuario ?? ''} · ${String(a.fecha).slice(0, 10).split('-').reverse().join('/')}`), a.texto && h('div', null, a.texto))))),
           l.cliente_id ? h('a', { class: 'btn btn-principal', href: `#/clientes/${l.cliente_id}`, onclick: cerrar }, 'Ver el cliente')
-            : abierto && h('div', { class: 'acciones-cajon' }, puede('clientes.editar') && h('button', { class: 'btn btn-principal', type: 'button', onclick: () => { cerrar(); cajon('Convertir en cliente', (x) => formConvertir(l, x)); } }, 'Ganado: crear cliente'),
+            : abierto && h('div', { class: 'acciones-cajon' }, puede('clientes.editar') && h('button', { class: 'btn btn-principal', type: 'button', onclick: () => { cerrar(); cajon('Convertir en cliente', (x) => formConvertir(l, x)); } }, 'Ganado: crear cliente y contrato'),
               h('button', { class: 'btn', type: 'button', onclick: () => { cerrar(); cajon('Editar lead', (x) => { const c = h('div', null, cargando()); formLead({ inicial: l, cerrar: x, alGuardar: alCambiar }).then((f) => vaciar(c).append(f)); return c; }); } }, 'Editar'),
               h('button', { class: 'btn', type: 'button', onclick: () => { cerrar(); cajon('Marcar como perdido', (x) => formPerdido(l, x, alCambiar)); } }, 'Perdido')));
       };
@@ -355,5 +413,14 @@ export function crearCrm(U) {
     vaciar(zona).append(cargando()); await cargar();
   }
 
-  return { vistaNuevoCliente, pestanaContactos, formCliente, tarjetaCumples, vistaHunting };
+  /** Tarjeta de Hunting para el inicio del comercial: qué leads piden acción. */
+  async function resumenHunting() {
+    const r = await api('/api/leads').catch(() => null); if (!r) return h('div');
+    const abiertos = r.items.filter((l) => !['ganado', 'perdido'].includes(l.etapa)).sort((a, b) => (b.accion_vencida - a.accion_vencida) || String(a.proxima_accion_fecha ?? '9').localeCompare(String(b.proxima_accion_fecha ?? '9')));
+    return h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Hunting: lo que sigue'), abiertos.length ? h('ul', { class: 'lista' }, abiertos.slice(0, 6).map((l) => h('li', null,
+      h('div', null, h('a', { href: '#/hunting' }, h('b', null, l.empresa)), h('div', { class: 'apoyo' }, l.proxima_accion ?? 'Sin próxima acción')), l.accion_vencida ? chip('Vencida', 'malo') : l.proxima_accion_fecha ? chip(fecha(l.proxima_accion_fecha).slice(0, 5), 'mudo') : null)))
+      : h('div', { class: 'vacio' }, h('b', null, 'Sin leads abiertos'), h('a', { href: '#/hunting' }, 'Cargar un lead')));
+  }
+
+  return { resumenHunting, vistaNuevoCliente, pestanaContactos, pestanaSedes, pestanaSeguimiento, formCliente, tarjetaCumples, vistaHunting };
 }

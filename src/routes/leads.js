@@ -158,7 +158,7 @@ export default async function rutasLeads(app, { db }) {
     const rub = l.rubro_id ? await db('rubros').where({ id: l.rubro_id }).first() : null;
     const cid = await db.transaction(async (trx) => {
       const [id] = await trx('clientes').insert({ razon_social: d.razon_social ?? l.empresa, nombre_comercial: l.empresa, cuit, rubro: rub?.nombre ?? null, rubro_id: l.rubro_id, subrubro_id: l.subrubro_id,
-        estado: 'prospecto', origen: l.origen ?? 'Hunting', fecha_alta: hoy(), notas: l.notas, lead_id: l.id, created_by: req.ctx.id, updated_by: req.ctx.id });
+        estado: 'activo', origen: l.origen ?? 'Hunting', fecha_alta: hoy(), notas: l.notas, lead_id: l.id, created_by: req.ctx.id, updated_by: req.ctx.id });
       await trx('sedes').insert({ cliente_id: id, nombre: 'Sede principal', es_principal: true, created_by: req.ctx.id, updated_by: req.ctx.id });
       if (l.contacto_nombre && (l.email || l.telefono)) {
         await trx('contactos').insert({ cliente_id: id, nombre: l.contacto_nombre, apellido: l.contacto_apellido, cargo: l.cargo, roles: JSON.stringify(d.roles),
