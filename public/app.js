@@ -1,6 +1,7 @@
 // JustPrint ERP — pantalla. Sin librerías: todo se arma con nodos del DOM (nunca con innerHTML sobre datos).
 import { crearCobranzas } from './cobranzas.js';
 import { crearConfiguracion } from './configuracion.js';
+import { crearContratos } from './contratos.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -48,6 +49,7 @@ async function api(ruta, { metodo = 'GET', cuerpo } = {}) {
 const ICONOS = {
   inicio: 'M3 11l9-8 9 8M5 10v10h14V10',
   clientes: 'M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 20v-2a4 4 0 0 0-3-3.9M16 3.1a3.5 3.5 0 0 1 0 6.8',
+  contratos: 'M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6',
   servicio: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   tickets: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z',
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
@@ -67,6 +69,7 @@ const MENU = [
   { ruta: 'notificaciones', texto: 'Notificaciones' },
   { grupo: 'Comercial' },
   { ruta: 'clientes', texto: 'Clientes', permiso: 'clientes.ver' },
+  { ruta: 'contratos', texto: 'Contratos', permiso: 'contratos.ver' },
   { grupo: 'Servicio' },
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
@@ -584,7 +587,8 @@ async function vistaCliente(destino, id) {
       h('div', { style: 'margin:6px 0' }, k.roles.map((r) => chip(r, 'info')), ' '),
       k.telefonos.map((t) => h('div', null, t.numero)), k.emails.map((m) => h('div', null, h('a', { href: `mailto:${m.direccion}` }, m.direccion)))))) : h('div', { class: 'tarjeta vacio' }, 'Sin contactos.')),
     negocio: () => cargando(),
-    contratos: () => (d.contratos.length ? h('div', null, d.contratos.map(tarjetaContrato)) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
+    contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
+      d.contratos.length ? d.contratos.map((c) => h('div', null, tarjetaContrato(c), h('a', { class: 'apoyo', href: `#/contratos/${c.id}` }, 'Ver ficha del contrato'))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
     cartera: () => h('div', { class: 'tarjeta' }, cargando()),
   };
   async function mostrar(clave) {
@@ -1262,6 +1266,7 @@ async function vistaVentaDirecta(destino) {
 
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
+const ctr = crearContratos({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
 
 async function navegar() {
@@ -1274,6 +1279,7 @@ async function navegar() {
   try {
     if (ruta === 'inicio') await vistaInicio(nuevo);
     else if (ruta === 'clientes' && puede('clientes.ver')) await (param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
+    else if (ruta === 'contratos' && puede('contratos.ver')) await (param === 'nuevo' ? ctr.vistaNuevoContrato(nuevo, sub) : param ? ctr.vistaContrato(nuevo, param) : ctr.vistaContratos(nuevo));
     else if (ruta === 'tickets' && puede('tickets.ver')) {
       if (param === 'nuevo' && puede('tickets.crear')) await vistaNuevoTicket(nuevo);
       else if (param && sub === 'cierre') await vistaCierre(nuevo, param);

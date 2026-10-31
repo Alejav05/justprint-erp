@@ -150,19 +150,6 @@ export default async function rutasCobranzas(app, { db }) {
     return { ok: true, vencimiento: venc };
   });
 
-  /** El plazo de pago se acuerda en el contrato; afecta a las facturas que se armen de acá en más. */
-  app.patch('/api/contratos/:id', { preHandler: [auth, requerirPermiso('contratos.editar')] }, async (req, reply) => {
-    const d = z.object({ plazo_pago_dias: z.number().int().min(0).max(365).nullable() }).parse(req.body);
-    const v = await clientesVisibles(db, req.ctx);
-    const c = await db('contratos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
-    if (!c || (v !== null && !v.includes(c.cliente_id))) return error(reply, 404, 'no_encontrado');
-    await db.transaction(async (trx) => {
-      await trx('contratos').where({ id: c.id }).update({ plazo_pago_dias: d.plazo_pago_dias, updated_by: req.ctx.id, updated_at: trx.fn.now() });
-      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'contratos', c.id, { plazo_pago_dias: c.plazo_pago_dias }, { plazo_pago_dias: d.plazo_pago_dias });
-    });
-    return { ok: true };
-  });
-
   /**
    * El negocio de un cliente, en dos carriles: rentabilidad (ingresos = facturas, egresos = costos; no depende de si se cobró)
    * y, aparte, lo que falta cobrar. `punto_equilibrio` es el primer mes en que lo facturado acumulado supera a los costos acumulados.

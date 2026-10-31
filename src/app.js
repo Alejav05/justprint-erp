@@ -14,6 +14,7 @@ import rutasInsumos from './routes/insumos.js';
 import rutasFacturacion from './routes/facturacion.js';
 import rutasCobranzas from './routes/cobranzas.js';
 import rutasAdmin from './routes/admin.js';
+import rutasContratos from './routes/contratos.js';
 import { cargarAjustes, moduloDeUrl, modulosOcultos } from './lib/ajustes_sistema.js';
 import rutasAjustes from './routes/ajustes.js';
 import rutasTablerosAreas from './routes/tableros_areas.js';
@@ -74,6 +75,7 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasFacturacion, { db });
   await app.register(rutasCobranzas, { db });
   await app.register(rutasAdmin, { db });
+  await app.register(rutasContratos, { db });
   await app.register(rutasAjustes, { db });
   await app.register(rutasTablerosAreas, { db });
   await app.register(rutasAlertas, { db });
