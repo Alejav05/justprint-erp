@@ -1,4 +1,4 @@
-import { AREA, PERMISOS, ROLES, NUMERADORES, REGLAS_ALERTA, FERIADOS, PUENTES } from '../src/lib/catalogo.js';
+import { AREA, PERMISOS, ROLES, NUMERADORES, REGLAS_ALERTA, FERIADOS, PUENTES, RUBROS } from '../src/lib/catalogo.js';
 
 /** Idempotente: se puede correr en cada despliegue sin duplicar nada. */
 export async function seed(knex) {
@@ -20,6 +20,17 @@ export async function seed(knex) {
     for (const p of permisos) {
       const hay = await knex('rol_permiso').where({ rol_id: rol.id, permiso_id: p.id }).first();
       if (!hay) await knex('rol_permiso').insert({ rol_id: rol.id, permiso_id: p.id });
+    }
+  }
+
+  let ordenRubro = 0;
+  for (const [nombre, subs] of Object.entries(RUBROS)) {
+    let r = await knex('rubros').whereNull('parent_id').where({ nombre }).first();
+    if (!r) { const [id] = await knex('rubros').insert({ nombre, orden: ordenRubro }); r = { id }; }
+    ordenRubro += 1; let o = 0;
+    for (const sub of subs) {
+      if (!(await knex('rubros').where({ parent_id: r.id, nombre: sub }).first())) await knex('rubros').insert({ nombre: sub, parent_id: r.id, orden: o });
+      o += 1;
     }
   }
 

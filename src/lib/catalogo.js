@@ -16,6 +16,9 @@ export const PERMISOS = [
   ['contactos.editar', 'clientes', 'Crear y editar contactos'],
   ['crm.gestionar', 'clientes', 'Gestionar interacciones, tareas y oportunidades'],
   ['cartera.asignar', 'clientes', 'Asignar y reasignar cuentas a comerciales'],
+  ['leads.ver', 'clientes', 'Ver el tablero de Hunting con sus propios leads'],
+  ['leads.editar', 'clientes', 'Crear leads, moverlos de etapa y convertirlos en clientes'],
+  ['leads.todos', 'clientes', 'Ver y gestionar los leads de todo el equipo'],
   ['contratos.ver', 'contratos', 'Ver contratos'],
   ['contratos.editar', 'contratos', 'Crear y editar contratos y condiciones'],
   ['importes.ver', 'finanzas', 'Ver importes: abonos, facturas y cobros'],
@@ -50,12 +53,13 @@ export const ROLES = {
   head_comercial: {
     descripcion: 'Líder del área comercial',
     permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'cartera.asignar',
-      'contratos.ver', 'contratos.editar', 'importes.ver', 'tickets.ver', 'equipos.ver', 'reportes.equipo', 'cobranzas.escaladas'],
+      'contratos.ver', 'contratos.editar', 'importes.ver', 'tickets.ver', 'equipos.ver', 'reportes.equipo', 'cobranzas.escaladas',
+      'leads.ver', 'leads.editar', 'leads.todos'],
   },
   comercial: {
     descripcion: 'Comercial con cartera propia',
     permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'contratos.ver',
-      'importes.ver', 'tickets.ver', 'equipos.ver', 'cobranzas.escaladas'],
+      'importes.ver', 'tickets.ver', 'equipos.ver', 'cobranzas.escaladas', 'leads.ver', 'leads.editar'],
   },
   head_atencion: {
     descripcion: 'Líder de atención al cliente',
@@ -119,3 +123,29 @@ export const REGLAS_ALERTA = [
   ['stock_bajo_minimo', null, null, ['atencion', 'tecnica'], 'Stock bajo el mínimo'],
   ['lead_sin_contacto', 24, 'horas', ['comercial_responsable'], 'Lead sin primer contacto'],
 ];
+
+/** Etapas del tablero de Hunting, en orden. Las dos últimas cierran el lead. */
+export const ETAPAS_LEAD = [
+  ['nuevo', 'Nuevo'], ['contactado', 'Contactado'], ['reunion', 'Reunión'], ['propuesta', 'Propuesta'],
+  ['negociacion', 'Negociación'], ['ganado', 'Ganado'], ['perdido', 'Perdido'],
+];
+
+/** Roles que puede cumplir un contacto del cliente. */
+export const ROLES_CONTACTO = ['decisor', 'comercial', 'compras', 'administracion', 'facturacion', 'cobranzas', 'it', 'tecnico', 'usuario'];
+
+/** Rubros y subrubros base. Dirección los puede editar desde Configuración. */
+export const RUBROS = {
+  'Salud': ['Clínicas y sanatorios', 'Consultorios y centros médicos', 'Laboratorios y diagnóstico', 'Odontología', 'Farmacias', 'Salud mental y kinesiología'],
+  'Educación': ['Colegios', 'Universidades e institutos', 'Capacitación y academias', 'Jardines de infantes'],
+  'Servicios profesionales': ['Estudios contables', 'Estudios jurídicos', 'Consultoras', 'Arquitectura e ingeniería', 'Escribanías', 'Agencias de marketing y diseño'],
+  'Comercio': ['Retail y tiendas', 'Mayoristas y distribuidoras', 'E-commerce', 'Ferreterías y corralones', 'Librerías y papelerías'],
+  'Industria': ['Alimenticia', 'Textil e indumentaria', 'Metalúrgica', 'Química y plásticos', 'Gráfica y packaging', 'Autopartes'],
+  'Logística y transporte': ['Transporte de cargas', 'Courier y última milla', 'Depósitos y almacenes', 'Comercio exterior y aduana'],
+  'Construcción e inmobiliaria': ['Constructoras', 'Desarrolladoras', 'Inmobiliarias', 'Administración de consorcios'],
+  'Gastronomía y hotelería': ['Restaurantes y bares', 'Hoteles', 'Catering y eventos'],
+  'Tecnología y telecomunicaciones': ['Software y servicios IT', 'Telecomunicaciones', 'Electrónica'],
+  'Finanzas y seguros': ['Bancos y financieras', 'Seguros y ART', 'Cambio y inversiones'],
+  'Sector público y ONG': ['Municipios y organismos', 'Fundaciones y ONG', 'Cámaras y asociaciones'],
+  'Agro y energía': ['Agropecuario', 'Petróleo, gas y energía', 'Minería'],
+  'Otros': ['Sin clasificar'],
+};

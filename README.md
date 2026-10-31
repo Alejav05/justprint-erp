@@ -65,3 +65,9 @@ Las pruebas pasan también contra MariaDB 10.11 (`TEST_DB=mysql DB_HOST=127.0.0.
 
 ## Próximas fases
 Importador desde las hojas actuales, pantallas (a partir del prototipo), tableros por área, app del técnico, motor de alertas, facturación electrónica por proveedor.
+
+## Clientes, contactos y Hunting
+
+**Alta de cliente** (Clientes › Nuevo cliente): datos de la empresa con CUIT validado (dígito verificador, sin duplicados), rubro y subrubro (catálogo editable por Dirección en `/api/rubros`), domicilio fiscal, sede principal con su zona de SLA, contactos y responsable comercial, todo en una sola operación. **Contactos**: varios por cliente, con roles (decisor, comercial, compras, administración, *recibe facturas*, *gestiona cobranzas*, IT, técnico, usuario), teléfonos y mails múltiples, fecha de nacimiento (edad y próximo cumpleaños calculados), canal y horario preferido, intereses y consentimiento. La ficha avisa si falta quién recibe las facturas o quién reclama el pago.
+
+**Hunting**: leads en un tablero por etapa (Nuevo, Contactado, Reunión, Propuesta, Negociación, Ganado, Perdido), con arrastrar y soltar, historial de gestiones, próxima acción con alerta de vencida y motivo obligatorio al perder. Un comercial ve solo sus leads; `leads.todos` (líder y Dirección) ve los de todo el equipo. *Ganado* se logra convirtiendo el lead: crea el cliente (prospecto), su sede, el contacto y la cuenta a nombre del comercial. El cliente pasa a Activo al activar su primer contrato.

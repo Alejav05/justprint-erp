@@ -13,7 +13,7 @@ export function crearContratos(U) {
   const hoyISO = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
   const sumarMeses = (iso, n) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); };
   const chipEstado = (e) => chip(...(ESTADO[e] ?? [e, 'mudo']));
-  const aviso = (t) => { document.querySelector('.aviso-flotante')?.remove(); const el = h('div', { class: 'aviso-flotante', role: 'status' }, t); document.body.append(el); setTimeout(() => el.remove(), 2600); };
+  const { cajon, aviso } = U;
   const campo = (rot, el, ayuda, id) => h('div', { class: 'campo' }, h('label', { for: id }, rot), el, ayuda && h('div', { class: 'apoyo' }, ayuda));
   const nIn = (id, v, o = {}) => h('input', { id, type: 'number', inputmode: 'decimal', min: '0', step: o.step ?? 'any', value: v ?? '', placeholder: o.ph ?? null });
   const mon = (c) => (c === 'ARS' ? 'pesos' : 'dólares');
@@ -107,15 +107,6 @@ export function crearContratos(U) {
   }
 
   /* ---------- ficha ---------- */
-  function cajon(titulo, cuerpo) {
-    const previo = document.activeElement; const velo = h('div', { class: 'cajon-velo' }); const el = h('aside', { class: 'cajon', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo });
-    const cerrar = () => { velo.remove(); el.remove(); document.removeEventListener('keydown', tecla); document.body.style.overflow = ''; previo?.focus?.(); };
-    const tecla = (ev) => { if (ev.key === 'Escape') cerrar(); };
-    velo.addEventListener('click', cerrar); document.addEventListener('keydown', tecla); document.body.style.overflow = 'hidden';
-    el.append(h('div', { class: 'cajon-cab' }, h('h2', null, titulo), h('button', { class: 'cajon-cerrar', type: 'button', 'aria-label': 'Cerrar', onclick: cerrar }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M6 6l12 12M18 6L6 18' })))), h('div', { class: 'cajon-cuerpo' }, cuerpo(cerrar)));
-    document.body.append(velo, el); el.querySelector('input,select,textarea,button.btn')?.focus(); return cerrar;
-  }
-
   async function vistaContrato(destino, id) {
     const d = await api(`/api/contratos/${id}`).catch((e) => { if (e.estado === 404) return null; throw e; });
     if (!d) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese contrato'), h('a', { href: '#/contratos' }, 'Volver a contratos'))); return; }

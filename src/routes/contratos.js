@@ -108,6 +108,7 @@ export default async function rutasContratos(app, { db }) {
       const [cid] = await trx('contratos').insert({ cliente_id: d.cliente_id, sede_id: d.sede_id ?? null, nombre: d.nombre, estado: d.estado, fecha_inicio: d.fecha_inicio, duracion_meses: d.duracion_meses ?? null, moneda: d.moneda,
         entidad_facturante_id: entidad, plazo_pago_dias: d.plazo_pago_dias ?? null, notas: d.notas ?? null, created_by: req.ctx.id });
       await trx('contrato_condiciones').insert({ contrato_id: cid, vigente_desde: d.fecha_inicio, ...d.precios, motivo: d.precios.facturable ? 'alta' : 'sin_facturar', monto_usd_referencia: ref.usd, cotizacion_referencia: ref.cot, creado_por: req.ctx.id });
+      if (d.estado === 'vigente') await trx('clientes').where({ id: d.cliente_id }).whereNot({ estado: 'activo' }).update({ estado: 'activo', fecha_baja: null, motivo_baja: null });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'contratos', cid, null, { cliente_id: d.cliente_id, nombre: d.nombre, moneda: d.moneda, monto_mensual: d.precios.monto_mensual });
       return cid;
     });
@@ -162,6 +163,7 @@ export default async function rutasContratos(app, { db }) {
     const fin = d.fecha ?? hoy();
     await db.transaction(async (trx) => {
       await trx('contratos').where({ id: c.id }).update({ estado: d.estado, notas: d.motivo ? `${c.notas ? `${c.notas}\n` : ''}${d.estado === 'rescindido' ? 'Rescisión' : 'Cierre'} ${fin}: ${d.motivo}` : c.notas, updated_by: req.ctx.id, updated_at: trx.fn.now() });
+      if (d.estado === 'vigente') await trx('clientes').where({ id: c.cliente_id }).whereNot({ estado: 'activo' }).update({ estado: 'activo', fecha_baja: null, motivo_baja: null });
       if (d.estado !== 'vigente') await trx('contrato_condiciones').where({ contrato_id: c.id }).whereNull('vigente_hasta').update({ vigente_hasta: fin });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'contratos', c.id, { estado: c.estado }, { estado: d.estado, fecha: fin, motivo: d.motivo });
     });

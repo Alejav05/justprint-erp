@@ -2,6 +2,7 @@
 import { crearCobranzas } from './cobranzas.js';
 import { crearConfiguracion } from './configuracion.js';
 import { crearContratos } from './contratos.js';
+import { crearCrm } from './crm.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -23,6 +24,22 @@ function h(tag, attrs, ...hijos) {
   agregar(el, hijos);
   return el;
 }
+/** Cajón lateral para formularios y detalles. `cuerpo(cerrar)` devuelve el contenido. */
+function cajonLateral(titulo, cuerpo) {
+  const previo = document.activeElement; const velo = h('div', { class: 'cajon-velo' }); const el = h('aside', { class: 'cajon', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo });
+  const cerrar = () => { velo.remove(); el.remove(); document.removeEventListener('keydown', tecla); document.body.style.overflow = ''; previo?.focus?.(); };
+  const tecla = (ev) => { if (ev.key === 'Escape') cerrar(); };
+  velo.addEventListener('click', cerrar); document.addEventListener('keydown', tecla); document.body.style.overflow = 'hidden';
+  el.append(h('div', { class: 'cajon-cab' }, h('h2', null, titulo), h('button', { class: 'cajon-cerrar', type: 'button', 'aria-label': 'Cerrar', onclick: cerrar }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M6 6l12 12M18 6L6 18' })))), h('div', { class: 'cajon-cuerpo' }, cuerpo(cerrar)));
+  document.body.append(velo, el); el.querySelector('input,select,textarea,button.btn')?.focus(); return cerrar;
+}
+
+/** Aviso breve que se va solo. */
+const toast = (t) => { document.querySelector('.aviso-flotante')?.remove(); const el = h('div', { class: 'aviso-flotante', role: 'status' }, t); document.body.append(el); setTimeout(() => el.remove(), 2600); };
+
+/** Cajón lateral para formularios y detalles. `cuerpo(cerrar)` devuelve el contenido. */
+
+
 const vaciar = (el) => { while (el.firstChild) el.firstChild.remove(); return el; };
 const usd = (n) => `USD ${Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}`;
 const usd2 = (n) => `USD ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -49,6 +66,7 @@ async function api(ruta, { metodo = 'GET', cuerpo } = {}) {
 const ICONOS = {
   inicio: 'M3 11l9-8 9 8M5 10v10h14V10',
   clientes: 'M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 20v-2a4 4 0 0 0-3-3.9M16 3.1a3.5 3.5 0 0 1 0 6.8',
+  hunting: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 12h.01',
   contratos: 'M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6',
   servicio: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   tickets: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z',
@@ -69,6 +87,7 @@ const MENU = [
   { ruta: 'notificaciones', texto: 'Notificaciones' },
   { grupo: 'Comercial' },
   { ruta: 'clientes', texto: 'Clientes', permiso: 'clientes.ver' },
+  { ruta: 'hunting', texto: 'Hunting', permiso: 'leads.ver' },
   { ruta: 'contratos', texto: 'Contratos', permiso: 'contratos.ver' },
   { grupo: 'Servicio' },
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
@@ -460,13 +479,14 @@ async function vistaInicio(destino) {
 }
 
 async function vistaClientes(destino) {
-  const f = { q: '', estado: '', pagina: 1 };
+  const f = { q: '', estado: 'activo', pagina: 1 };
   const cuerpo = h('div');
   const buscar = h('input', { type: 'search', placeholder: 'Buscar por razón social o nombre comercial', 'aria-label': 'Buscar cliente' });
-  const filtro = h('select', { 'aria-label': 'Estado' }, h('option', { value: '' }, 'Todos los estados'), ...Object.entries(ESTADO_CLIENTE).map(([v, [t]]) => h('option', { value: v }, t)));
+  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado del cliente', style: 'margin:0' });
+  const pintarSeg = () => vaciar(seg).append(...[['activo', 'Activos'], ['inactivo', 'Inactivos'], ['prospecto', 'Prospectos'], ['', 'Todos']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(f.estado === k), onclick: () => { f.estado = k; f.pagina = 1; pintarSeg(); cargar(); } }, t)));
+  pintarSeg();
   let tiempo;
   buscar.addEventListener('input', () => { clearTimeout(tiempo); tiempo = setTimeout(() => { f.q = buscar.value; f.pagina = 1; cargar(); }, 250); });
-  filtro.addEventListener('change', () => { f.estado = filtro.value; f.pagina = 1; cargar(); });
 
   async function cargar() {
     vaciar(cuerpo).append(cargando());
@@ -494,8 +514,10 @@ async function vistaClientes(destino) {
       }
     } catch (e) { if (e.message !== 'sesion') vaciar(cuerpo).append(falla()); }
   }
-  destino.append(encabezado('Clientes', 'Las cuentas que podés ver según tu área y alcance', puede('clientes.editar') && h('span', { class: 'apoyo' }, '')),
-    h('div', { class: 'herramientas' }, buscar, filtro), cuerpo);
+  const cumples = h('div');
+  destino.append(encabezado('Clientes', 'Las cuentas que podés ver según tu área y alcance', puede('clientes.editar') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/clientes/nuevo' }, '+ Nuevo cliente'))),
+    cumples, h('div', { class: 'herramientas' }, buscar), seg, cuerpo);
+  crm.tarjetaCumples(14).then((t) => { if (t) { t.style.marginBottom = '16px'; cumples.append(t); } });
   await cargar();
 }
 
@@ -577,15 +599,15 @@ async function vistaCliente(destino, id) {
     resumen: () => h('div', null,
       h('div', { class: 'tarjeta' }, h('h2', null, 'Datos'), h('dl', { class: 'datos', style: 'margin:0' },
         fila('Razón social', c.razon_social), fila('Nombre comercial', c.nombre_comercial), fila('CUIT', c.cuit), fila('Estado', chipEstado(c.estado)),
-        fila('Responsable', d.responsable ? d.responsable.nombre : chip('Sin asignar', 'aviso')), fila('Alta', fecha(c.fecha_alta)), fila('Rubro', c.rubro), fila('Origen', c.origen))),
+        fila('Responsable', d.responsable ? d.responsable.nombre : chip('Sin asignar', 'aviso')), fila('Alta', fecha(c.fecha_alta)), fila('Rubro', [c.rubro_nombre, c.subrubro_nombre].filter(Boolean).join(' › ') || null), fila('Origen', c.origen),
+        fila('Condición IVA', c.condicion_iva ? { responsable_inscripto: 'Responsable inscripto', monotributo: 'Monotributo', exento: 'Exento', consumidor_final: 'Consumidor final' }[c.condicion_iva] : null), fila('Tamaño', [c.tamano, c.cantidad_empleados ? `${c.cantidad_empleados} empleados` : null].filter(Boolean).join(' · ') || null),
+        fila('Teléfono', c.telefono), fila('Mail', c.email_general), fila('Sitio web', c.sitio_web), fila('Domicilio fiscal', [c.domicilio_fiscal, c.localidad_fiscal, c.provincia].filter(Boolean).join(', ') || null),
+        c.estado === 'inactivo' && fila('Baja', [c.fecha_baja ? fecha(c.fecha_baja) : null, c.motivo_baja].filter(Boolean).join(' · ') || null))),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Sedes'), d.sedes.length ? h('ul', { class: 'lista' }, d.sedes.map((s) => h('li', null,
         h('div', null, h('b', null, s.nombre), h('div', { class: 'apoyo' }, [s.domicilio, s.localidad].filter(Boolean).join(', ') || 'Sin domicilio')),
         chip(s.zona === 'caba' ? 'CABA · SLA 24 h' : 'Resto · SLA 48 h', 'info')))) : h('p', { class: 'apoyo' }, 'Sin sedes cargadas.')),
       c.notas && h('div', { class: 'tarjeta' }, h('h2', null, 'Notas'), h('p', { style: 'white-space:pre-line;margin:0' }, c.notas))),
-    contactos: () => (d.contactos.length ? h('div', { class: 'rejilla dos-iguales' }, d.contactos.map((k) => h('div', { class: 'tarjeta' },
-      h('div', { style: 'display:flex;justify-content:space-between;gap:8px' }, h('b', { class: 'nombre-cliente' }, k.nombre), k.autorizado_toner ? chip('Autoriza tóner', 'ok') : chip('No autoriza tóner', 'mudo')),
-      h('div', { style: 'margin:6px 0' }, k.roles.map((r) => chip(r, 'info')), ' '),
-      k.telefonos.map((t) => h('div', null, t.numero)), k.emails.map((m) => h('div', null, h('a', { href: `mailto:${m.direccion}` }, m.direccion)))))) : h('div', { class: 'tarjeta vacio' }, 'Sin contactos.')),
+    contactos: () => crm.pestanaContactos(d, () => navegar()),
     negocio: () => cargando(),
     contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
       d.contratos.length ? d.contratos.map((c) => h('div', null, tarjetaContrato(c), h('a', { class: 'apoyo', href: `#/contratos/${c.id}` }, 'Ver ficha del contrato'))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
@@ -605,7 +627,8 @@ async function vistaCliente(destino, id) {
   }
   pestanas.forEach(([clave, texto]) => barra.append(h('button', { type: 'button', role: 'tab', 'data-clave': clave, onclick: () => mostrar(clave) }, texto)));
   destino.append(h('a', { href: '#/clientes', class: 'apoyo' }, '← Clientes'),
-    encabezado(c.nombre_comercial || c.razon_social, c.nombre_comercial ? c.razon_social : null, chipEstado(c.estado)), barra, panel);
+    encabezado(c.nombre_comercial || c.razon_social, c.nombre_comercial ? c.razon_social : null, h('div', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, chipEstado(c.estado),
+      puede('clientes.editar') && h('button', { class: 'btn', type: 'button', onclick: () => cajonLateral('Editar datos del cliente', (x) => { const caja = h('div', null, cargando()); crm.formCliente(d, x, () => navegar()).then((f) => vaciar(caja).append(f)); return caja; }) }, 'Editar datos'))), barra, panel);
   await mostrar('resumen');
 }
 
@@ -1266,7 +1289,8 @@ async function vistaVentaDirecta(destino) {
 
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
-const ctr = crearContratos({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
+const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
+const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
 
 async function navegar() {
@@ -1278,7 +1302,8 @@ async function navegar() {
   const nuevo = h('div');
   try {
     if (ruta === 'inicio') await vistaInicio(nuevo);
-    else if (ruta === 'clientes' && puede('clientes.ver')) await (param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
+    else if (ruta === 'clientes' && puede('clientes.ver')) await (param === 'nuevo' && puede('clientes.editar') ? crm.vistaNuevoCliente(nuevo) : param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
+    else if (ruta === 'hunting' && puede('leads.ver')) await crm.vistaHunting(nuevo);
     else if (ruta === 'contratos' && puede('contratos.ver')) await (param === 'nuevo' ? ctr.vistaNuevoContrato(nuevo, sub) : param ? ctr.vistaContrato(nuevo, param) : ctr.vistaContratos(nuevo));
     else if (ruta === 'tickets' && puede('tickets.ver')) {
       if (param === 'nuevo' && puede('tickets.crear')) await vistaNuevoTicket(nuevo);

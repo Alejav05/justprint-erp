@@ -366,3 +366,31 @@ details summary{cursor:pointer;font-weight:700;color:var(--navy)}
 .checklist li { justify-content: flex-start; text-align: left; border-bottom: 0; }
 .checklist li > div { text-align: left; }
 .acciones:last-child { margin-top: 16px; }
+
+/* CRM: contactos, formularios y Hunting */
+.campo textarea{min-height:84px;border:1px solid #CBD8DE;border-radius:10px;padding:10px 14px;background:#fff;color:var(--navy);resize:vertical;width:100%}
+.campo textarea:focus{border-color:var(--cian);outline:none;box-shadow:0 0 0 3px rgba(0,188,212,.25)}
+.fila-medio{display:grid;grid-template-columns:120px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+.fila-medio select,.fila-medio input{min-height:42px;border:1px solid #CBD8DE;border-radius:10px;padding:0 12px;background:#fff;color:var(--navy);min-width:0;width:100%}
+.contacto-tarjeta .cumple{margin-top:6px;font-weight:600;color:var(--navy)}
+.contacto-tarjeta .via{margin-top:4px}
+.tablero-leads{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);gap:14px;overflow-x:auto;padding-bottom:12px;align-items:start;scroll-snap-type:x proximity}
+.col-lead{background:#E9EFF3;border-radius:14px;padding:10px;min-height:220px;scroll-snap-align:start;transition:background .12s}
+.col-lead.sobre{background:#D3EEF2;outline:2px dashed var(--cian-os);outline-offset:-4px}
+.col-lead header{display:flex;align-items:baseline;gap:8px;padding:4px 6px 10px}
+.col-lead header b{color:var(--navy)}
+.col-lead .cuenta{background:#fff;border-radius:999px;padding:1px 9px;font-size:12.5px;font-weight:700;color:var(--navy)}
+.col-lead header .apoyo{margin-left:auto}
+.col-cuerpo{display:flex;flex-direction:column;gap:8px}
+.col-vacia{font-size:13px;color:var(--gris);padding:18px 8px;text-align:center}
+.col-ganado header b{color:#0F6B49}.col-perdido header b{color:#A22329}
+.lead{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:var(--sombra);cursor:grab;border-left:4px solid transparent;display:flex;flex-direction:column;gap:3px}
+.lead:hover{box-shadow:0 4px 14px rgba(13,27,42,.12)}
+.lead:focus-visible{outline:3px solid rgba(0,188,212,.55)}
+.lead.vencida{border-left-color:var(--r)}
+.lead.arrastrando{opacity:.45}
+.lead-nombre{color:var(--navy)}
+.lead-pie{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.lead-valor{font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
+.lead-accion{font-size:12.5px;color:var(--gris);margin-top:2px}.lead-accion.vencida{color:#A22329;font-weight:600}
+@media (max-width:700px){.fila-medio{grid-template-columns:100px 1fr}.fila-medio .btn-texto{grid-column:1 / -1;justify-self:start}.tablero-leads{grid-auto-columns:82%}}
