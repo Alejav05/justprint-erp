@@ -37,6 +37,7 @@ export default async function rutasAjustes(app, { db }) {
     const v = contrato ? await clientesVisibles(db, ctx) : null;
     if (!contrato || (v !== null && !v.includes(contrato.cliente_id))) return { codigo: 404, error: 'no_encontrado' };
     const cond = await db('contrato_condiciones').where({ contrato_id: id }).whereNull('vigente_hasta').orderBy('vigente_desde', 'desc').first();
+    if (contrato.moneda !== 'ARS') return { codigo: 409, error: 'solo_pesos' }; // el ajuste por IPC aplica solo a contratos en pesos
     if (!cond) return { codigo: 409, error: 'sin_condiciones' };
     const meses = mesesHasta(hasta);
     const filas = await db('indices_ipc').whereIn('periodo', meses);

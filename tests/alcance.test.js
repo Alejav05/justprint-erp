@@ -83,7 +83,7 @@ test('un comercial que da de alta una cuenta queda como su responsable', async (
   const nicolas = await entrar(ctx.app, 'nicolas@demo.local');
   const r = await nicolas.llamar('POST', '/api/clientes', { razon_social: 'Taller Mecánico Norte', origen: 'Instagram' });
   assert.equal(r.statusCode, 201);
-  assert.equal(r.json().estado, 'prospecto');
+  assert.equal(r.json().estado, 'activo');
   const lista = await nicolas.llamar('GET', '/api/clientes');
   assert.ok(nombres(lista).includes('Taller Mecánico Norte'));
   const fila = lista.json().clientes.find((c) => c.razon_social === 'Taller Mecánico Norte');

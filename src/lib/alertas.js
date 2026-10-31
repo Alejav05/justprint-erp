@@ -1,6 +1,8 @@
 // Motor de alertas: cada regla mira el estado actual del negocio, y por cada caso que cumple arma el aviso con los datos de ese momento.
 import { canales } from './canales.js';
 import { aDia, hoy } from './fechas.js';
+import { semaforo } from './cobranzas.js';
+import { valor } from './ajustes_sistema.js';
 import { estadoSla } from './servicio.js';
 import { aSql, cargarFeriados, deSql } from './sla.js';
 import { config } from '../config.js';
@@ -69,19 +71,44 @@ export const REGLAS = [
     },
   },
   {
-    clave: 'factura_vencida', nombre: 'Factura sin cobrar', descripcion: 'Una factura emitida lleva muchos días con saldo pendiente.', unidad: 'días desde la emisión', umbral: 30,
-    canales: ['sistema', 'mail'], destinatarios: { roles: ['facturacion'], responsables: ['comercial'], usuarios: [] }, frecuencia_horas: 72,
-    asunto: 'Factura sin cobrar: {cliente} · {periodo}', cuerpo: '{cliente} tiene la factura de {periodo}{numero} con un saldo de {saldo}, emitida hace {dias} días.',
-    variables: ['cliente', 'periodo', 'numero', 'saldo', 'dias'],
+    clave: 'factura_vencida', nombre: 'Factura vencida', descripcion: 'Una factura emitida pasó el plazo de pago acordado en el contrato y sigue con saldo. Se avisa desde que el semáforo pasa a amarillo.', unidad: 'días de vencida', umbral: 1,
+    canales: ['sistema', 'mail'], destinatarios: { roles: ['facturacion'], responsables: [], usuarios: [] }, frecuencia_horas: 72,
+    asunto: 'Factura vencida: {cliente} · {periodo}', cuerpo: '{cliente} tiene la factura de {periodo}{numero} con un saldo de {saldo}, vencida hace {dias} días (semáforo {color}).',
+    variables: ['cliente', 'periodo', 'numero', 'saldo', 'dias', 'color'],
     async evaluar(db, { umbral }) {
-      const cartera = await carteraDe(db); const h = hoy(); const out = [];
-      const fs = await db('facturas').join('clientes', 'clientes.id', 'facturas.cliente_id').whereNull('facturas.deleted_at').whereIn('facturas.estado', ['emitida', 'cobrada_parcial']).whereNotNull('facturas.entidad_facturante_id')
-        .select('facturas.*', 'clientes.razon_social', 'clientes.nombre_comercial');
+      const h = hoy(); const out = [];
+      const fs = await db('facturas').join('clientes', 'clientes.id', 'facturas.cliente_id').leftJoin('contratos as ct', 'ct.id', 'facturas.contrato_id').whereNull('facturas.deleted_at').whereIn('facturas.estado', ['emitida', 'cobrada_parcial']).whereNotNull('facturas.entidad_facturante_id')
+        .select('facturas.*', 'clientes.razon_social', 'clientes.nombre_comercial', 'ct.plazo_pago_dias as contrato_plazo');
       const ap = new Map((await db('cobro_aplicaciones').whereIn('factura_id', fs.map((f) => f.id)).groupBy('factura_id').select('factura_id').sum({ s: 'importe' })).map((a) => [a.factura_id, Number(a.s)]));
       for (const f of fs) {
-        const dias = diasEntre(aDia(f.fecha_emision) ?? h, h); const saldo = Number(f.total) - (ap.get(f.id) ?? 0);
-        if (saldo > 0.005 && dias >= umbral) out.push({ entidad: `factura:${f.id}`, vars: { cliente: nombreCliente(f), periodo: f.periodo, numero: f.numero ? ` (${f.numero})` : '', saldo: plata(saldo, f.moneda), dias }, destino: `#/facturacion/factura/${f.id}`, responsables: { comercial: cartera.get(f.cliente_id) } });
+        const s = semaforo(f, h, { plazo_pago_dias: f.contrato_plazo }); const saldo = Number(f.total) - (ap.get(f.id) ?? 0);
+        if (saldo > 0.005 && s.dias_vencida >= Math.max(1, umbral)) out.push({ entidad: `factura:${f.id}`, vars: { cliente: nombreCliente(f), periodo: f.periodo, numero: f.numero ? ` (${f.numero})` : '', saldo: plata(saldo, f.moneda), dias: s.dias_vencida, color: s.color }, destino: `#/cobranzas`, responsables: {} });
       }
+      return out;
+    },
+  },
+  {
+    clave: 'gestion_pendiente', nombre: 'Gestión de cobranza para hoy', descripcion: 'Llegó la fecha de seguimiento que cobranzas se puso para una factura.', unidad: null, umbral: null,
+    canales: ['sistema'], destinatarios: { roles: ['facturacion'], responsables: [], usuarios: [] }, frecuencia_horas: 24,
+    asunto: 'Seguimiento de cobro: {cliente}', cuerpo: 'Hoy toca retomar el reclamo a {cliente} por la factura de {periodo}{numero}.',
+    variables: ['cliente', 'periodo', 'numero'],
+    async evaluar(db) {
+      const h = hoy(); const out = [];
+      for (const f of await db('facturas').join('clientes', 'clientes.id', 'facturas.cliente_id').whereNull('facturas.deleted_at').whereIn('facturas.estado', ['emitida', 'cobrada_parcial']).where('facturas.estado_gestion', '!=', 'escalada').whereNotNull('facturas.proxima_gestion').select('facturas.*', 'clientes.razon_social', 'clientes.nombre_comercial')) {
+        if (aDia(f.proxima_gestion) <= h) out.push({ entidad: `gestion:${f.id}`, vars: { cliente: nombreCliente(f), periodo: f.periodo, numero: f.numero ? ` (${f.numero})` : '' }, destino: '#/cobranzas', responsables: {} });
+      }
+      return out;
+    },
+  },
+  {
+    clave: 'factura_escalada', nombre: 'Factura pasada al comercial', descripcion: 'Cobranzas no logró respuesta y le pidió al comercial que gestione el cobro. Se recuerda hasta que se cobre o vuelva a cobranzas.', unidad: null, umbral: null,
+    canales: ['sistema', 'mail'], destinatarios: { roles: [], responsables: ['comercial'], usuarios: [] }, frecuencia_horas: 72,
+    asunto: 'Cobro pendiente con {cliente}', cuerpo: 'Cobranzas te pasó la factura de {periodo}{numero} de {cliente}: saldo {saldo}. Contactá al cliente y dejá registrado el resultado.',
+    variables: ['cliente', 'periodo', 'numero', 'saldo'],
+    async evaluar(db) {
+      const out = []; const fs = await db('facturas').join('clientes', 'clientes.id', 'facturas.cliente_id').whereNull('facturas.deleted_at').whereIn('facturas.estado', ['emitida', 'cobrada_parcial']).where('facturas.estado_gestion', 'escalada').select('facturas.*', 'clientes.razon_social', 'clientes.nombre_comercial');
+      const ap = new Map((await db('cobro_aplicaciones').whereIn('factura_id', fs.map((f) => f.id)).groupBy('factura_id').select('factura_id').sum({ s: 'importe' })).map((a) => [a.factura_id, Number(a.s)]));
+      for (const f of fs) out.push({ entidad: `escalada:${f.id}`, vars: { cliente: nombreCliente(f), periodo: f.periodo, numero: f.numero ? ` (${f.numero})` : '', saldo: plata(Number(f.total) - (ap.get(f.id) ?? 0), f.moneda) }, destino: '#/cobranzas', responsables: { comercial: f.escalada_a } });
       return out;
     },
   },
@@ -141,16 +168,16 @@ export const REGLAS = [
     },
   },
   {
-    clave: 'ajuste_ipc_pendiente', nombre: 'Ajuste por IPC pendiente', descripcion: 'Un contrato en pesos lleva meses sin actualizar sus precios.', unidad: 'meses sin ajustar', umbral: 3,
-    canales: ['sistema', 'mail'], destinatarios: { roles: ['direccion', 'head_comercial'], responsables: [], usuarios: [] }, frecuencia_horas: 168,
-    asunto: 'Ajuste por IPC pendiente: {cliente}', cuerpo: 'El contrato "{contrato}" de {cliente} tiene los mismos precios desde {desde}. Toca el ajuste trimestral por IPC.', variables: ['cliente', 'contrato', 'desde'],
-    async evaluar(db, { umbral }) {
-      const h = hoy(); const out = [];
+    clave: 'ajuste_ipc_pendiente', nombre: 'Ajuste por IPC pendiente', descripcion: 'Un contrato en pesos cumplió el intervalo de ajuste sin actualizar sus precios (el intervalo se define en Configuración).', unidad: null, umbral: null,
+    canales: ['sistema', 'mail'], destinatarios: { roles: ['direccion', 'head_comercial'], responsables: ['comercial'], usuarios: [] }, frecuencia_horas: 168,
+    asunto: 'Ajuste por IPC pendiente: {cliente}', cuerpo: 'El contrato "{contrato}" de {cliente} tiene los mismos precios desde {desde}. Toca revisar el ajuste con el cliente. Lo valida y lo carga una persona; el sistema solo calcula y avisa.', variables: ['cliente', 'contrato', 'desde'],
+    async evaluar(db) {
+      const h = hoy(); const out = []; const cartera = await carteraDe(db); const umbral = valor('ipc.meses_ajuste') ?? 3;
       const cs = await db('contratos as c').join('clientes', 'clientes.id', 'c.cliente_id').where({ 'c.estado': 'vigente', 'c.moneda': 'ARS' }).whereNull('c.deleted_at').select('c.id', 'c.nombre', 'c.cliente_id', 'clientes.razon_social', 'clientes.nombre_comercial');
       for (const c of cs) {
         const cond = await db('contrato_condiciones').where({ contrato_id: c.id }).whereNull('vigente_hasta').orderBy('vigente_desde', 'desc').first(); if (!cond) continue;
         const desde = aDia(cond.vigente_desde);
-        if (sumarMeses(desde, umbral) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: `#/clientes/${c.cliente_id}`, responsables: {} });
+        if (sumarMeses(desde, umbral) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: `#/clientes/${c.cliente_id}`, responsables: { comercial: cartera.get(c.cliente_id) } });
       }
       return out;
     },

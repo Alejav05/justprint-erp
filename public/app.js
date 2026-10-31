@@ -1,4 +1,8 @@
 // JustPrint ERP — pantalla. Sin librerías: todo se arma con nodos del DOM (nunca con innerHTML sobre datos).
+import { crearCobranzas } from './cobranzas.js';
+import { crearConfiguracion } from './configuracion.js';
+import { crearContratos } from './contratos.js';
+import { crearCrm } from './crm.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -20,6 +24,22 @@ function h(tag, attrs, ...hijos) {
   agregar(el, hijos);
   return el;
 }
+/** Cajón lateral para formularios y detalles. `cuerpo(cerrar)` devuelve el contenido. */
+function cajonLateral(titulo, cuerpo) {
+  const previo = document.activeElement; const velo = h('div', { class: 'cajon-velo' }); const el = h('aside', { class: 'cajon', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo });
+  const cerrar = () => { velo.remove(); el.remove(); document.removeEventListener('keydown', tecla); document.body.style.overflow = ''; previo?.focus?.(); };
+  const tecla = (ev) => { if (ev.key === 'Escape') cerrar(); };
+  velo.addEventListener('click', cerrar); document.addEventListener('keydown', tecla); document.body.style.overflow = 'hidden';
+  el.append(h('div', { class: 'cajon-cab' }, h('h2', null, titulo), h('button', { class: 'cajon-cerrar', type: 'button', 'aria-label': 'Cerrar', onclick: cerrar }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M6 6l12 12M18 6L6 18' })))), h('div', { class: 'cajon-cuerpo' }, cuerpo(cerrar)));
+  document.body.append(velo, el); el.querySelector('input,select,textarea,button.btn')?.focus(); return cerrar;
+}
+
+/** Aviso breve que se va solo. */
+const toast = (t) => { document.querySelector('.aviso-flotante')?.remove(); const el = h('div', { class: 'aviso-flotante', role: 'status' }, t); document.body.append(el); setTimeout(() => el.remove(), 2600); };
+
+/** Cajón lateral para formularios y detalles. `cuerpo(cerrar)` devuelve el contenido. */
+
+
 const vaciar = (el) => { while (el.firstChild) el.firstChild.remove(); return el; };
 const usd = (n) => `USD ${Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}`;
 const usd2 = (n) => `USD ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -46,12 +66,16 @@ async function api(ruta, { metodo = 'GET', cuerpo } = {}) {
 const ICONOS = {
   inicio: 'M3 11l9-8 9 8M5 10v10h14V10',
   clientes: 'M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 20v-2a4 4 0 0 0-3-3.9M16 3.1a3.5 3.5 0 0 1 0 6.8',
+  hunting: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 12h.01',
+  contratos: 'M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6',
   servicio: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   tickets: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z',
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
+  cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+  configuracion: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
   auditoria: 'M9 12l2 2 4-4M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
   notificaciones: 'M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0',
   alertas: 'M12 9v4M12 17h.01M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
@@ -63,17 +87,21 @@ const MENU = [
   { ruta: 'notificaciones', texto: 'Notificaciones' },
   { grupo: 'Comercial' },
   { ruta: 'clientes', texto: 'Clientes', permiso: 'clientes.ver' },
+  { ruta: 'hunting', texto: 'Hunting', permiso: 'leads.ver' },
+  { ruta: 'contratos', texto: 'Contratos', permiso: 'contratos.ver' },
   { grupo: 'Servicio' },
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
-  { ruta: 'facturacion', texto: 'Facturación y cobranzas', permiso: 'importes.ver' },
+  { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
+  { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
   { ruta: 'alertas', texto: 'Alertas', permiso: 'alertas.configurar' },
   { ruta: 'auditoria', texto: 'Auditoría', permiso: 'auditoria.ver' },
+  { ruta: 'configuracion', texto: 'Configuración', permiso: 'sistema.configurar' },
 ];
 const PRONTO = {};
 
@@ -110,11 +138,12 @@ function mostrarIngreso() {
   h('div', { class: 'campo' }, h('label', { for: 'clave' }, 'Contraseña'), clave), boton);
   vaciar(raiz).append(h('div', { class: 'ingreso' },
     h('div', { class: 'ingreso-marca' }, logo(),
-      h('div', null, h('div', { class: 'lema' }, 'Todo el negocio de alquiler de impresoras, ', h('span', null, 'en un solo lugar.')),
+      h('div', null, h('div', { class: 'lema', id: 'lema' }, 'En cada página, ', h('span', null, 'en cada proyecto')),
         h('p', null, 'Clientes, contratos, servicio técnico, facturación y cobranzas, con cada área viendo lo suyo.')),
-      h('div', { class: 'apoyo' }, 'Europa Haus S.A.S.')),
+      h('div', { class: 'apoyo', id: 'empresa' }, 'Europa Haus S.A.S.')),
     h('div', { class: 'ingreso-form' }, form)));
   email.focus();
+  api('/api/publico').then((p) => { const l = document.getElementById('lema'); if (l && p.slogan) { vaciar(l); l.append(p.slogan); } const e = document.getElementById('empresa'); if (e && p.empresa) e.textContent = p.empresa; }).catch(() => {});
 }
 
 /* ---------- estructura ---------- */
@@ -128,7 +157,8 @@ function armarEstructura() {
   let pendienteGrupo = null;
   for (const it of MENU) {
     if (it.grupo) { pendienteGrupo = it.grupo; continue; }
-    if (it.permiso && !puede(it.permiso)) continue;
+    if (estado.me.config?.modulos_ocultos?.includes(it.ruta)) continue;
+    if (it.alguno ? !it.alguno.some(puede) : it.permiso && !puede(it.permiso)) continue;
     if (pendienteGrupo) { menu.append(h('div', { class: 'menu-titulo' }, pendienteGrupo)); pendienteGrupo = null; }
     menu.append(h('a', { href: `#/${it.ruta}`, class: it.pronto ? 'pronto' : '', 'data-ruta': it.ruta, onclick: cerrarMenu }, icono(it.ruta), it.texto, it.ruta === 'notificaciones' && h('span', { class: 'insignia oculto' })));
   }
@@ -372,17 +402,20 @@ async function vistaAtencion(destino) {
 
 async function vistaComercial(destino) {
   const t = await api('/api/tableros/comercial');
+  const hunting = await crm.resumenHunting();
+  const esc = puede('cobranzas.escaladas') && !puede('cobranzas.gestionar') ? await api('/api/cobranzas/semaforo').catch(() => null) : null;
   const lista = (items, fila, vacio) => (items.length ? h('ul', { class: 'lista' }, items.map(fila)) : h('div', { class: 'vacio' }, vacio));
   const enlace = (c) => h('a', { href: `#/clientes/${c.cliente_id}` }, h('b', null, c.cliente));
   agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, `Tu cartera · valores en USD netos, sin IVA`, puede('clientes.editar') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/clientes' }, 'Ver clientes'))),
-    h('div', { class: 'rejilla kpis' }, kpiTarjeta('Clientes en cartera', String(t.clientes.total), `${t.clientes.activo} activos · ${t.clientes.prospecto} prospectos`), kpiTarjeta('Abono mensual', usd(t.abono_mensual), `${t.contratos_vigentes} contratos vigentes`),
+    esc && esc.items.length > 0 && h('a', { class: 'alerta-item aviso', href: '#/cobranzas' }, `Cobranzas te pasó ${esc.items.length} factura${esc.items.length === 1 ? '' : 's'} para que gestiones el cobro (${usd(esc.resumen.total_usd)})`, h('span', null, 'Ver')),
+    h('div', { class: 'rejilla kpis' }, kpiTarjeta('Clientes en cartera', String(t.clientes.total), `${t.clientes.activo} activos · ${t.clientes.inactivo} inactivos`), kpiTarjeta('Abono mensual', usd(t.abono_mensual), `${t.contratos_vigentes} contratos vigentes`),
       kpiTarjeta('Por cobrar', usd(t.por_cobrar.usd), null, t.por_cobrar.usd > 0 ? 'alerta' : ''), t.sin_responsable != null ? kpiTarjeta('Sin responsable', String(t.sin_responsable), null, t.sin_responsable ? 'alerta' : '') : kpiTarjeta('Contratos por vencer', String(t.por_vencer.length))),
     h('div', { class: 'rejilla dos-iguales' },
       h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Contratos que vencen en 3 meses'), lista(t.por_vencer, (c) => h('li', null, h('div', null, enlace(c), h('div', { class: 'apoyo' }, c.contrato)), chip(`Vence ${fecha(c.vence)}`, c.vence < new Date().toISOString().slice(0, 10) ? 'malo' : 'aviso')), 'No hay vencimientos cerca.')),
       h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Clientes con deuda'), lista(t.por_cobrar.clientes, (c) => h('li', null, h('div', null, enlace(c), h('div', { class: 'apoyo' }, `${c.max_dias} día${c.max_dias === 1 ? '' : 's'} la más vieja`)), h('b', null, usd(c.usd))), 'Nadie debe nada.'))),
     h('div', { class: 'rejilla dos-iguales', style: 'margin-top:16px' },
       h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Con tickets abiertos (antes de llamar)'), lista(t.con_tickets, (c) => h('li', null, enlace(c), chip(`${c.tickets} ticket${c.tickets > 1 ? 's' : ''}`, 'aviso')), 'Ningún cliente tiene tickets abiertos.')),
-      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Prospectos recientes'), lista(t.prospectos, (c) => h('li', null, enlace(c), h('span', { class: 'apoyo' }, fecha(c.alta))), 'No hay prospectos.'))),
+      puede('leads.ver') ? hunting : h('div')),
     t.equipo && h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('p', { class: 'etiqueta' }, 'Equipo comercial'),
       h('table', null, h('thead', null, h('tr', null, h('th', null, 'Comercial'), h('th', { class: 'num' }, 'Clientes'), h('th', { class: 'num' }, 'Abono USD'))),
         h('tbody', null, t.equipo.map((e) => h('tr', null, h('td', null, e.nombre), h('td', { class: 'num' }, e.clientes), h('td', { class: 'num' }, usd(e.abono_usd)))))))]);
@@ -390,15 +423,15 @@ async function vistaComercial(destino) {
 
 async function vistaFinanzas(destino) {
   const periodo = mesAnterior();
-  const [liq, cob, borr] = await Promise.all([api(`/api/facturacion/liquidacion?periodo=${periodo}`), api('/api/cobranzas'), api('/api/facturas?estado=borrador')]);
+  const [liq, cob, borr] = await Promise.all([api(`/api/facturacion/liquidacion?periodo=${periodo}`), api('/api/cobranzas/semaforo'), api('/api/facturas?estado=borrador')]);
   const listos = liq.filas.filter((f) => f.estado === 'completo' && !f.factura_id); const incompletos = liq.filas.filter((f) => f.estado === 'incompleto' && !f.factura_id);
   const usdListos = listos.filter((f) => !f.interno).reduce((s, f) => s + (f.neto_usd || 0), 0);
   agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, `Facturación y cobranzas · liquidación de ${nombreMes(periodo)} · USD netos`, h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/facturacion/liquidacion' }, 'Ir a liquidar'))),
     h('div', { class: 'rejilla kpis' }, kpiTarjeta('Listos para facturar', String(listos.length), usd(usdListos), '', '#/facturacion/liquidacion'), kpiTarjeta('Faltan lecturas', String(incompletos.length), null, incompletos.length ? 'alerta' : '', '#/facturacion/liquidacion'),
-      kpiTarjeta('Borradores por emitir', String(borr.total), null, borr.total ? 'alerta' : '', '#/facturacion/facturas'), kpiTarjeta('Por cobrar', usd(cob.total_usd), `${cob.facturas} factura${cob.facturas === 1 ? '' : 's'}`, cob.tramos['+90'] > 0 ? 'alerta' : '', '#/facturacion/cobranzas')),
+      kpiTarjeta('Borradores por emitir', String(borr.total), null, borr.total ? 'alerta' : '', '#/facturacion/facturas'), kpiTarjeta('Por cobrar', usd(cob.resumen.total_usd), `${cob.resumen.rojo.n} muy vencida${cob.resumen.rojo.n === 1 ? '' : 's'} · ${cob.resumen.amarillo.n} vencida${cob.resumen.amarillo.n === 1 ? '' : 's'}`, cob.resumen.rojo.n > 0 ? 'alerta' : '', '#/cobranzas')),
     h('div', { class: 'rejilla dos-iguales' },
       h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Falta cargar contadores'), incompletos.length ? h('ul', { class: 'lista' }, incompletos.map((f) => h('li', null, h('div', null, h('b', null, f.cliente), h('div', { class: 'apoyo' }, f.contrato)), chip('Sin lectura', 'aviso')))) : h('div', { class: 'vacio' }, 'Todos los contratos tienen lecturas.')),
-      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Deuda más antigua'), cob.clientes.length ? h('ul', { class: 'lista' }, cob.clientes.slice().sort((a, b) => b.max_dias - a.max_dias).slice(0, 6).map((c) => h('li', null, h('div', null, h('b', null, c.cliente), h('div', { class: 'apoyo' }, `${c.max_dias} día${c.max_dias === 1 ? '' : 's'}`)), h('b', null, usd(c.saldo_usd))))) : h('div', { class: 'vacio' }, 'No hay deuda pendiente.')))]);
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Para reclamar primero'), cob.items.filter((x) => x.color !== 'verde').length ? h('ul', { class: 'lista' }, cob.items.filter((x) => x.color !== 'verde').slice(0, 6).map((x) => h('li', null, h('div', null, h('b', null, x.cliente), h('div', { class: 'apoyo' }, `${nombreMes(x.periodo)} · venció hace ${x.dias_vencida} día${x.dias_vencida === 1 ? '' : 's'}`)), h('span', null, chip(x.color === 'rojo' ? 'Muy vencida' : 'Vencida', x.color), ' ', h('b', null, usd(x.saldo_usd)))))) : h('div', { class: 'vacio' }, 'Nada vencido. Todo dentro del plazo.')))]);
 }
 
 async function vistaInicio(destino) {
@@ -426,7 +459,7 @@ async function vistaInicio(destino) {
       kpi('Abono mensual vigente', usd(t.abono_mensual), t.abono_no_facturable ? `+ ${usd(t.abono_no_facturable)} de cuentas no facturables` : `${t.contratos_vigentes} contratos vigentes`),
       kpi(`Facturado en ${mesCorto(mes.periodo)}`, usd(mes.facturado), `Cobrado de eso: ${usd(mes.cobrado)}`),
       kpi('Por cobrar', usd(t.por_cobrar.usd), `${t.por_cobrar.facturas} factura${t.por_cobrar.facturas === 1 ? '' : 's'} emitida${t.por_cobrar.facturas === 1 ? '' : 's'}`, t.por_cobrar.usd > 0 ? 'alerta' : ''),
-      kpi('Clientes activos', String(t.clientes.activo), `${t.clientes.prospecto} prospectos · ${t.equipos.instalado} equipos instalados`)),
+      kpi('Clientes activos', String(t.clientes.activo), `${t.equipos.instalado} equipos instalados`)),
     h('div', { class: 'rejilla dos' },
       h('div', { class: 'tarjeta grafico' }, h('p', { class: 'etiqueta' }, `Facturado y cobrado, últimos ${window.innerWidth < 600 ? 6 : 12} meses`), grafico(t.serie),
         h('div', { class: 'leyenda' }, h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Facturado'), h('span', null, h('i', { style: 'background:#00BCD4' }), 'Cobrado'),
@@ -447,13 +480,14 @@ async function vistaInicio(destino) {
 }
 
 async function vistaClientes(destino) {
-  const f = { q: '', estado: '', pagina: 1 };
+  const f = { q: '', estado: 'activo', pagina: 1 };
   const cuerpo = h('div');
   const buscar = h('input', { type: 'search', placeholder: 'Buscar por razón social o nombre comercial', 'aria-label': 'Buscar cliente' });
-  const filtro = h('select', { 'aria-label': 'Estado' }, h('option', { value: '' }, 'Todos los estados'), ...Object.entries(ESTADO_CLIENTE).map(([v, [t]]) => h('option', { value: v }, t)));
+  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado del cliente', style: 'margin:0' });
+  const pintarSeg = () => vaciar(seg).append(...[['activo', 'Activos'], ['inactivo', 'Inactivos'], ['', 'Todos']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(f.estado === k), onclick: () => { f.estado = k; f.pagina = 1; pintarSeg(); cargar(); } }, t)));
+  pintarSeg();
   let tiempo;
   buscar.addEventListener('input', () => { clearTimeout(tiempo); tiempo = setTimeout(() => { f.q = buscar.value; f.pagina = 1; cargar(); }, 250); });
-  filtro.addEventListener('change', () => { f.estado = filtro.value; f.pagina = 1; cargar(); });
 
   async function cargar() {
     vaciar(cuerpo).append(cargando());
@@ -481,8 +515,10 @@ async function vistaClientes(destino) {
       }
     } catch (e) { if (e.message !== 'sesion') vaciar(cuerpo).append(falla()); }
   }
-  destino.append(encabezado('Clientes', 'Las cuentas que podés ver según tu área y alcance', puede('clientes.editar') && h('span', { class: 'apoyo' }, '')),
-    h('div', { class: 'herramientas' }, buscar, filtro), cuerpo);
+  const cumples = h('div');
+  destino.append(encabezado('Clientes', 'Las cuentas que podés ver según tu área y alcance', puede('clientes.editar') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/clientes/nuevo' }, '+ Nuevo cliente'))),
+    cumples, h('div', { class: 'herramientas' }, buscar), seg, cuerpo);
+  crm.tarjetaCumples(14).then((t) => { if (t) { t.style.marginBottom = '16px'; cumples.append(t); } });
   await cargar();
 }
 
@@ -493,7 +529,9 @@ function tarjetaContrato(c) {
     h('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px' },
       h('div', null, h('h2', { style: 'margin:0' }, c.nombre), h('div', { class: 'apoyo' }, `Desde ${fecha(c.fecha_inicio)} · ${c.duracion_meses ? `${c.duracion_meses} meses` : 'sin fin de vigencia'} · en ${c.moneda === 'ARS' ? 'pesos' : 'dólares'}`)),
       chip(c.estado === 'vigente' ? 'Vigente' : c.estado, c.estado === 'vigente' ? 'ok' : 'mudo')),
-    puede('contratos.editar') && puede('importes.ver') && c.estado === 'vigente' && c.condiciones?.length && panelAjuste(c),
+    cob.plazoContrato(c),
+    c.moneda === 'ARS' && c.estado === 'vigente' && c.condiciones?.length && proximoAjuste(c),
+    puede('contratos.editar') && puede('importes.ver') && c.moneda === 'ARS' && c.estado === 'vigente' && c.condiciones?.length && panelAjuste(c),
     c.condiciones ? c.condiciones.map((x) => h('div', { class: `linea ${vigente(x) ? 'vigente' : ''}` },
       h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' },
         h('b', null, monto(x.monto_mensual, c.moneda), ' / mes'), x.motivo !== 'sin_facturar' && chip(MOTIVO[x.motivo] ?? x.motivo, 'info'),
@@ -504,6 +542,14 @@ function tarjetaContrato(c) {
       x.notas && h('div', { class: 'apoyo' }, x.notas))) : h('p', { class: 'apoyo' }, 'Las condiciones económicas no están disponibles para tu rol.'));
 }
 
+
+/** Cuándo toca revisar el precio de un contrato en pesos. Es un aviso: el ajuste lo acuerda y carga una persona. */
+function proximoAjuste(c) {
+  const vig = c.condiciones.find((x) => !x.vigente_hasta); if (!vig) return null;
+  const meses = estado.me.config?.ipc_meses ?? 3; const d = new Date(`${String(vig.vigente_desde).slice(0, 10)}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + meses);
+  const iso = d.toISOString().slice(0, 10); const vencido = iso <= new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  return h('div', { style: 'margin-bottom:12px' }, 'Próximo ajuste: ', h('b', null, fecha(iso)), ' ', vencido ? chip('Toca revisarlo', 'aviso') : null, h('div', { class: 'apoyo' }, 'Se acuerda con el cliente. El sistema calcula con el IPC y vos lo confirmás.'));
+}
 
 /** Ajuste trimestral por IPC: acumulado compuesto de los 3 meses que terminan en el período elegido. */
 function panelAjuste(c) {
@@ -543,31 +589,38 @@ async function vistaCliente(destino, id) {
   const c = d.cliente;
   const panel = h('div');
   const pestanas = [['resumen', 'Resumen']];
+  if (puede('importes.ver')) pestanas.push(['negocio', 'Negocio']);
   if (d.contactos) pestanas.push(['contactos', `Contactos (${d.contactos.length})`]);
+  pestanas.push(['sedes', `Locales (${d.sedes.length})`]);
   if (d.contratos) pestanas.push(['contratos', `Contratos (${d.contratos.length})`]);
+  if (puede('crm.gestionar')) pestanas.push(['seguimiento', 'Seguimiento']);
   if (puede('cartera.asignar') || puede('crm.gestionar')) pestanas.push(['cartera', 'Cartera']);
   const barra = h('div', { class: 'pestanas', role: 'tablist' });
 
   const fila = (k, v) => h('div', null, h('dt', null, k), h('dd', null, v ?? '—'));
   const vistas = {
     resumen: () => h('div', null,
+      h('div', { class: 'rejilla kpis', style: 'margin-bottom:16px' }, kpiTarjeta('Locales', String(d.resumen.sedes)), puede('contratos.ver') && kpiTarjeta('Contratos vigentes', String(d.resumen.contratos_vigentes)), puede('equipos.ver') && kpiTarjeta('Equipos instalados', String(d.resumen.equipos_instalados))),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Datos'), h('dl', { class: 'datos', style: 'margin:0' },
         fila('Razón social', c.razon_social), fila('Nombre comercial', c.nombre_comercial), fila('CUIT', c.cuit), fila('Estado', chipEstado(c.estado)),
-        fila('Responsable', d.responsable ? d.responsable.nombre : chip('Sin asignar', 'aviso')), fila('Alta', fecha(c.fecha_alta)), fila('Rubro', c.rubro), fila('Origen', c.origen))),
-      h('div', { class: 'tarjeta' }, h('h2', null, 'Sedes'), d.sedes.length ? h('ul', { class: 'lista' }, d.sedes.map((s) => h('li', null,
-        h('div', null, h('b', null, s.nombre), h('div', { class: 'apoyo' }, [s.domicilio, s.localidad].filter(Boolean).join(', ') || 'Sin domicilio')),
-        chip(s.zona === 'caba' ? 'CABA · SLA 24 h' : 'Resto · SLA 48 h', 'info')))) : h('p', { class: 'apoyo' }, 'Sin sedes cargadas.')),
+        fila('Responsable', d.responsable ? d.responsable.nombre : chip('Sin asignar', 'aviso')), fila('Alta', fecha(c.fecha_alta)), fila('Rubro', [c.rubro_nombre, c.subrubro_nombre].filter(Boolean).join(' › ') || null), fila('Origen', c.origen),
+        fila('Condición IVA', c.condicion_iva ? { responsable_inscripto: 'Responsable inscripto', monotributo: 'Monotributo', exento: 'Exento', consumidor_final: 'Consumidor final' }[c.condicion_iva] : null), fila('Tamaño', [c.tamano, c.cantidad_empleados ? `${c.cantidad_empleados} empleados` : null].filter(Boolean).join(' · ') || null),
+        fila('Teléfono', c.telefono), fila('Mail', c.email_general), fila('Sitio web', c.sitio_web), fila('Domicilio fiscal', [c.domicilio_fiscal, c.localidad_fiscal, c.provincia].filter(Boolean).join(', ') || null),
+        c.estado === 'inactivo' && fila('Baja', [c.fecha_baja ? fecha(c.fecha_baja) : null, c.motivo_baja].filter(Boolean).join(' · ') || null))),
       c.notas && h('div', { class: 'tarjeta' }, h('h2', null, 'Notas'), h('p', { style: 'white-space:pre-line;margin:0' }, c.notas))),
-    contactos: () => (d.contactos.length ? h('div', { class: 'rejilla dos-iguales' }, d.contactos.map((k) => h('div', { class: 'tarjeta' },
-      h('div', { style: 'display:flex;justify-content:space-between;gap:8px' }, h('b', { class: 'nombre-cliente' }, k.nombre), k.autorizado_toner ? chip('Autoriza tóner', 'ok') : chip('No autoriza tóner', 'mudo')),
-      h('div', { style: 'margin:6px 0' }, k.roles.map((r) => chip(r, 'info')), ' '),
-      k.telefonos.map((t) => h('div', null, t.numero)), k.emails.map((m) => h('div', null, h('a', { href: `mailto:${m.direccion}` }, m.direccion)))))) : h('div', { class: 'tarjeta vacio' }, 'Sin contactos.')),
-    contratos: () => (d.contratos.length ? h('div', null, d.contratos.map(tarjetaContrato)) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
+    contactos: () => crm.pestanaContactos(d, () => navegar()),
+    sedes: () => crm.pestanaSedes(d, () => navegar()),
+    seguimiento: () => h('div', { class: 'tarjeta' }, cargando()),
+    negocio: () => cargando(),
+    contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
+      d.contratos.length ? d.contratos.map((c) => h('div', null, tarjetaContrato(c), h('a', { class: 'apoyo', href: `#/contratos/${c.id}` }, 'Ver ficha del contrato'))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
     cartera: () => h('div', { class: 'tarjeta' }, cargando()),
   };
   async function mostrar(clave) {
     [...barra.children].forEach((b) => b.classList.toggle('activa', b.dataset.clave === clave));
     vaciar(panel).append(vistas[clave]());
+    if (clave === 'negocio') await cob.negocioCliente(panel, id);
+    if (clave === 'seguimiento') vaciar(panel).append(await crm.pestanaSeguimiento(d));
     if (clave === 'cartera') {
       const r = await api(`/api/cartera/${id}/historial`).catch(() => null);
       vaciar(panel).append(h('div', { class: 'tarjeta' }, h('h2', null, 'Historial de responsables'),
@@ -578,7 +631,8 @@ async function vistaCliente(destino, id) {
   }
   pestanas.forEach(([clave, texto]) => barra.append(h('button', { type: 'button', role: 'tab', 'data-clave': clave, onclick: () => mostrar(clave) }, texto)));
   destino.append(h('a', { href: '#/clientes', class: 'apoyo' }, '← Clientes'),
-    encabezado(c.nombre_comercial || c.razon_social, c.nombre_comercial ? c.razon_social : null, chipEstado(c.estado)), barra, panel);
+    encabezado(c.nombre_comercial || c.razon_social, c.nombre_comercial && c.nombre_comercial !== c.razon_social ? c.razon_social : null, h('div', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, chipEstado(c.estado),
+      puede('clientes.editar') && h('button', { class: 'btn', type: 'button', onclick: () => cajonLateral('Editar datos del cliente', (x) => { const caja = h('div', null, cargando()); crm.formCliente(d, x, () => navegar()).then((f) => vaciar(caja).append(f)); return caja; }) }, 'Editar datos'))), barra, panel);
   await mostrar('resumen');
 }
 
@@ -913,38 +967,63 @@ async function vistaEtiquetas(destino, ids) {
     h('div', { class: 'etiqueta-qr hoja-etiquetas' }, ok.map((e) => etiquetaSoporte(e))));
 }
 
-async function vistaEquipos(destino) {
-  const f = { q: '', estado: '', pagina: 1 }; const cuerpo = h('div'); const resumen = h('div', { class: 'rejilla kpis' });
+async function vistaEquipos(destino, clienteId = null) {
+  const f = { q: '', estado: '', pagina: 1, vista: 'contrato' }; const cuerpo = h('div'); const resumen = h('div', { class: 'rejilla kpis' });
   const elegidos = new Set(); const botonEtiquetas = h('button', { class: 'btn', type: 'button', disabled: true, onclick: () => { location.hash = `#/equipos/etiquetas/${[...elegidos].join(',')}`; } }, 'Etiquetas');
+  const actualizarEtiquetas = () => { botonEtiquetas.disabled = elegidos.size === 0; botonEtiquetas.textContent = elegidos.size ? `Etiquetas (${elegidos.size})` : 'Etiquetas'; };
   const buscar = h('input', { type: 'search', placeholder: 'Buscar por serie, modelo o cliente', 'aria-label': 'Buscar equipo' });
   const filtro = h('select', { 'aria-label': 'Estado' }, h('option', { value: '' }, 'Todos los estados'), ...Object.entries(ESTADO_EQUIPO).map(([v, [t]]) => h('option', { value: v }, t)));
+  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Cómo ver los equipos', style: 'margin:0 0 16px' });
+  const pintarSeg = () => vaciar(seg).append(...[['contrato', 'Por contrato'], ['lista', 'Lista']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(f.vista === k), onclick: () => { f.vista = k; f.pagina = 1; pintarSeg(); cargar(); } }, t)));
+  pintarSeg();
   let tiempo;
   buscar.addEventListener('input', () => { clearTimeout(tiempo); tiempo = setTimeout(() => { f.q = buscar.value; f.pagina = 1; cargar(); }, 250); });
   filtro.addEventListener('change', () => { f.estado = filtro.value; f.pagina = 1; cargar(); });
+  const casilla = (e) => h('td', { class: 'casilla', onclick: (ev) => ev.stopPropagation() }, h('input', { type: 'checkbox', checked: elegidos.has(e.id), 'aria-label': `Elegir ${e.numero_serie}`, onchange: (ev) => { if (ev.target.checked) elegidos.add(e.id); else elegidos.delete(e.id); actualizarEtiquetas(); } }));
+  const lectura = (e) => (e.ultima_lectura ? `${e.ultima_lectura.contador_negro} negro${e.tipo === 'color' ? ` / ${e.ultima_lectura.contador_color} color` : ''}` : '—');
+  const abrir = (e) => ({ class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/equipos/${e.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/equipos/${e.id}`; } });
+  const dir = (e) => [e.domicilio, e.localidad].filter(Boolean).join(', ');
   async function cargar() {
     vaciar(cuerpo).append(cargando());
     try {
-      const p = new URLSearchParams({ pagina: f.pagina }); if (f.q) p.set('q', f.q); if (f.estado) p.set('estado', f.estado);
+      const p = new URLSearchParams({ pagina: f.pagina, limite: f.vista === 'contrato' ? 200 : 25 }); if (f.q) p.set('q', f.q); if (f.estado) p.set('estado', f.estado); if (clienteId) p.set('cliente', clienteId);
       const r = await api(`/api/equipos?${p}`);
       vaciar(resumen).append(...['instalado', 'deposito', 'reparacion', 'baja'].map((k) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, ESTADO_EQUIPO[k][0]), h('div', { class: 'valor' }, String(r.por_estado[k] ?? 0)))));
       vaciar(cuerpo);
       if (!r.items.length) { cuerpo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay equipos para mostrar'), 'Probá con otra búsqueda.')); return; }
+      if (f.vista === 'contrato') {
+        // Cliente › contrato › equipos con el domicilio donde está cada uno. Los que no están instalados quedan aparte.
+        const grupos = new Map();
+        for (const e of r.items) { const k = e.contrato_id ?? `sin-${e.estado}`; if (!grupos.has(k)) grupos.set(k, { contrato: e.contrato, cliente: e.cliente_id ? (e.nombre_comercial || e.razon_social) : null, cliente_id: e.cliente_id, contrato_id: e.contrato_id, estado: e.estado, items: [] }); grupos.get(k).items.push(e); }
+        for (const g of grupos.values()) {
+          cuerpo.append(h('div', { class: 'tarjeta', style: 'padding:14px 8px 6px' },
+            h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap;padding:0 12px 8px' },
+              h('div', null, g.contrato_id ? [h('a', { href: `#/clientes/${g.cliente_id}` }, h('b', null, g.cliente)), ' · ', h('a', { href: `#/contratos/${g.contrato_id}` }, g.contrato)] : h('b', null, ESTADO_EQUIPO[g.estado]?.[0] ?? 'Sin contrato')),
+              chip(`${g.items.length} equipo${g.items.length === 1 ? '' : 's'}`, 'mudo')),
+            h('table', { class: 'tarjetas' }, h('tbody', null, g.items.map((e) => h('tr', abrir(e), casilla(e),
+              h('td', { 'data-rotulo': 'Equipo' }, h('div', { class: 'nombre-cliente' }, `${e.marca} ${e.modelo}`), h('div', { class: 'apoyo' }, `${e.numero_serie} · ${e.tipo}`)),
+              h('td', { 'data-rotulo': 'Estado' }, chipEquipo(e.estado)),
+              h('td', { 'data-rotulo': 'Dónde está' }, e.sede ?? e.ubicacion ?? '—', dir(e) && h('div', { class: 'apoyo' }, dir(e))),
+              h('td', { 'data-rotulo': 'Última lectura' }, lectura(e), e.ultima_lectura && h('div', { class: 'apoyo' }, fecha(e.ultima_lectura.fecha))))))))); 
+        }
+        if (r.total > r.items.length) cuerpo.append(h('p', { class: 'apoyo' }, `Se muestran ${r.items.length} de ${r.total}. Usá la búsqueda para acotar.`));
+        return;
+      }
       cuerpo.append(h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' },
         h('thead', null, h('tr', null, h('th', null, ''), ['Equipo', 'Estado', 'Dónde está', 'Última lectura'].map((t) => h('th', null, t)))),
-        h('tbody', null, r.items.map((e) => h('tr', { class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/equipos/${e.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/equipos/${e.id}`; } },
-          h('td', { class: 'casilla', onclick: (ev) => ev.stopPropagation() }, h('input', { type: 'checkbox', 'aria-label': `Elegir ${e.numero_serie}`, onchange: (ev) => { if (ev.target.checked) elegidos.add(e.id); else elegidos.delete(e.id); botonEtiquetas.disabled = !elegidos.size; botonEtiquetas.textContent = elegidos.size ? `Etiquetas (${elegidos.size})` : 'Etiquetas'; } })),
+        h('tbody', null, r.items.map((e) => h('tr', abrir(e), casilla(e),
           h('td', { 'data-rotulo': 'Equipo' }, h('div', { class: 'nombre-cliente' }, `${e.marca} ${e.modelo}`), h('div', { class: 'apoyo' }, `${e.numero_serie} · ${e.tipo}`)),
           h('td', { 'data-rotulo': 'Estado' }, chipEquipo(e.estado)),
-          h('td', { 'data-rotulo': 'Dónde está' }, e.cliente_id ? (e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—'), e.sede && h('div', { class: 'apoyo' }, e.sede)),
-          h('td', { 'data-rotulo': 'Última lectura' }, e.ultima_lectura ? `${e.ultima_lectura.contador_negro} negro${e.tipo === 'color' ? ` / ${e.ultima_lectura.contador_color} color` : ''}` : '—', e.ultima_lectura && h('div', { class: 'apoyo' }, fecha(e.ultima_lectura.fecha)))))))));
+          h('td', { 'data-rotulo': 'Dónde está' }, e.cliente_id ? (e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—'), e.contrato && h('div', { class: 'apoyo' }, e.contrato), e.sede && h('div', { class: 'apoyo' }, [e.sede, dir(e)].filter(Boolean).join(' · '))),
+          h('td', { 'data-rotulo': 'Última lectura' }, lectura(e), e.ultima_lectura && h('div', { class: 'apoyo' }, fecha(e.ultima_lectura.fecha)))))))));
       const paginas = Math.max(1, Math.ceil(r.total / 25));
       if (paginas > 1) cuerpo.append(h('div', { class: 'paginacion' }, h('span', { class: 'apoyo' }, `${r.total} equipos · página ${r.pagina} de ${paginas}`),
         h('div', { style: 'display:flex;gap:8px' }, h('button', { class: 'btn', disabled: r.pagina <= 1, onclick: () => { f.pagina -= 1; cargar(); } }, 'Anterior'), h('button', { class: 'btn', disabled: r.pagina >= paginas, onclick: () => { f.pagina += 1; cargar(); } }, 'Siguiente'))));
     } catch (e) { if (e.message !== 'sesion') vaciar(cuerpo).append(falla()); }
   }
-  destino.append(encabezado('Equipos', 'Inventario con su historial', h('div', { class: 'acciones' },
+  destino.append(...(clienteId ? [h('a', { href: `#/clientes/${clienteId}`, class: 'apoyo' }, '← Volver al cliente')] : []), encabezado('Equipos', clienteId ? 'Los equipos de este cliente, por contrato' : 'Por contrato, con la dirección de cada equipo', h('div', { class: 'acciones' },
     botonEtiquetas, h('a', { class: 'btn', href: '#/equipos/escanear' }, 'Escanear QR'), puede('equipos.editar') && h('a', { class: 'btn btn-principal', href: '#/equipos/nuevo' }, '+ Nuevo equipo'))),
-  resumen, h('div', { class: 'herramientas' }, buscar, filtro), cuerpo);
+  resumen, h('div', { class: 'herramientas' }, buscar, filtro), seg, cuerpo);
   await cargar();
 }
 
@@ -1081,17 +1160,18 @@ const verFactura = (id) => { location.hash = `#/facturacion/factura/${id}`; };
 const filaClic = (fn) => ({ class: 'fila', tabindex: '0', onclick: fn, onkeydown: (ev) => { if (ev.key === 'Enter') fn(); } });
 
 function pestanasFact(activa) {
-  const t = [['liquidacion', 'Liquidación del mes', puede('facturas.emitir')], ['facturas', 'Facturas', true], ['cobranzas', 'Cobranzas', true]].filter((x) => x[2]);
+  const t = [['liquidacion', 'Liquidación del mes', puede('facturas.emitir')], ['facturas', 'Facturas', true]].filter((x) => x[2]);
   return h('div', { class: 'pestanas no-imprimir' }, t.map(([k, txt]) => h('button', { type: 'button', class: k === activa ? 'activa' : '', onclick: () => { location.hash = `#/facturacion/${k}`; } }, txt)));
 }
 
 async function vistaFacturacion(destino, tab) {
-  const tabs = ['liquidacion', 'facturas', 'cobranzas'];
+  if (tab === 'cobranzas') { location.replace('#/cobranzas'); return; }
+  const tabs = ['liquidacion', 'facturas'];
   if (!tabs.includes(tab) || (tab === 'liquidacion' && !puede('facturas.emitir'))) tab = puede('facturas.emitir') ? 'liquidacion' : 'facturas';
-  destino.append(encabezado('Facturación y cobranzas', 'Todo en USD neto de IVA; el IVA se suma al facturar.',
+  destino.append(encabezado('Facturación', 'Todo en USD neto de IVA; el IVA se suma al facturar.',
     puede('facturas.emitir') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/facturacion/nueva' }, '+ Venta directa'))), pestanasFact(tab));
   const cuerpo = h('div'); destino.append(cuerpo);
-  if (tab === 'liquidacion') await tabLiquidacion(cuerpo); else if (tab === 'facturas') await tabFacturas(cuerpo); else await tabCobranzas(cuerpo);
+  if (tab === 'liquidacion') await tabLiquidacion(cuerpo); else await tabFacturas(cuerpo);
 }
 
 async function tabLiquidacion(dest) {
@@ -1166,19 +1246,6 @@ async function tabFacturas(dest) {
   await cargar();
 }
 
-async function tabCobranzas(dest) {
-  const r = await api('/api/cobranzas');
-  agregar(dest, [h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Por cobrar (USD neto)'), h('div', { class: 'valor' }, usd(r.total_usd)), h('div', { class: 'apoyo' }, `${r.facturas} factura${r.facturas === 1 ? '' : 's'}`)),
-    ['0-30', '31-60', '61-90', '+90'].map((t) => h('div', { class: `tarjeta kpi ${t === '+90' && r.tramos[t] > 0 ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, `${t} días`), h('div', { class: 'valor' }, usd(r.tramos[t]))))),
-  r.clientes.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('table', { class: 'tarjetas' },
-    h('thead', null, h('tr', null, ['Cliente', 'Saldo USD', '0-30', '31-60', '61-90', '+90', 'Más vieja'].map((t, k) => h('th', { class: k && k < 6 ? 'num' : '' }, t)))),
-    h('tbody', null, r.clientes.flatMap((c) => [h('tr', null, h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, c.cliente), h('details', null, h('summary', { class: 'apoyo' }, `${c.facturas} factura${c.facturas > 1 ? 's' : ''}`),
-      c.detalle.map((d) => h('div', null, h('a', { href: `#/facturacion/factura/${d.id}` }, `${nombreMes(d.periodo)}${d.numero ? ` · ${d.numero}` : ''}`), ` — ${monto(d.saldo, d.moneda)} · ${d.dias} días${d.estimada ? ' (fecha estimada)' : ''}`)))),
-      h('td', { class: 'num', 'data-rotulo': 'Saldo USD' }, h('b', null, usd(c.saldo_usd))), ...['0-30', '31-60', '61-90', '+90'].map((t) => h('td', { class: 'num', 'data-rotulo': `${t} días` }, c.tramos[t] ? usd(c.tramos[t]) : '—')),
-      h('td', { 'data-rotulo': 'Más vieja' }, `${c.max_dias} días`))])))) : h('div', { class: 'tarjeta vacio', style: 'margin-top:16px' }, h('b', null, 'No hay nada pendiente de cobro')),
-  r.sin_comprobante.facturas > 0 && h('p', { class: 'apoyo' }, `Aparte: ${r.sin_comprobante.facturas} cuenta${r.sin_comprobante.facturas > 1 ? 's' : ''} sin comprobante por ${usd(r.sin_comprobante.usd)} (no entran en el total).`)]);
-}
-
 async function vistaFactura(destino, id) {
   const f = await api(`/api/facturas/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
   if (!f) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos esa factura'), h('a', { href: '#/facturacion/facturas' }, 'Volver'))); return; }
@@ -1250,6 +1317,11 @@ async function vistaVentaDirecta(destino) {
 }
 
 /* ---------- navegación ---------- */
+const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
+const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
+const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
+const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
+
 async function navegar() {
   if (!estado.me || !contenedor) return;
   const [ruta = 'inicio', param, sub] = location.hash.replace(/^#\//, '').split('/');
@@ -1259,7 +1331,9 @@ async function navegar() {
   const nuevo = h('div');
   try {
     if (ruta === 'inicio') await vistaInicio(nuevo);
-    else if (ruta === 'clientes' && puede('clientes.ver')) await (param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
+    else if (ruta === 'clientes' && puede('clientes.ver')) await (param === 'nuevo' && puede('clientes.editar') ? crm.vistaNuevoCliente(nuevo) : param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
+    else if (ruta === 'hunting' && puede('leads.ver')) await crm.vistaHunting(nuevo);
+    else if (ruta === 'contratos' && puede('contratos.ver')) await (param === 'nuevo' ? ctr.vistaNuevoContrato(nuevo, sub) : param ? ctr.vistaContrato(nuevo, param) : ctr.vistaContratos(nuevo));
     else if (ruta === 'tickets' && puede('tickets.ver')) {
       if (param === 'nuevo' && puede('tickets.crear')) await vistaNuevoTicket(nuevo);
       else if (param && sub === 'cierre') await vistaCierre(nuevo, param);
@@ -1270,6 +1344,7 @@ async function navegar() {
       else if (param === 'escanear') nuevo.append(await escanear());
       else if (param === 'etiquetas' && sub) await vistaEtiquetas(nuevo, sub);
       else if (param === 'qr' && sub) { const r = await api(`/api/equipos/qr/${encodeURIComponent(sub)}`).catch(() => null); if (r) { location.replace(`#/equipos/${r.id}`); return; } nuevo.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Ver equipos'))); }
+      else if (param === 'cliente' && sub) await vistaEquipos(nuevo, Number(sub));
       else if (param) await vistaEquipo(nuevo, param);
       else await vistaEquipos(nuevo);
     } else if (ruta === 'insumos' && puede('insumos.ver')) {
@@ -1283,7 +1358,9 @@ async function navegar() {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
       else await vistaFacturacion(nuevo, param);
-    } else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
+    } else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
+    else if (ruta === 'configuracion' && puede('sistema.configurar')) await conf.vistaConfiguracion(nuevo, param);
+    else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
     else if (ruta === 'notificaciones') await vistaNotificaciones(nuevo);
     else if (ruta === 'alertas' && puede('alertas.configurar')) await vistaAlertas(nuevo);
     else if (ruta === 'mi-dia' && puede('tickets.atender')) await vistaMiDia(nuevo);

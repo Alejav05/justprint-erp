@@ -39,7 +39,7 @@ test('el mismo caso no se repite antes de la frecuencia y vuelve a avisar despuÃ
 test('el administrador cambia canales y destinatarios; un canal sin configurar no rompe nada', async () => {
   const { llamar } = await entrar(ctx.app, 'direccion@demo.local');
   const lista = (await llamar('GET', '/api/alertas/reglas')).json();
-  assert.equal(lista.canales.mail, true); assert.equal(lista.canales.whatsapp, false); assert.equal(lista.reglas.length, 9);
+  assert.equal(lista.canales.mail, true); assert.equal(lista.canales.whatsapp, false); assert.equal(lista.reglas.length, 11);
   const r = lista.reglas.find((x) => x.clave === 'sla_vencido');
   const put = await llamar('PUT', '/api/alertas/reglas/sla_vencido', { activa: true, umbral: null, canales: ['sistema', 'whatsapp'], destinatarios: { roles: [], responsables: ['tecnico'], usuarios: [] }, frecuencia_horas: 1, plantilla_asunto: 'URGENTE {numero}', plantilla_cuerpo: '{cliente}: {excedidas} h de atraso' });
   assert.equal(put.statusCode, 200);

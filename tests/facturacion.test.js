@@ -123,7 +123,7 @@ test('venta directa: factura con equipo, insumo y soporte juntos; se edita mient
 test('cobranzas: saldo por cliente en USD neto con antigüedad por tramos; lo interno va aparte', async () => {
   const s = await entrar(ctx.app, 'julia@demo.local');
   const fb = await ctx.db('facturas').where({ contrato_id: K.ctB, periodo: P }).first();
-  const hace = (d) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+  const hace = (d) => new Date(Date.parse(hoy()) - d * 86400000).toISOString().slice(0, 10); // desde el día local, no el UTC
   await ctx.db('facturas').where({ id: fb.id }).update({ estado: 'emitida', fecha_emision: hace(75) });
   const fd = await ctx.db('facturas').where({ contrato_id: K.ctD, periodo: P }).first();
   await ctx.db('facturas').where({ id: fd.id }).update({ estado: 'emitida', fecha_emision: hace(10) });
