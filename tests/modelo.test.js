@@ -7,11 +7,11 @@ import { seed as base } from '../seeds/01_base.js';
 
 const tablas = (db) => db.raw("select name from sqlite_master where type='table' and name not like 'knex_%' and name not like 'sqlite_%'");
 
-test('las migraciones crean las 45 tablas del modelo más la de sesiones, y se pueden revertir', async () => {
+test('las migraciones crean las 46 tablas del modelo más la de sesiones, y se pueden revertir', async () => {
   const db = knexLib(knexfile.test);
   await db.migrate.latest();
   const nombres = (await tablas(db)).map((t) => t.name);
-  assert.equal(nombres.length, 49);
+  assert.equal(nombres.length, 50);
   assert.ok(nombres.includes('sesiones'));
   for (const esperada of ['cartera_asignaciones', 'ticket_eventos', 'cobro_aplicaciones', 'contrato_condiciones', 'audit_log']) {
     assert.ok(nombres.includes(esperada), `falta ${esperada}`);

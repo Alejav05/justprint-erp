@@ -1,4 +1,5 @@
 // JustPrint ERP — pantalla. Sin librerías: todo se arma con nodos del DOM (nunca con innerHTML sobre datos).
+import { crearCobranzas } from './cobranzas.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -51,6 +52,7 @@ const ICONOS = {
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
+  cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   auditoria: 'M9 12l2 2 4-4M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
   notificaciones: 'M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0',
@@ -69,7 +71,8 @@ const MENU = [
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
-  { ruta: 'facturacion', texto: 'Facturación y cobranzas', permiso: 'importes.ver' },
+  { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
+  { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
   { ruta: 'alertas', texto: 'Alertas', permiso: 'alertas.configurar' },
@@ -128,7 +131,7 @@ function armarEstructura() {
   let pendienteGrupo = null;
   for (const it of MENU) {
     if (it.grupo) { pendienteGrupo = it.grupo; continue; }
-    if (it.permiso && !puede(it.permiso)) continue;
+    if (it.alguno ? !it.alguno.some(puede) : it.permiso && !puede(it.permiso)) continue;
     if (pendienteGrupo) { menu.append(h('div', { class: 'menu-titulo' }, pendienteGrupo)); pendienteGrupo = null; }
     menu.append(h('a', { href: `#/${it.ruta}`, class: it.pronto ? 'pronto' : '', 'data-ruta': it.ruta, onclick: cerrarMenu }, icono(it.ruta), it.texto, it.ruta === 'notificaciones' && h('span', { class: 'insignia oculto' })));
   }
@@ -372,9 +375,11 @@ async function vistaAtencion(destino) {
 
 async function vistaComercial(destino) {
   const t = await api('/api/tableros/comercial');
+  const esc = puede('cobranzas.escaladas') && !puede('cobranzas.gestionar') ? await api('/api/cobranzas/semaforo').catch(() => null) : null;
   const lista = (items, fila, vacio) => (items.length ? h('ul', { class: 'lista' }, items.map(fila)) : h('div', { class: 'vacio' }, vacio));
   const enlace = (c) => h('a', { href: `#/clientes/${c.cliente_id}` }, h('b', null, c.cliente));
   agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, `Tu cartera · valores en USD netos, sin IVA`, puede('clientes.editar') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/clientes' }, 'Ver clientes'))),
+    esc && esc.items.length > 0 && h('a', { class: 'alerta-item aviso', href: '#/cobranzas' }, `Cobranzas te pasó ${esc.items.length} factura${esc.items.length === 1 ? '' : 's'} para que gestiones el cobro (${usd(esc.resumen.total_usd)})`, h('span', null, 'Ver')),
     h('div', { class: 'rejilla kpis' }, kpiTarjeta('Clientes en cartera', String(t.clientes.total), `${t.clientes.activo} activos · ${t.clientes.prospecto} prospectos`), kpiTarjeta('Abono mensual', usd(t.abono_mensual), `${t.contratos_vigentes} contratos vigentes`),
       kpiTarjeta('Por cobrar', usd(t.por_cobrar.usd), null, t.por_cobrar.usd > 0 ? 'alerta' : ''), t.sin_responsable != null ? kpiTarjeta('Sin responsable', String(t.sin_responsable), null, t.sin_responsable ? 'alerta' : '') : kpiTarjeta('Contratos por vencer', String(t.por_vencer.length))),
     h('div', { class: 'rejilla dos-iguales' },
@@ -390,15 +395,15 @@ async function vistaComercial(destino) {
 
 async function vistaFinanzas(destino) {
   const periodo = mesAnterior();
-  const [liq, cob, borr] = await Promise.all([api(`/api/facturacion/liquidacion?periodo=${periodo}`), api('/api/cobranzas'), api('/api/facturas?estado=borrador')]);
+  const [liq, cob, borr] = await Promise.all([api(`/api/facturacion/liquidacion?periodo=${periodo}`), api('/api/cobranzas/semaforo'), api('/api/facturas?estado=borrador')]);
   const listos = liq.filas.filter((f) => f.estado === 'completo' && !f.factura_id); const incompletos = liq.filas.filter((f) => f.estado === 'incompleto' && !f.factura_id);
   const usdListos = listos.filter((f) => !f.interno).reduce((s, f) => s + (f.neto_usd || 0), 0);
   agregar(destino, [encabezado(`Hola, ${estado.me.nombre.split(' ')[0]}`, `Facturación y cobranzas · liquidación de ${nombreMes(periodo)} · USD netos`, h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/facturacion/liquidacion' }, 'Ir a liquidar'))),
     h('div', { class: 'rejilla kpis' }, kpiTarjeta('Listos para facturar', String(listos.length), usd(usdListos), '', '#/facturacion/liquidacion'), kpiTarjeta('Faltan lecturas', String(incompletos.length), null, incompletos.length ? 'alerta' : '', '#/facturacion/liquidacion'),
-      kpiTarjeta('Borradores por emitir', String(borr.total), null, borr.total ? 'alerta' : '', '#/facturacion/facturas'), kpiTarjeta('Por cobrar', usd(cob.total_usd), `${cob.facturas} factura${cob.facturas === 1 ? '' : 's'}`, cob.tramos['+90'] > 0 ? 'alerta' : '', '#/facturacion/cobranzas')),
+      kpiTarjeta('Borradores por emitir', String(borr.total), null, borr.total ? 'alerta' : '', '#/facturacion/facturas'), kpiTarjeta('Por cobrar', usd(cob.resumen.total_usd), `${cob.resumen.rojo.n} muy vencida${cob.resumen.rojo.n === 1 ? '' : 's'} · ${cob.resumen.amarillo.n} vencida${cob.resumen.amarillo.n === 1 ? '' : 's'}`, cob.resumen.rojo.n > 0 ? 'alerta' : '', '#/cobranzas')),
     h('div', { class: 'rejilla dos-iguales' },
       h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Falta cargar contadores'), incompletos.length ? h('ul', { class: 'lista' }, incompletos.map((f) => h('li', null, h('div', null, h('b', null, f.cliente), h('div', { class: 'apoyo' }, f.contrato)), chip('Sin lectura', 'aviso')))) : h('div', { class: 'vacio' }, 'Todos los contratos tienen lecturas.')),
-      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Deuda más antigua'), cob.clientes.length ? h('ul', { class: 'lista' }, cob.clientes.slice().sort((a, b) => b.max_dias - a.max_dias).slice(0, 6).map((c) => h('li', null, h('div', null, h('b', null, c.cliente), h('div', { class: 'apoyo' }, `${c.max_dias} día${c.max_dias === 1 ? '' : 's'}`)), h('b', null, usd(c.saldo_usd))))) : h('div', { class: 'vacio' }, 'No hay deuda pendiente.')))]);
+      h('div', { class: 'tarjeta' }, h('p', { class: 'etiqueta' }, 'Para reclamar primero'), cob.items.filter((x) => x.color !== 'verde').length ? h('ul', { class: 'lista' }, cob.items.filter((x) => x.color !== 'verde').slice(0, 6).map((x) => h('li', null, h('div', null, h('b', null, x.cliente), h('div', { class: 'apoyo' }, `${nombreMes(x.periodo)} · venció hace ${x.dias_vencida} día${x.dias_vencida === 1 ? '' : 's'}`)), h('span', null, chip(x.color === 'rojo' ? 'Muy vencida' : 'Vencida', x.color), ' ', h('b', null, usd(x.saldo_usd)))))) : h('div', { class: 'vacio' }, 'Nada vencido. Todo dentro del plazo.')))]);
 }
 
 async function vistaInicio(destino) {
@@ -493,6 +498,7 @@ function tarjetaContrato(c) {
     h('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px' },
       h('div', null, h('h2', { style: 'margin:0' }, c.nombre), h('div', { class: 'apoyo' }, `Desde ${fecha(c.fecha_inicio)} · ${c.duracion_meses ? `${c.duracion_meses} meses` : 'sin fin de vigencia'} · en ${c.moneda === 'ARS' ? 'pesos' : 'dólares'}`)),
       chip(c.estado === 'vigente' ? 'Vigente' : c.estado, c.estado === 'vigente' ? 'ok' : 'mudo')),
+    cob.plazoContrato(c),
     puede('contratos.editar') && puede('importes.ver') && c.estado === 'vigente' && c.condiciones?.length && panelAjuste(c),
     c.condiciones ? c.condiciones.map((x) => h('div', { class: `linea ${vigente(x) ? 'vigente' : ''}` },
       h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' },
@@ -543,6 +549,7 @@ async function vistaCliente(destino, id) {
   const c = d.cliente;
   const panel = h('div');
   const pestanas = [['resumen', 'Resumen']];
+  if (puede('importes.ver')) pestanas.push(['negocio', 'Negocio']);
   if (d.contactos) pestanas.push(['contactos', `Contactos (${d.contactos.length})`]);
   if (d.contratos) pestanas.push(['contratos', `Contratos (${d.contratos.length})`]);
   if (puede('cartera.asignar') || puede('crm.gestionar')) pestanas.push(['cartera', 'Cartera']);
@@ -562,12 +569,14 @@ async function vistaCliente(destino, id) {
       h('div', { style: 'display:flex;justify-content:space-between;gap:8px' }, h('b', { class: 'nombre-cliente' }, k.nombre), k.autorizado_toner ? chip('Autoriza tóner', 'ok') : chip('No autoriza tóner', 'mudo')),
       h('div', { style: 'margin:6px 0' }, k.roles.map((r) => chip(r, 'info')), ' '),
       k.telefonos.map((t) => h('div', null, t.numero)), k.emails.map((m) => h('div', null, h('a', { href: `mailto:${m.direccion}` }, m.direccion)))))) : h('div', { class: 'tarjeta vacio' }, 'Sin contactos.')),
+    negocio: () => cargando(),
     contratos: () => (d.contratos.length ? h('div', null, d.contratos.map(tarjetaContrato)) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
     cartera: () => h('div', { class: 'tarjeta' }, cargando()),
   };
   async function mostrar(clave) {
     [...barra.children].forEach((b) => b.classList.toggle('activa', b.dataset.clave === clave));
     vaciar(panel).append(vistas[clave]());
+    if (clave === 'negocio') await cob.negocioCliente(panel, id);
     if (clave === 'cartera') {
       const r = await api(`/api/cartera/${id}/historial`).catch(() => null);
       vaciar(panel).append(h('div', { class: 'tarjeta' }, h('h2', null, 'Historial de responsables'),
@@ -1081,17 +1090,18 @@ const verFactura = (id) => { location.hash = `#/facturacion/factura/${id}`; };
 const filaClic = (fn) => ({ class: 'fila', tabindex: '0', onclick: fn, onkeydown: (ev) => { if (ev.key === 'Enter') fn(); } });
 
 function pestanasFact(activa) {
-  const t = [['liquidacion', 'Liquidación del mes', puede('facturas.emitir')], ['facturas', 'Facturas', true], ['cobranzas', 'Cobranzas', true]].filter((x) => x[2]);
+  const t = [['liquidacion', 'Liquidación del mes', puede('facturas.emitir')], ['facturas', 'Facturas', true]].filter((x) => x[2]);
   return h('div', { class: 'pestanas no-imprimir' }, t.map(([k, txt]) => h('button', { type: 'button', class: k === activa ? 'activa' : '', onclick: () => { location.hash = `#/facturacion/${k}`; } }, txt)));
 }
 
 async function vistaFacturacion(destino, tab) {
-  const tabs = ['liquidacion', 'facturas', 'cobranzas'];
+  if (tab === 'cobranzas') { location.replace('#/cobranzas'); return; }
+  const tabs = ['liquidacion', 'facturas'];
   if (!tabs.includes(tab) || (tab === 'liquidacion' && !puede('facturas.emitir'))) tab = puede('facturas.emitir') ? 'liquidacion' : 'facturas';
-  destino.append(encabezado('Facturación y cobranzas', 'Todo en USD neto de IVA; el IVA se suma al facturar.',
+  destino.append(encabezado('Facturación', 'Todo en USD neto de IVA; el IVA se suma al facturar.',
     puede('facturas.emitir') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/facturacion/nueva' }, '+ Venta directa'))), pestanasFact(tab));
   const cuerpo = h('div'); destino.append(cuerpo);
-  if (tab === 'liquidacion') await tabLiquidacion(cuerpo); else if (tab === 'facturas') await tabFacturas(cuerpo); else await tabCobranzas(cuerpo);
+  if (tab === 'liquidacion') await tabLiquidacion(cuerpo); else await tabFacturas(cuerpo);
 }
 
 async function tabLiquidacion(dest) {
@@ -1166,19 +1176,6 @@ async function tabFacturas(dest) {
   await cargar();
 }
 
-async function tabCobranzas(dest) {
-  const r = await api('/api/cobranzas');
-  agregar(dest, [h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Por cobrar (USD neto)'), h('div', { class: 'valor' }, usd(r.total_usd)), h('div', { class: 'apoyo' }, `${r.facturas} factura${r.facturas === 1 ? '' : 's'}`)),
-    ['0-30', '31-60', '61-90', '+90'].map((t) => h('div', { class: `tarjeta kpi ${t === '+90' && r.tramos[t] > 0 ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, `${t} días`), h('div', { class: 'valor' }, usd(r.tramos[t]))))),
-  r.clientes.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('table', { class: 'tarjetas' },
-    h('thead', null, h('tr', null, ['Cliente', 'Saldo USD', '0-30', '31-60', '61-90', '+90', 'Más vieja'].map((t, k) => h('th', { class: k && k < 6 ? 'num' : '' }, t)))),
-    h('tbody', null, r.clientes.flatMap((c) => [h('tr', null, h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, c.cliente), h('details', null, h('summary', { class: 'apoyo' }, `${c.facturas} factura${c.facturas > 1 ? 's' : ''}`),
-      c.detalle.map((d) => h('div', null, h('a', { href: `#/facturacion/factura/${d.id}` }, `${nombreMes(d.periodo)}${d.numero ? ` · ${d.numero}` : ''}`), ` — ${monto(d.saldo, d.moneda)} · ${d.dias} días${d.estimada ? ' (fecha estimada)' : ''}`)))),
-      h('td', { class: 'num', 'data-rotulo': 'Saldo USD' }, h('b', null, usd(c.saldo_usd))), ...['0-30', '31-60', '61-90', '+90'].map((t) => h('td', { class: 'num', 'data-rotulo': `${t} días` }, c.tramos[t] ? usd(c.tramos[t]) : '—')),
-      h('td', { 'data-rotulo': 'Más vieja' }, `${c.max_dias} días`))])))) : h('div', { class: 'tarjeta vacio', style: 'margin-top:16px' }, h('b', null, 'No hay nada pendiente de cobro')),
-  r.sin_comprobante.facturas > 0 && h('p', { class: 'apoyo' }, `Aparte: ${r.sin_comprobante.facturas} cuenta${r.sin_comprobante.facturas > 1 ? 's' : ''} sin comprobante por ${usd(r.sin_comprobante.usd)} (no entran en el total).`)]);
-}
-
 async function vistaFactura(destino, id) {
   const f = await api(`/api/facturas/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
   if (!f) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos esa factura'), h('a', { href: '#/facturacion/facturas' }, 'Volver'))); return; }
@@ -1250,6 +1247,8 @@ async function vistaVentaDirecta(destino) {
 }
 
 /* ---------- navegación ---------- */
+const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
+
 async function navegar() {
   if (!estado.me || !contenedor) return;
   const [ruta = 'inicio', param, sub] = location.hash.replace(/^#\//, '').split('/');
@@ -1283,7 +1282,8 @@ async function navegar() {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
       else await vistaFacturacion(nuevo, param);
-    } else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
+    } else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
+    else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
     else if (ruta === 'notificaciones') await vistaNotificaciones(nuevo);
     else if (ruta === 'alertas' && puede('alertas.configurar')) await vistaAlertas(nuevo);
     else if (ruta === 'mi-dia' && puede('tickets.atender')) await vistaMiDia(nuevo);

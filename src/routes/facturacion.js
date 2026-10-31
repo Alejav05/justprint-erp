@@ -4,6 +4,7 @@ import { clientesVisibles } from '../lib/contexto.js';
 import { aDia, hoy } from '../lib/fechas.js';
 import { IVA, liquidar, redondear } from '../lib/liquidacion.js';
 import { ultimaCotizacion } from '../lib/cotizacion.js';
+import { PLAZO_DEFECTO_DIAS, sumarDias } from '../lib/cobranzas.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const error = (reply, code, e, extra = {}) => reply.code(code).send({ error: e, ...extra });
@@ -46,8 +47,9 @@ export default async function rutasFacturacion(app, { db }) {
 
   async function crearBorrador(trx, ctx, { cliente_id, contrato_id = null, periodo, moneda, tipo_cambio, interno, items, entidad }) {
     const alic = interno ? 0 : IVA;
+    const plazo = contrato_id ? (await trx('contratos').where({ id: contrato_id }).first())?.plazo_pago_dias ?? null : null; // el plazo se acuerda en el contrato
     const [id] = await trx('facturas').insert({
-      cliente_id, contrato_id, entidad_facturante_id: interno ? null : entidad, periodo, moneda, tipo_cambio: tipo_cambio ?? null,
+      cliente_id, contrato_id, plazo_pago_dias: plazo, entidad_facturante_id: interno ? null : entidad, periodo, moneda, tipo_cambio: tipo_cambio ?? null,
       neto: 0, iva: 0, total: 0, estado: 'borrador', created_by: ctx.id,
     });
     for (const it of items) {
@@ -197,9 +199,12 @@ export default async function rutasFacturacion(app, { db }) {
     if (!f.entidad_facturante_id && f.estado === 'borrador' && !(await db('factura_items').where({ factura_id: f.id }).first())) return error(reply, 409, 'sin_items');
     const fecha = d.fecha_emision ?? hoy();
     if (fecha > hoy()) return error(reply, 400, 'fecha_futura');
+    // Desde la emisión corre el plazo del contrato (o el que se fijó a mano). Es una referencia: no hay conexión con ARCA.
+    const plazo = f.plazo_pago_dias ?? (f.contrato_id ? (await db('contratos').where({ id: f.contrato_id }).first())?.plazo_pago_dias : null) ?? PLAZO_DEFECTO_DIAS;
+    const vencimiento = d.vencimiento ?? sumarDias(fecha, plazo);
     await db.transaction(async (trx) => {
       await trx('facturas').where({ id: f.id }).update({ estado: 'emitida', fecha_emision: fecha, fecha_emision_estimada: false, numero: d.numero ?? null, tipo_comprobante: d.tipo_comprobante ?? null,
-        vencimiento: d.vencimiento ?? null, updated_by: req.ctx.id, updated_at: trx.fn.now() });
+        plazo_pago_dias: plazo, vencimiento, updated_by: req.ctx.id, updated_at: trx.fn.now() });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'facturas', f.id, { estado: 'borrador' }, { estado: 'emitida', fecha_emision: fecha, numero: d.numero });
     });
     return { ok: true };

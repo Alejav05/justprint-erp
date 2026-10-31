@@ -12,6 +12,7 @@ import rutasTickets from './routes/tickets.js';
 import rutasEquipos from './routes/equipos.js';
 import rutasInsumos from './routes/insumos.js';
 import rutasFacturacion from './routes/facturacion.js';
+import rutasCobranzas from './routes/cobranzas.js';
 import rutasAjustes from './routes/ajustes.js';
 import rutasTablerosAreas from './routes/tableros_areas.js';
 import rutasAlertas from './routes/alertas.js';
@@ -63,6 +64,7 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasEquipos, { db });
   await app.register(rutasInsumos, { db });
   await app.register(rutasFacturacion, { db });
+  await app.register(rutasCobranzas, { db });
   await app.register(rutasAjustes, { db });
   await app.register(rutasTablerosAreas, { db });
   await app.register(rutasAlertas, { db });

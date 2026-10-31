@@ -78,7 +78,7 @@ export default async function rutasTableros(app, { db }) {
 
     const alertas = [];
     if (borradoresN) alertas.push({ nivel: 'aviso', texto: `${borradoresN} factura${borradoresN > 1 ? 's' : ''} en borrador sin emitir (USD ${redondear(borradores)})`, destino: '#/facturacion' });
-    if (porCobrarN) alertas.push({ nivel: 'aviso', texto: `${porCobrarN} factura${porCobrarN > 1 ? 's' : ''} emitida${porCobrarN > 1 ? 's' : ''} por cobrar (USD ${redondear(porCobrar)})`, destino: '#/facturacion' });
+    if (porCobrarN) alertas.push({ nivel: 'aviso', texto: `${porCobrarN} factura${porCobrarN > 1 ? 's' : ''} emitida${porCobrarN > 1 ? 's' : ''} por cobrar (USD ${redondear(porCobrar)})`, destino: '#/cobranzas' });
     if (tickets.length) alertas.push({ nivel: tickets.some((t) => t.prioridad === 'urgente') ? 'malo' : 'info', texto: `${tickets.length} ticket${tickets.length > 1 ? 's' : ''} abierto${tickets.length > 1 ? 's' : ''}`, destino: '#/tickets' });
     if (bajos) alertas.push({ nivel: 'aviso', texto: `${bajos} insumo${bajos > 1 ? 's' : ''} por debajo del stock mínimo`, destino: '#/insumos' });
     if (agotados) alertas.push({ nivel: 'aviso', texto: `${agotados} insumo${agotados > 1 ? 's' : ''} sin stock`, destino: '#/insumos' });
