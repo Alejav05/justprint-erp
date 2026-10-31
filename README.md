@@ -44,6 +44,8 @@ npm test
 2. hPanel → Bases de datos → crear una base MySQL y su usuario. Anotá nombre, usuario y clave.
 3. En las variables de entorno de la aplicación cargá lo de `.env.example` (NODE_ENV=production, ALLOWED_ORIGIN con tu dominio, DB_*).
 4. En la terminal SSH o en la consola de la app: `npm install --omit=dev`, `npx knex migrate:latest --env production`, `npm run seed:base`.
+
+**Sin terminal (Hostinger):** con `AUTO_MIGRAR=1` la app, al arrancar, aplica las migraciones, carga los datos base y, si todavía no hay usuarios y están `ADMIN_EMAIL`, `ADMIN_NOMBRE` y `ADMIN_PASSWORD`, crea el primer usuario de Dirección. Es idempotente. Una vez creado el administrador se puede quitar `ADMIN_PASSWORD`.
 5. Crear tu usuario de Dirección: `ADMIN_EMAIL=... ADMIN_NOMBRE=... ADMIN_PASSWORD='...' npm run crear-admin`. No cargues los datos demo en producción (el script se niega).
 6. Copias de seguridad: en hPanel → Cron Jobs, todos los días 03:30: `/bin/sh $HOME/<carpeta-de-la-app>/scripts/backup.sh`. Guarda 14 días.
 

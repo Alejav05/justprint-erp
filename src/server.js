@@ -4,11 +4,13 @@ import { crearApp } from './app.js';
 import { sincronizarSiguiente } from './lib/feriados.js';
 import { sincronizarCotizacionSegura } from './lib/cotizacion.js';
 import { ejecutarAlertas } from './lib/alertas.js';
+import { prepararBase } from './lib/arranque.js';
 
 // Sin await de nivel superior: el loader de Hostinger (lsnode) carga este archivo con require(),
 // y require() no admite módulos ESM con top-level await.
 async function main() {
   const db = crearDb();
+  if (process.env.AUTO_MIGRAR === '1') await prepararBase(db, (m) => console.log(m));
   const app = await crearApp({ db, logger: true });
 
   const cerrar = async () => { await app.close(); await db.destroy(); process.exit(0); };
