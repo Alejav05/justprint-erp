@@ -4,6 +4,7 @@ import { crearConfiguracion } from './configuracion.js';
 import { crearContratos } from './contratos.js';
 import { crearCrm } from './crm.js';
 import { crearContadores } from './contadores.js';
+import { crearPanelCliente } from './cliente_panel.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -453,11 +454,16 @@ async function vistaInicio(destino) {
         puede('clientes.ver') && h('a', { class: 'btn btn-principal', href: '#/clientes' }, 'Ver clientes')));
     return;
   }
-  const t = await api('/api/tableros/direccion');
+  let alcance = 'facturan';
+  try { if (localStorage.getItem('jp_alcance') === 'todos') alcance = 'todos'; } catch { /* sin almacenamiento */ }
+  const t = await api(`/api/tableros/direccion?alcance=${alcance}`);
+  const selector = h('div', { class: 'seg', role: 'group', 'aria-label': 'Qué cuentas incluir', style: 'margin:0' },
+    [['facturan', 'Solo las que se facturan'], ['todos', 'Todas las cuentas']].map(([k, tx]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(alcance === k),
+      onclick: () => { try { localStorage.setItem('jp_alcance', k); } catch { /* sin almacenamiento */ } navegar(); } }, tx)));
   const mes = [...t.serie].reverse().find((s) => s.facturado > 0) ?? t.serie.at(-1);
   const kpi = (rotulo, valor, nota, clase) => h('div', { class: `tarjeta kpi ${clase ?? ''}` }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor), h('div', { class: 'nota' }, nota));
   destino.append(
-    encabezado('Dirección', `Foto completa del negocio · valores en USD netos, sin IVA${t.cotizacion ? ` · dólar BNA ${t.cotizacion.valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })} (${fecha(t.cotizacion.fecha)})` : ''}`),
+    encabezado('Dirección', `Foto completa del negocio · valores en USD netos, sin IVA${t.alcance === 'todos' ? ' · incluye cuentas sin comprobante' : ''}${t.cotizacion ? ` · dólar BNA ${t.cotizacion.valor.toLocaleString('es-AR', { minimumFractionDigits: 2 })} (${fecha(t.cotizacion.fecha)})` : ''}`, selector),
     h('div', { class: 'rejilla kpis' },
       kpi('Abono mensual vigente', usd(t.abono_mensual), t.abono_no_facturable ? `+ ${usd(t.abono_no_facturable)} de cuentas no facturables` : `${t.contratos_vigentes} contratos vigentes`),
       kpi(`Facturado en ${mesCorto(mes.periodo)}`, usd(mes.facturado), `Cobrado de eso: ${usd(mes.cobrado)}`),
@@ -601,9 +607,9 @@ async function vistaCliente(destino, id) {
   const barra = h('div', { class: 'pestanas', role: 'tablist' });
 
   const fila = (k, v) => h('div', null, h('dt', null, k), h('dd', null, v ?? '—'));
+  let panelHueco = h('div');
   const vistas = {
-    resumen: () => h('div', null,
-      h('div', { class: 'rejilla kpis', style: 'margin-bottom:16px' }, kpiTarjeta('Locales', String(d.resumen.sedes)), puede('contratos.ver') && kpiTarjeta('Contratos vigentes', String(d.resumen.contratos_vigentes)), puede('equipos.ver') && kpiTarjeta('Equipos instalados', String(d.resumen.equipos_instalados))),
+    resumen: () => h('div', null, panelHueco,
       h('div', { class: 'tarjeta' }, h('h2', null, 'Datos'), h('dl', { class: 'datos', style: 'margin:0' },
         fila('Razón social', c.razon_social), fila('Nombre comercial', c.nombre_comercial), fila('CUIT', c.cuit), fila('Estado', chipEstado(c.estado)),
         fila('Responsable', d.responsable ? d.responsable.nombre : chip('Sin asignar', 'aviso')), fila('Alta', fecha(c.fecha_alta)), fila('Rubro', [c.rubro_nombre, c.subrubro_nombre].filter(Boolean).join(' › ') || null), fila('Origen', c.origen),
@@ -621,7 +627,9 @@ async function vistaCliente(destino, id) {
   };
   async function mostrar(clave) {
     [...barra.children].forEach((b) => b.classList.toggle('activa', b.dataset.clave === clave));
+    if (clave === 'resumen') panelHueco = h('div');
     vaciar(panel).append(vistas[clave]());
+    if (clave === 'resumen') pcl.panel(id).then((n) => panelHueco.replaceWith(n));
     if (clave === 'negocio') await cob.negocioCliente(panel, id);
     if (clave === 'seguimiento') vaciar(panel).append(await crm.pestanaSeguimiento(d));
     if (clave === 'cartera') {
@@ -635,7 +643,7 @@ async function vistaCliente(destino, id) {
   pestanas.forEach(([clave, texto]) => barra.append(h('button', { type: 'button', role: 'tab', 'data-clave': clave, onclick: () => mostrar(clave) }, texto)));
   destino.append(h('a', { href: '#/clientes', class: 'apoyo' }, '← Clientes'),
     encabezado(c.nombre_comercial || c.razon_social, c.nombre_comercial && c.nombre_comercial !== c.razon_social ? c.razon_social : null, h('div', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, chipEstado(c.estado),
-      puede('clientes.editar') && h('button', { class: 'btn', type: 'button', onclick: () => cajonLateral('Editar datos del cliente', (x) => { const caja = h('div', null, cargando()); crm.formCliente(d, x, () => navegar()).then((f) => vaciar(caja).append(f)); return caja; }) }, 'Editar datos'))), barra, panel);
+      pcl.botonExcel(id), puede('clientes.editar') && h('button', { class: 'btn', type: 'button', onclick: () => cajonLateral('Editar datos del cliente', (x) => { const caja = h('div', null, cargando()); crm.formCliente(d, x, () => navegar()).then((f) => vaciar(caja).append(f)); return caja; }) }, 'Editar datos'))), barra, panel);
   await mostrar('resumen');
 }
 
@@ -1325,6 +1333,7 @@ async function vistaVentaDirecta(destino) {
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
+const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
 const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });

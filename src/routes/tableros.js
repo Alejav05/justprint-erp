@@ -29,8 +29,10 @@ export default async function rutasTableros(app, { db }) {
    * Tablero de Dirección. Todo en USD de referencia (neto, sin IVA). Facturado y cobrado van separados, y lo que se
    * cobra sin comprobante fiscal se muestra aparte: no cuenta como facturado.
    */
-  app.get('/api/tableros/direccion', { preHandler: pre }, async () => {
+  app.get('/api/tableros/direccion', { preHandler: pre }, async (req) => {
     const h = hoy();
+    // 'facturan' (por defecto): solo cuentas que se facturan y cobran. 'todos': suma también las cuentas sin comprobante.
+    const todos = req.query?.alcance === 'todos';
     const periodos = ultimosPeriodos(h, 12);
 
     const porEstado = await db('clientes').whereNull('deleted_at').groupBy('estado').select('estado').count({ n: '*' });
@@ -42,7 +44,7 @@ export default async function rutasTableros(app, { db }) {
     for (const a of await db('cobro_aplicaciones').select('factura_id').sum({ s: 'importe' }).groupBy('factura_id')) {
       aplicado.set(a.factura_id, Number(a.s));
     }
-    const clase = (f) => (f.estado === 'borrador' ? 'borrador' : f.entidad_facturante_id ? 'fiscal' : 'interno');
+    const clase = (f) => (f.estado === 'borrador' ? 'borrador' : f.entidad_facturante_id || todos ? 'fiscal' : 'interno');
     const usdCobrado = (f) => (Number(f.total) > 0 ? (Math.min(aplicado.get(f.id) ?? 0, Number(f.total)) / Number(f.total)) * Number(f.neto_usd ?? 0) : 0);
 
     const serie = Object.fromEntries(periodos.map((p) => [p, { periodo: p, facturado: 0, cobrado: 0, sin_comprobante: 0 }]));
@@ -56,7 +58,7 @@ export default async function rutasTableros(app, { db }) {
         if (c === 'fiscal') { serie[f.periodo].facturado += usd; serie[f.periodo].cobrado += usdCobrado(f); } else serie[f.periodo].sin_comprobante += usd;
       }
       if (c === 'fiscal' && f.estado !== 'cobrada') { porCobrar += usd - usdCobrado(f); porCobrarN += 1; }
-      if (periodos.includes(f.periodo)) porCliente.set(f.cliente_id, (porCliente.get(f.cliente_id) ?? 0) + usd);
+      if (c !== 'interno' && periodos.includes(f.periodo)) porCliente.set(f.cliente_id, (porCliente.get(f.cliente_id) ?? 0) + usd);
     }
     const nombres = Object.fromEntries((await db('clientes').select('id', 'razon_social', 'nombre_comercial')).map((c) => [c.id, c.nombre_comercial || c.razon_social]));
     const topClientes = [...porCliente.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, usd]) => ({ cliente_id: id, cliente: nombres[id], usd: redondear(usd) }));
@@ -87,7 +89,8 @@ export default async function rutasTableros(app, { db }) {
       moneda: 'USD', neto: true, periodo_actual: h.slice(0, 7),
       clientes: { activo: clientes.activo ?? 0, prospecto: clientes.prospecto ?? 0, inactivo: clientes.inactivo ?? 0 },
       contratos_vigentes: abonos.contratos,
-      abono_mensual: redondear(abonos.total), abono_no_facturable: redondear(abonos.noFacturable),
+      alcance: todos ? 'todos' : 'facturan',
+      abono_mensual: redondear(todos ? abonos.total + abonos.noFacturable : abonos.total), abono_no_facturable: todos ? 0 : redondear(abonos.noFacturable),
       por_cobrar: { usd: redondear(porCobrar), facturas: porCobrarN },
       borradores: { usd: redondear(borradores), facturas: borradoresN },
       serie: periodos.map((p) => ({ ...serie[p], facturado: redondear(serie[p].facturado), cobrado: redondear(serie[p].cobrado), sin_comprobante: redondear(serie[p].sin_comprobante) })),

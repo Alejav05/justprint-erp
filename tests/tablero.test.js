@@ -42,6 +42,13 @@ test('facturado, cobrado, por cobrar y sin comprobante se calculan por separado,
   assert.equal(t.serie.length, 12);
   assert.ok(t.alertas.some((a) => /por cobrar/.test(a.texto)));
   assert.ok(t.tickets.abiertos >= 1);
+
+  // Con "todas las cuentas" lo cobrado sin comprobante se suma a facturado y cobrado.
+  const todas = (await dir.llamar('GET', '/api/tableros/direccion?alcance=todos')).json();
+  const m2 = todas.serie.at(-1);
+  assert.equal(todas.alcance, 'todos');
+  assert.equal(m2.facturado, 400); assert.equal(m2.sin_comprobante, 0);
+  assert.equal(t.alcance, 'facturan');
 });
 
 test('la app sirve la pantalla y los archivos estáticos con las cabeceras de seguridad', async () => {
