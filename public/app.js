@@ -1078,7 +1078,7 @@ async function vistaEquipo(destino, id) {
         dato('Última lectura', ult ? `${ult.contador_negro}${color ? ` / ${ult.contador_color}` : ''} · ${fecha(ult.fecha)}` : '—'),
         dato('Páginas entre las dos últimas', e.periodo ? `${e.periodo.negro}${color ? ` negro / ${e.periodo.color} color` : ''}` : '—'))),
       lectura, mover,
-      h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''}`))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
+      h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''} · período ${l.periodo ?? String(l.fecha).slice(0, 7)}`))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Tickets'), e.tickets.length ? h('ul', { class: 'lista' }, e.tickets.map((t) => h('li', null, h('a', { href: `#/tickets/${t.id}` }, `${t.numero} · ${t.asunto}`), chipTicket(t.estado)))) : h('p', { class: 'apoyo' }, 'Sin tickets.'))),
     h('div', null,
       h('div', { class: 'tarjeta etiqueta-qr' }, h('h2', null, 'Etiqueta para el equipo'), etiquetaSoporte(e), h('div', { class: 'apoyo', style: 'margin-top:8px' }, 'Autoadhesiva de 90 × 58 mm. El cliente la escanea y le llega a WhatsApp de soporte con el serie ya cargado.'),
@@ -1215,7 +1215,7 @@ async function tabLiquidacion(dest) {
             h('td', { class: 'num', 'data-rotulo': 'Neto' }, f.estado === 'sin_condiciones' ? '—' : monto(f.neto, f.moneda)),
             h('td', { 'data-rotulo': 'Estado' }, ESTADOS(f),
               f.estado !== 'sin_condiciones' && !f.factura_id && h('div', { class: 'apoyo' }, f.contadores.total ? `Contadores ${f.contadores.cargados} de ${f.contadores.total}` : 'Sin equipos instalados'),
-              (f.estado === 'incompleto' || f.solo_abono) && h('div', { class: 'apoyo' }, `Faltan: ${f.faltan.map((x) => x.serie ?? x).join(', ')} · `, h('a', { href: `#/contadores/${per.value}` }, 'Cargar contadores')),
+              (f.estado === 'incompleto' || f.solo_abono) && h('div', { class: 'apoyo' }, `Faltan: ${f.faltan.map((x) => x.serie ?? x).join(', ')} · `, h('a', { href: `#/contadores/${per.value}/${f.cliente_id}` }, 'Cargar contadores')),
               f.solo_abono && h('div', { class: 'apoyo' }, 'Se factura solo el abono: el consumo de este mes se sumará a la próxima lectura.')));
         })))) : h('div', { class: 'tarjeta vacio', style: 'margin-top:16px' }, h('b', null, 'No hay contratos para liquidar en ese período')),
       h('div', { class: 'acciones', style: 'margin-top:16px' }, boton));
@@ -1341,7 +1341,7 @@ async function navegar() {
     else if (ruta === 'clientes' && puede('clientes.ver')) await (param === 'nuevo' && puede('clientes.editar') ? crm.vistaNuevoCliente(nuevo) : param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
     else if (ruta === 'hunting' && puede('leads.ver')) await crm.vistaHunting(nuevo);
     else if (ruta === 'contratos' && puede('contratos.ver')) await (param === 'nuevo' ? ctr.vistaNuevoContrato(nuevo, sub) : param ? ctr.vistaContrato(nuevo, param) : ctr.vistaContratos(nuevo));
-    else if (ruta === 'contadores' && puede('contadores.ver')) await cnt.vistaContadores(nuevo, param);
+    else if (ruta === 'contadores' && puede('contadores.ver')) await cnt.vistaContadores(nuevo, param, sub);
     else if (ruta === 'tickets' && puede('tickets.ver')) {
       if (param === 'nuevo' && puede('tickets.crear')) await vistaNuevoTicket(nuevo);
       else if (param && sub === 'cierre') await vistaCierre(nuevo, param);

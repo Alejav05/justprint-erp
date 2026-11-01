@@ -26,7 +26,7 @@ test('la toma mensual lista los equipos pendientes y la carga los deja como carg
   assert.equal(despues.json().resumen.cargados, 1);
   const e = periodo(despues);
   assert.equal(e.actual.negro, 1200); assert.equal(e.actual.origen, 'cliente');
-  assert.deepEqual(e.consumo, { negro: 1200, color: 300 }, 'sin lecturas previas cuenta desde el contador inicial (0)');
+  assert.deepEqual(e.consumo, { negro: 1200, color: 300, meses: 1 }, 'sin lecturas previas cuenta desde el contador inicial (0)');
 });
 
 test('una lectura declarada para octubre pero tomada en noviembre factura octubre y no cuenta para noviembre', async () => {

@@ -58,7 +58,7 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
   }
   const yaFacturadas = await db('facturas').whereIn('contrato_id', ids).where({ periodo }).whereNull('deleted_at').where('estado', '!=', 'anulada').select('id', 'contrato_id', 'estado');
 
-  const consumo = (asig) => { const k = consumoPeriodo(porEquipo.get(asig.equipo_id) ?? [], periodo, asig); return k && { negro: k.negro, color: k.color }; };
+  const consumo = (asig) => { const k = consumoPeriodo(porEquipo.get(asig.equipo_id) ?? [], periodo, asig); return k && { negro: k.negro, color: k.color, meses: k.meses }; };
 
   const filas = [];
   for (const c of contratos) {
@@ -69,26 +69,28 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
     const base = { contrato_id: c.id, cliente_id: c.cliente_id, cliente: c.nombre_comercial || c.razon_social, contrato: c.nombre, moneda: c.moneda, factor: redondear(factor, 4), factura_id: existente?.id ?? null, factura_estado: existente?.estado ?? null };
     if (!cond) { filas.push({ ...base, estado: 'sin_condiciones', neto: 0, neto_usd: 0, items: [], faltan: [] }); continue; }
 
-    const franqN = Math.floor(cond.franquicia_negro * factor); const franqC = Math.floor(cond.franquicia_color * factor);
     const abono = Number(cond.monto_mensual) * factor;
-    let cn = 0; let cc = 0; const faltan = []; const equiposC = asigs.filter((x) => x.contrato_id === c.id);
+    let cn = 0; let cc = 0; let meses = 1; const faltan = []; const equiposC = asigs.filter((x) => x.contrato_id === c.id);
     for (const a of equiposC) {
       const k = consumo(a);
-      if (!k) faltan.push(a.numero_serie); else { cn += k.negro; cc += k.color; }
+      if (!k) faltan.push(a.numero_serie); else { cn += k.negro; cc += k.color; meses = Math.max(meses, k.meses); }
     }
     const soloAbono = faltan.length > 0 && sinContadores;
     if (soloAbono) { cn = 0; cc = 0; }
+    // Si algún mes anterior se facturó solo abono, el consumo que se cobra ahora abarca varios meses: se suman sus franquicias.
+    const mesesFranq = soloAbono ? 1 : meses;
+    const franqN = Math.floor(cond.franquicia_negro * (factor + mesesFranq - 1)); const franqC = Math.floor(cond.franquicia_color * (factor + mesesFranq - 1));
     const excN = Math.max(0, cn - franqN); const excC = Math.max(0, cc - franqC);
     const pN = Number(cond.excedente_negro); const pC = Number(cond.excedente_color);
     const items = [{ tipo: 'abono', descripcion: factor < 1 ? `Abono mensual ${periodo} (proporcional, ${Math.round(factor * 100)}%)` : `Abono mensual ${periodo}`, cantidad: 1, precio_unitario: redondear(abono, 4), subtotal: redondear(abono) }];
-    if (excN > 0) items.push({ tipo: 'excedente', descripcion: `Excedente de páginas en negro (consumo ${cn}, incluidas ${franqN})`, cantidad: excN, precio_unitario: pN, subtotal: redondear(excN * pN) });
-    if (excC > 0) items.push({ tipo: 'excedente', descripcion: `Excedente de páginas color (consumo ${cc}, incluidas ${franqC})`, cantidad: excC, precio_unitario: pC, subtotal: redondear(excC * pC) });
+    if (excN > 0) items.push({ tipo: 'excedente', descripcion: `Excedente de páginas en negro (consumo ${cn}, incluidas ${franqN}${mesesFranq > 1 ? `, franquicia de ${mesesFranq} meses` : ''})`, cantidad: excN, precio_unitario: pN, subtotal: redondear(excN * pN) });
+    if (excC > 0) items.push({ tipo: 'excedente', descripcion: `Excedente de páginas color (consumo ${cc}, incluidas ${franqC}${mesesFranq > 1 ? `, franquicia de ${mesesFranq} meses` : ''})`, cantidad: excC, precio_unitario: pC, subtotal: redondear(excC * pC) });
     const neto = redondear(items.reduce((s, i) => s + i.subtotal, 0));
     const netoUsd = c.moneda === 'USD' ? neto : (cot ? redondear(neto / cot.valor) : null);
     filas.push({
       ...base, estado: faltan.length && !sinContadores ? 'incompleto' : 'completo', faltan, solo_abono: soloAbono, interno: !cond.facturable,
       contadores: { total: equiposC.length, cargados: equiposC.length - faltan.length },
-      consumo_negro: cn, consumo_color: cc, franquicia_negro: franqN, franquicia_color: franqC, excedente_negro: excN, excedente_color: excC,
+      meses_consumo: mesesFranq, consumo_negro: cn, consumo_color: cc, franquicia_negro: franqN, franquicia_color: franqC, excedente_negro: excN, excedente_color: excC,
       abono: redondear(abono), neto, neto_usd: netoUsd, items,
     });
   }

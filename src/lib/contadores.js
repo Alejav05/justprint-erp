@@ -24,8 +24,10 @@ export function consumoPeriodo(ls, periodo, asig) {
   const desde = String(asig.desde).slice(0, 10);
   const base = ls.filter((l) => l.per < periodo && l.fecha >= desde).at(-1);
   const bn = base ? base.contador_negro : asig.contador_inicial_negro; const bc = base ? base.contador_color : asig.contador_inicial_color;
+  const [pa, pm] = periodo.split('-').map(Number);
+  const meses = base ? Math.max(1, (pa * 12 + pm) - (Number(base.per.slice(0, 4)) * 12 + Number(base.per.slice(5, 7)))) : 1;
   return {
-    actual, base: base ?? null, base_negro: bn, base_color: bc,
+    actual, base: base ?? null, base_negro: bn, base_color: bc, meses,
     negro: Math.max(0, actual.contador_negro - bn), color: asig.tipo === 'color' ? Math.max(0, actual.contador_color - bc) : 0,
   };
 }

@@ -17,7 +17,8 @@ export function crearContadores(U) {
   const nombrePeriodo = (p) => { const [a, m] = p.split('-').map(Number); return `${MESES[m - 1]} de ${a}`; };
   const ESTADO = { completo: ['Completo', 'ok'], parcial: ['Faltan algunos', 'aviso'], pendiente: ['Sin cargar', 'malo'] };
 
-  async function vistaContadores(destino, periodoParam) {
+  async function vistaContadores(destino, periodoParam, clienteParam) {
+    const clienteId = /^\d+$/.test(clienteParam ?? '') ? clienteParam : null;
     const periodo = /^\d{4}-\d{2}$/.test(periodoParam ?? '') ? periodoParam : periodoSugerido();
     const puedeCargar = puede('contadores.cargar');
     const per = h('input', { type: 'month', value: periodo, 'aria-label': 'Período a cargar' });
@@ -27,7 +28,7 @@ export function crearContadores(U) {
     let soloPendientes = false;
     const zona = h('div'); const resumen = h('div'); const barra = h('div', { class: 'barra-guardar' }); const problemas = h('div');
     const cambios = new Map(); // equipo_id -> { negro, color, fila }
-    let datos = null; const errores = new Map();
+    let datos = null; const errores = new Map(); const equipoPorId = new Map(); const facturadoPorEquipo = new Map();
 
     agregar(destino, [
       encabezado('Contadores', 'Toma mensual por cliente. Se carga a fin de mes o la primera semana del siguiente y alimenta la factura de ese mes.'),
@@ -49,7 +50,7 @@ export function crearContadores(U) {
       return e.consumo ? { ...e.consumo, menor: false } : null;
     };
 
-    function filaEquipo(e) {
+    function filaEquipo(e, facturado) {
       const inN = h('input', { type: 'number', min: '0', inputmode: 'numeric', value: e.actual?.negro ?? '', placeholder: String(e.base.negro), 'aria-label': `Contador negro ${e.serie}`, disabled: !puedeCargar });
       const inC = h('input', { type: 'number', min: '0', inputmode: 'numeric', value: e.tipo === 'color' ? (e.actual?.color ?? '') : '', placeholder: e.tipo === 'color' ? String(e.base.color) : '—', 'aria-label': `Contador color ${e.serie}`, disabled: !puedeCargar || e.tipo !== 'color' });
       const consumo = h('td', { class: 'num', 'data-rotulo': 'Consumo' }); const estadoTd = h('td', { 'data-rotulo': 'Estado' });
@@ -58,7 +59,8 @@ export function crearContadores(U) {
         const v = { negro: valor(inN), color: valor(inC) };
         const sucio = v.negro !== null && (v.negro !== (e.actual?.negro ?? null) || (e.tipo === 'color' && v.color !== (e.actual?.color ?? null)));
         const k = clasificar(e, v.negro === null ? null : v);
-        vaciar(consumo).append(k ? h('span', { class: k.menor ? 'neg' : '' }, e.tipo === 'color' ? `${num(k.negro)} / ${num(k.color)}` : num(k.negro)) : '—');
+        const largo = !sucio && e.consumo?.meses > 1 ? h('div', { class: 'apoyo' }, `${e.consumo.meses} meses`) : null;
+        vaciar(consumo).append(k ? h('span', { class: k.menor ? 'neg' : '' }, e.tipo === 'color' ? `${num(k.negro)} / ${num(k.color)}` : num(k.negro)) : '—', largo);
         vaciar(estadoTd);
         const err = errores.get(e.equipo_id);
         if (err) estadoTd.append(chip('No se guardó', 'malo'), h('div', { class: 'apoyo neg', role: 'alert' }, err));
@@ -68,7 +70,18 @@ export function crearContadores(U) {
           estadoTd.append(chip('Cargado', 'ok'), h('div', { class: 'apoyo' }, `${fecha(e.actual.fecha)} · ${e.actual.origen === 'cliente' ? 'informó el cliente' : e.actual.usuario ?? 'técnico'}`));
           if (e.alerta === 'cero') estadoTd.append(h('div', { class: 'apoyo neg' }, 'Consumo 0: revisá si el equipo está parado.'));
           if (e.alerta === 'alto') estadoTd.append(h('div', { class: 'apoyo neg' }, `Consumo muy por encima de lo habitual (${num(e.promedio)} páginas).`));
-        } else estadoTd.append(chip('Pendiente', 'mudo'));
+        } else {
+          estadoTd.append(chip('Pendiente', 'mudo'));
+          if (e.candidata && puedeCargar) {
+            const c = e.candidata;
+            const usar = h('button', { type: 'button', class: 'btn', onclick: async () => {
+              usar.disabled = true;
+              try { await api('/api/contadores/asignar', { metodo: 'POST', cuerpo: { periodo: per.value, lectura_ids: [c.id] } }); aviso('Lectura asignada al período'); await cargar(); }
+              catch (x) { if (x.message !== 'sesion') aviso('No se pudo asignar la lectura.'); usar.disabled = false; }
+            } }, `Usar para ${nombrePeriodo(per.value).split(' de ')[0]}`);
+            estadoTd.append(h('div', { class: 'apoyo' }, `Ya hay una lectura del ${fecha(c.fecha)}: ${e.tipo === 'color' ? `${num(c.negro)} / ${num(c.color)}` : num(c.negro)} (cargada en otro módulo).`), usar);
+          }
+        }
         if (sucio && v.negro !== null && !(e.tipo === 'color' && v.color === null)) cambios.set(e.equipo_id, { equipo_id: e.equipo_id, contador_negro: v.negro, ...(e.tipo === 'color' ? { contador_color: v.color } : {}) });
         else cambios.delete(e.equipo_id);
         pintarBarra();
@@ -94,7 +107,7 @@ export function crearContadores(U) {
           c.contratos.map((k) => h('div', null,
             c.contratos.length > 1 || k.franquicia_negro != null ? h('div', { class: 'apoyo', style: 'padding:6px 8px' }, `${k.contrato}${k.franquicia_negro != null ? ` · franquicia ${num(k.franquicia_negro)} negro${k.franquicia_color ? ` / ${num(k.franquicia_color)} color` : ''}` : ''}`) : null,
             h('table', { class: 'tarjetas' }, h('thead', null, h('tr', null, ['Equipo', 'Lectura anterior', 'Negro', 'Color', 'Consumo', 'Estado'].map((x, i) => h('th', { class: i === 1 || i === 4 ? 'num' : '' }, x)))),
-              h('tbody', null, k.equipos.map(filaEquipo))))))); }
+              h('tbody', null, k.equipos.map((e) => filaEquipo(e, k.facturado)))))))); }
       pintarBarra();
     }
 
@@ -104,6 +117,13 @@ export function crearContadores(U) {
       const n = cambios.size;
       const guardar = h('button', { type: 'button', class: 'btn btn-principal', disabled: !n }, n ? `Guardar ${n} ${n === 1 ? 'lectura' : 'lecturas'}` : 'Sin cambios para guardar');
       guardar.addEventListener('click', async () => {
+        const correcciones = [...cambios.values()].map((c) => ({ c, e: equipoPorId.get(c.equipo_id) })).filter(({ e }) => e?.actual);
+        if (correcciones.length) {
+          const lineas = correcciones.map(({ c, e }) => `• ${e.serie}: ${num(e.actual.negro)}${e.tipo === 'color' ? ` / ${num(e.actual.color)}` : ''} → ${num(c.contador_negro)}${e.tipo === 'color' ? ` / ${num(c.contador_color)}` : ''}`).join('\n');
+          const facturadas = correcciones.some(({ e }) => facturadoPorEquipo.get(e.equipo_id));
+          const texto = `Vas a cambiar ${correcciones.length === 1 ? 'una lectura ya cargada' : `${correcciones.length} lecturas ya cargadas`}:\n\n${lineas}\n\nEl consumo del período se recalcula con el nuevo valor.${facturadas ? '\n\nAtención: este período ya tiene factura emitida. La factura no se modifica; si el consumo cambia, hay que ajustarla aparte.' : ''}\n\n¿Confirmás el cambio?`;
+          if (!confirm(texto)) return;
+        }
         guardar.disabled = true;
         try {
           const r = await api('/api/contadores/lecturas', { metodo: 'POST', cuerpo: { periodo: per.value, lecturas: [...cambios.values()].map((c) => ({ ...c, fecha: fechaLectura.value || undefined, origen: origen.value })) } });
@@ -119,9 +139,11 @@ export function crearContadores(U) {
 
     async function cargar(erroresServidor = []) {
       vaciar(zona).append(cargando()); errores.clear(); vaciar(problemas);
-      datos = await api(`/api/contadores?periodo=${per.value}`).catch(() => null);
+      datos = await api(`/api/contadores?periodo=${per.value}${clienteId ? `&cliente=${clienteId}` : ''}`).catch(() => null);
       if (!datos) { vaciar(zona).append(h('div', { class: 'vacio' }, h('b', null, 'Algo salió mal'), 'No se pudo cargar esta pantalla.')); return; }
       const nombre = new Map(datos.clientes.flatMap((c) => c.contratos.flatMap((k) => k.equipos.map((e) => [e.equipo_id, `${c.cliente} · ${e.serie}`]))));
+      equipoPorId.clear(); facturadoPorEquipo.clear();
+      for (const c of datos.clientes) for (const k of c.contratos) for (const e of k.equipos) { equipoPorId.set(e.equipo_id, e); facturadoPorEquipo.set(e.equipo_id, k.facturado); }
       for (const x of erroresServidor) errores.set(x.equipo_id, ERR[x.error] ?? 'No se pudo guardar.');
       const r = datos.resumen;
       vaciar(resumen).append(h('div', { class: 'rejilla kpis', style: 'margin-top:16px' },
@@ -132,7 +154,7 @@ export function crearContadores(U) {
       pintar();
     }
 
-    per.addEventListener('change', () => { if (per.value) { location.hash = `#/contadores/${per.value}`; } });
+    per.addEventListener('change', () => { if (per.value) { location.hash = `#/contadores/${per.value}${clienteId ? `/${clienteId}` : ''}`; } });
     buscar.addEventListener('input', () => datos && pintar());
     await cargar();
   }

@@ -40,14 +40,22 @@ export default async function rutasContadores(app, { db }) {
     return m;
   }
 
+  /** Lectura cargada sin período (desde Equipos o un cierre de ticket) después de fin de mes: puede ser la toma del mes que cerró. */
+  function candidataDe(ls, periodo, fin) {
+    const c = ls.filter((l) => !l.periodo && l.fecha > aDia(fin) && l.per > periodo).at(0);
+    return c ? { id: c.id, fecha: c.fecha, negro: c.contador_negro, color: c.contador_color, origen: c.origen, usuario: c.usuario ?? null } : null;
+  }
+
   app.get('/api/contadores', { preHandler: ver }, async (req) => {
     const periodo = periodoSchema.parse(req.query.periodo);
     const { fin } = limitesPeriodo(periodo);
-    const filas = await equiposDelPeriodo(req.ctx, periodo);
+    let filas = await equiposDelPeriodo(req.ctx, periodo);
+    if (req.query.cliente) filas = filas.filter((f) => f.cliente_id === Number(req.query.cliente));
     const lect = await lecturasPorEquipo([...new Set(filas.map((f) => f.equipo_id))]);
     const contratoIds = [...new Set(filas.map((f) => f.contrato_id))];
     const conds = contratoIds.length ? await db('contrato_condiciones').whereIn('contrato_id', contratoIds).where('vigente_desde', '<=', fin).orderBy('vigente_desde', 'desc').orderBy('id', 'desc') : [];
 
+    const facturados = contratoIds.length ? new Set((await db('facturas').whereIn('contrato_id', contratoIds).where({ periodo }).whereNull('deleted_at').where('estado', '!=', 'anulada').select('contrato_id')).map((x) => x.contrato_id)) : new Set();
     const clientes = new Map();
     for (const f of filas) {
       const ls = lect.get(f.equipo_id) ?? [];
@@ -62,14 +70,15 @@ export default async function rutasContadores(app, { db }) {
       const cl = clientes.get(f.cliente_id);
       if (!cl.contratos.has(f.contrato_id)) {
         const cond = conds.find((x) => x.contrato_id === f.contrato_id);
-        cl.contratos.set(f.contrato_id, { contrato_id: f.contrato_id, contrato: f.contrato, franquicia_negro: cond?.franquicia_negro ?? null, franquicia_color: cond?.franquicia_color ?? null, equipos: [] });
+        cl.contratos.set(f.contrato_id, { contrato_id: f.contrato_id, contrato: f.contrato, franquicia_negro: cond?.franquicia_negro ?? null, franquicia_color: cond?.franquicia_color ?? null, facturado: facturados.has(f.contrato_id), equipos: [] });
       }
       cl.contratos.get(f.contrato_id).equipos.push({
         equipo_id: f.equipo_id, serie: f.numero_serie, modelo: `${f.marca} ${f.modelo}`, tipo: f.tipo, sede: f.sede, domicilio: [f.domicilio, f.localidad].filter(Boolean).join(', ') || null,
         base: { negro: k ? k.base_negro : (ls.filter((l) => l.fecha >= aDia(f.desde)).at(-1)?.contador_negro ?? f.contador_inicial_negro), color: k ? k.base_color : (ls.filter((l) => l.fecha >= aDia(f.desde)).at(-1)?.contador_color ?? f.contador_inicial_color) },
         ultima: ls.at(-1) ? { fecha: ls.at(-1).fecha, negro: ls.at(-1).contador_negro, color: ls.at(-1).contador_color } : null,
         actual: k ? { fecha: k.actual.fecha, negro: k.actual.contador_negro, color: k.actual.contador_color, origen: k.actual.origen, usuario: k.actual.usuario ?? null, observaciones: k.actual.observaciones ?? null } : null,
-        consumo: k ? { negro: k.negro, color: k.color } : null, promedio, alerta,
+        consumo: k ? { negro: k.negro, color: k.color, meses: k.meses } : null, promedio, alerta,
+        candidata: !k ? candidataDe(ls, periodo, fin) : null,
       });
     }
     const lista = [...clientes.values()].map((c) => {
@@ -100,7 +109,7 @@ export default async function rutasContadores(app, { db }) {
       if (fecha > hoy()) { errores.push({ equipo_id: l.equipo_id, error: 'fecha_futura' }); continue; }
       const color = eq.tipo === 'monocromo' ? 0 : l.contador_color;
       const todas = (await db('lecturas_contador').where({ equipo_id: l.equipo_id }).orderBy('fecha').orderBy('id')).map((x) => ({ ...x, fecha: aDia(x.fecha) }));
-      const existente = todas.filter((x) => periodoDeLectura(x) === d.periodo && x.periodo === d.periodo).at(-1);
+      const existente = todas.filter((x) => periodoDeLectura(x) === d.periodo).at(-1);
       let problema;
       if (existente) {
         // Corrección de una lectura ya cargada para este período: debe quedar entre la anterior y la siguiente.
@@ -123,5 +132,23 @@ export default async function rutasContadores(app, { db }) {
       guardadas.push(l.equipo_id);
     }
     return reply.code(errores.length && !guardadas.length ? 409 : 200).send({ guardadas, errores });
+  });
+
+  /** Confirma que una lectura cargada sin período (en Equipos o en un ticket) es la toma de `periodo`. */
+  app.post('/api/contadores/asignar', { preHandler: cargar }, async (req, reply) => {
+    const d = z.object({ periodo: periodoSchema, lectura_ids: z.array(z.number().int().positive()).min(1).max(200) }).parse(req.body);
+    const { fin } = limitesPeriodo(d.periodo);
+    const ls = await db('lecturas_contador').whereIn('id', d.lectura_ids);
+    const permitidos = new Set((await equiposDelPeriodo(req.ctx, d.periodo, { equipoIds: ls.map((x) => x.equipo_id) })).map((x) => x.equipo_id));
+    const asignadas = []; const errores = [];
+    for (const l of ls) {
+      if (!permitidos.has(l.equipo_id)) { errores.push({ lectura_id: l.id, error: 'equipo_no_disponible' }); continue; }
+      const todas = (await db('lecturas_contador').where({ equipo_id: l.equipo_id }).orderBy('fecha').orderBy('id')).map((x) => ({ ...x, fecha: aDia(x.fecha), per: periodoDeLectura(x) }));
+      if (l.periodo || aDia(l.fecha) <= aDia(fin) || todas.some((x) => x.per === d.periodo)) { errores.push({ lectura_id: l.id, error: 'lectura_no_asignable' }); continue; }
+      await db('lecturas_contador').where({ id: l.id }).update({ periodo: d.periodo });
+      await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'lecturas_contador', l.id, { periodo: null }, { periodo: d.periodo });
+      asignadas.push(l.id);
+    }
+    return reply.code(errores.length && !asignadas.length ? 409 : 200).send({ asignadas, errores });
   });
 }
