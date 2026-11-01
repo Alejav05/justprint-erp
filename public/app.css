@@ -394,3 +394,5 @@ details summary{cursor:pointer;font-weight:700;color:var(--navy)}
 .lead-valor{font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
 .lead-accion{font-size:12.5px;color:var(--gris);margin-top:2px}.lead-accion.vencida{color:#A22329;font-weight:600}
 @media (max-width:700px){.fila-medio{grid-template-columns:100px 1fr}.fila-medio .btn-texto{grid-column:1 / -1;justify-self:start}.tablero-leads{grid-auto-columns:82%}}
+
+.barra-guardar { margin-top: 16px; }

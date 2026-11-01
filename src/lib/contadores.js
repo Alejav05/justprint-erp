@@ -9,3 +9,23 @@ export async function validarLectura(db, equipoId, tipoModelo, negro, color) {
   }
   return null;
 }
+
+/** Una lectura pertenece al período que declara o, si no declara, al mes de su fecha. */
+export const periodoDeLectura = (l) => l.periodo ?? String(l.fecha instanceof Date ? l.fecha.toISOString() : l.fecha).slice(0, 7);
+
+/**
+ * Consumo de `periodo` para un equipo en una asignación: última lectura del período menos la última de los períodos
+ * anteriores dentro de la misma asignación (o el contador inicial de la instalación). `ls`: lecturas ya normalizadas
+ * ({ fecha: 'AAAA-MM-DD', per }) en orden de fecha e id. Devuelve null si el período no tiene lectura.
+ */
+export function consumoPeriodo(ls, periodo, asig) {
+  const actual = ls.filter((l) => l.per === periodo).at(-1);
+  if (!actual) return null;
+  const desde = String(asig.desde).slice(0, 10);
+  const base = ls.filter((l) => l.per < periodo && l.fecha >= desde).at(-1);
+  const bn = base ? base.contador_negro : asig.contador_inicial_negro; const bc = base ? base.contador_color : asig.contador_inicial_color;
+  return {
+    actual, base: base ?? null, base_negro: bn, base_color: bc,
+    negro: Math.max(0, actual.contador_negro - bn), color: asig.tipo === 'color' ? Math.max(0, actual.contador_color - bc) : 0,
+  };
+}

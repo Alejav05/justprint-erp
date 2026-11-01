@@ -33,6 +33,8 @@ export const PERMISOS = [
   ['tickets.asignar', 'servicio', 'Asignar tickets y visitas'],
   ['partes.editar', 'servicio', 'Cargar partes técnicos'],
   ['remitos.crear', 'servicio', 'Crear remitos'],
+  ['contadores.ver', 'servicio', 'Ver la toma mensual de contadores'],
+  ['contadores.cargar', 'servicio', 'Cargar los contadores del mes'],
   ['equipos.ver', 'equipos', 'Ver equipos y su historial'],
   ['equipos.editar', 'equipos', 'Crear y editar equipos'],
   ['insumos.ver', 'insumos', 'Ver insumos y stock'],
@@ -54,37 +56,37 @@ export const ROLES = {
     descripcion: 'Líder del área comercial',
     permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'cartera.asignar',
       'contratos.ver', 'contratos.editar', 'importes.ver', 'tickets.ver', 'equipos.ver', 'reportes.equipo', 'cobranzas.escaladas',
-      'leads.ver', 'leads.editar', 'leads.todos'],
+      'leads.ver', 'leads.editar', 'leads.todos', 'contadores.ver'],
   },
   comercial: {
     descripcion: 'Comercial con cartera propia',
     permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'contratos.ver',
-      'importes.ver', 'tickets.ver', 'equipos.ver', 'cobranzas.escaladas', 'leads.ver', 'leads.editar'],
+      'importes.ver', 'tickets.ver', 'equipos.ver', 'cobranzas.escaladas', 'leads.ver', 'leads.editar', 'contadores.ver'],
   },
   head_atencion: {
     descripcion: 'Líder de atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'tickets.atender',
-      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio'],
+      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'contadores.ver', 'contadores.cargar'],
   },
   atencion: {
     descripcion: 'Atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'insumos.ver',
-      'insumos.mover', 'equipos.ver'],
+      'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar'],
   },
   head_tecnico: {
     descripcion: 'Líder del área técnica',
     permisos: ['clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'tickets.asignar', 'partes.editar',
-      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio'],
+      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'contadores.ver', 'contadores.cargar'],
   },
   tecnico: {
     descripcion: 'Técnico de servicio',
     permisos: ['tableros.servicio', 'clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'partes.editar', 'remitos.crear',
-      'insumos.ver', 'insumos.mover', 'equipos.ver'],
+      'insumos.ver', 'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar'],
   },
   facturacion: {
     descripcion: 'Facturación y cobranzas',
     permisos: ['clientes.ver', 'contactos.ver', 'contratos.ver', 'importes.ver', 'facturas.emitir', 'cobros.registrar',
-      'costos.ver', 'cobranzas.gestionar'],
+      'costos.ver', 'cobranzas.gestionar', 'contadores.ver'],
   },
 };
 

@@ -1,8 +1,10 @@
 // Liquidación mensual: abono (prorrateado si el contrato arrancó en el período) + excedente de páginas por contrato.
-// Misma regla que la planilla anterior: consumo = última lectura del período menos la lectura anterior (o el contador
-// inicial de la instalación); franquicia efectiva = franquicia × factor de prorrateo, redondeada hacia abajo.
+// Consumo = última lectura del período menos la última de los períodos anteriores (o el contador inicial de la
+// instalación). Una lectura pertenece al período que declara (`periodo`) o, si no declara, al mes de su fecha: así la
+// toma de fin de mes, hecha la primera semana del mes siguiente, factura el mes que cierra. Franquicia efectiva = franquicia × factor de prorrateo, redondeada hacia abajo.
 import { aDia } from './fechas.js';
 import { ultimaCotizacion } from './cotizacion.js';
+import { consumoPeriodo } from './contadores.js';
 
 export const IVA = 21;
 export const redondear = (n, d = 2) => { const f = 10 ** d; return Math.round((Number(n) + Number.EPSILON) * f) / f; };
@@ -24,7 +26,8 @@ export function factorProrateo(fechaInicio, periodo) {
 
 /**
  * Propuesta de liquidación de `periodo` para los contratos vigentes (todos, o los de `contratoIds`).
- * No guarda nada. `sinContadores`: factura solo el abono, sin mirar consumos.
+ * No guarda nada. `sinContadores` permite facturar los contratos a los que les faltan lecturas: esos van solo con el abono
+ * (`solo_abono`); los que tienen todas sus lecturas se liquidan completos, con su excedente.
  */
 export async function liquidar(db, periodo, { contratoIds = null, clienteId = null, clienteIds = null, sinContadores = false } = {}) {
   const { inicio, fin } = limitesPeriodo(periodo);
@@ -44,21 +47,18 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
     .whereIn('a.contrato_id', ids).where('a.desde', '<=', fin).where((w) => w.whereNull('a.hasta').orWhere('a.hasta', '>=', inicio))
     .select('a.contrato_id', 'a.equipo_id', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'a.desde', 'e.numero_serie', 'm.tipo');
   const equipoIds = [...new Set(asigs.map((a) => a.equipo_id))];
-  const lecturas = equipoIds.length ? await db('lecturas_contador').whereIn('equipo_id', equipoIds).where('fecha', '<=', fin).orderBy('fecha').orderBy('id') : [];
+  const lecturas = equipoIds.length ? await db('lecturas_contador').whereIn('equipo_id', equipoIds)
+    .where((w) => w.where('fecha', '<=', fin).orWhere('periodo', '<=', periodo)).orderBy('fecha').orderBy('id') : [];
   const porEquipo = new Map();
-  for (const l of lecturas) { if (!porEquipo.has(l.equipo_id)) porEquipo.set(l.equipo_id, []); porEquipo.get(l.equipo_id).push({ ...l, fecha: aDia(l.fecha) }); }
+  for (const l of lecturas) {
+    const fecha = aDia(l.fecha); const per = l.periodo ?? fecha.slice(0, 7);
+    if (per > periodo) continue; // tomada antes, pero declarada para un período posterior
+    if (!porEquipo.has(l.equipo_id)) porEquipo.set(l.equipo_id, []);
+    porEquipo.get(l.equipo_id).push({ ...l, fecha, per });
+  }
   const yaFacturadas = await db('facturas').whereIn('contrato_id', ids).where({ periodo }).whereNull('deleted_at').where('estado', '!=', 'anulada').select('id', 'contrato_id', 'estado');
 
-  function consumo(asig) {
-    const ls = porEquipo.get(asig.equipo_id) ?? [];
-    const delPeriodo = ls.filter((l) => l.fecha >= inicio && l.fecha <= fin);
-    const actual = delPeriodo.at(-1);
-    if (!actual) return null;
-    const previas = ls.filter((l) => l.fecha < actual.fecha || (l.fecha === actual.fecha && l.id < actual.id));
-    const base = previas.at(-1);
-    const bn = base ? base.contador_negro : asig.contador_inicial_negro; const bc = base ? base.contador_color : asig.contador_inicial_color;
-    return { negro: Math.max(0, actual.contador_negro - bn), color: asig.tipo === 'color' ? Math.max(0, actual.contador_color - bc) : 0 };
-  }
+  const consumo = (asig) => { const k = consumoPeriodo(porEquipo.get(asig.equipo_id) ?? [], periodo, asig); return k && { negro: k.negro, color: k.color }; };
 
   const filas = [];
   for (const c of contratos) {
@@ -71,13 +71,13 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
 
     const franqN = Math.floor(cond.franquicia_negro * factor); const franqC = Math.floor(cond.franquicia_color * factor);
     const abono = Number(cond.monto_mensual) * factor;
-    let cn = 0; let cc = 0; const faltan = [];
-    if (!sinContadores) {
-      for (const a of asigs.filter((x) => x.contrato_id === c.id)) {
-        const k = consumo(a);
-        if (!k) faltan.push(a.numero_serie); else { cn += k.negro; cc += k.color; }
-      }
+    let cn = 0; let cc = 0; const faltan = []; const equiposC = asigs.filter((x) => x.contrato_id === c.id);
+    for (const a of equiposC) {
+      const k = consumo(a);
+      if (!k) faltan.push(a.numero_serie); else { cn += k.negro; cc += k.color; }
     }
+    const soloAbono = faltan.length > 0 && sinContadores;
+    if (soloAbono) { cn = 0; cc = 0; }
     const excN = Math.max(0, cn - franqN); const excC = Math.max(0, cc - franqC);
     const pN = Number(cond.excedente_negro); const pC = Number(cond.excedente_color);
     const items = [{ tipo: 'abono', descripcion: factor < 1 ? `Abono mensual ${periodo} (proporcional, ${Math.round(factor * 100)}%)` : `Abono mensual ${periodo}`, cantidad: 1, precio_unitario: redondear(abono, 4), subtotal: redondear(abono) }];
@@ -86,7 +86,8 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
     const neto = redondear(items.reduce((s, i) => s + i.subtotal, 0));
     const netoUsd = c.moneda === 'USD' ? neto : (cot ? redondear(neto / cot.valor) : null);
     filas.push({
-      ...base, estado: faltan.length ? 'incompleto' : 'completo', faltan, interno: !cond.facturable,
+      ...base, estado: faltan.length && !sinContadores ? 'incompleto' : 'completo', faltan, solo_abono: soloAbono, interno: !cond.facturable,
+      contadores: { total: equiposC.length, cargados: equiposC.length - faltan.length },
       consumo_negro: cn, consumo_color: cc, franquicia_negro: franqN, franquicia_color: franqC, excedente_negro: excN, excedente_color: excC,
       abono: redondear(abono), neto, neto_usd: netoUsd, items,
     });

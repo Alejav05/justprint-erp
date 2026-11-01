@@ -3,6 +3,7 @@ import { crearCobranzas } from './cobranzas.js';
 import { crearConfiguracion } from './configuracion.js';
 import { crearContratos } from './contratos.js';
 import { crearCrm } from './crm.js';
+import { crearContadores } from './contadores.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -70,6 +71,7 @@ const ICONOS = {
   contratos: 'M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6',
   servicio: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   tickets: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z',
+  contadores: 'M4 18a8 8 0 1 1 16 0M12 18l4-6M12 18h.01',
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
@@ -93,6 +95,7 @@ const MENU = [
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
+  { ruta: 'contadores', texto: 'Contadores', permiso: 'contadores.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
@@ -1195,7 +1198,7 @@ async function tabLiquidacion(dest) {
     });
     rotulo();
     const totalUsd = r.filas.filter((f) => !f.interno).reduce((s, f) => s + (f.neto_usd || 0), 0);
-    const ESTADOS = (f) => f.factura_id ? chip(f.factura_estado === 'borrador' ? 'Borrador creado' : 'Ya facturado', 'ok') : f.estado === 'completo' ? chip('Listo', 'ok') : f.estado === 'incompleto' ? chip('Faltan lecturas', 'aviso') : chip('Sin condiciones', 'malo');
+    const ESTADOS = (f) => f.factura_id ? chip(f.factura_estado === 'borrador' ? 'Borrador creado' : 'Ya facturado', 'ok') : f.solo_abono ? chip('Solo abono', 'aviso') : f.estado === 'completo' ? chip('Listo', 'ok') : f.estado === 'incompleto' ? chip('Faltan lecturas', 'aviso') : chip('Sin condiciones', 'malo');
     vaciar(zona).append(
       h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Contratos del período'), h('div', { class: 'valor' }, String(r.filas.length))),
         h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'A facturar (USD neto)'), h('div', { class: 'valor' }, usd(totalUsd))),
@@ -1210,11 +1213,14 @@ async function tabLiquidacion(dest) {
             h('td', { class: 'num', 'data-rotulo': 'Consumo' }, f.estado === 'sin_condiciones' ? '—' : `${f.consumo_negro} / ${f.consumo_color}`),
             h('td', { class: 'num', 'data-rotulo': 'Excedente' }, f.estado === 'sin_condiciones' ? '—' : `${f.excedente_negro} / ${f.excedente_color}`),
             h('td', { class: 'num', 'data-rotulo': 'Neto' }, f.estado === 'sin_condiciones' ? '—' : monto(f.neto, f.moneda)),
-            h('td', { 'data-rotulo': 'Estado' }, ESTADOS(f), f.estado === 'incompleto' && h('div', { class: 'apoyo' }, f.faltan.map((x) => x.serie ?? x).join(', '))));
+            h('td', { 'data-rotulo': 'Estado' }, ESTADOS(f),
+              f.estado !== 'sin_condiciones' && !f.factura_id && h('div', { class: 'apoyo' }, f.contadores.total ? `Contadores ${f.contadores.cargados} de ${f.contadores.total}` : 'Sin equipos instalados'),
+              (f.estado === 'incompleto' || f.solo_abono) && h('div', { class: 'apoyo' }, `Faltan: ${f.faltan.map((x) => x.serie ?? x).join(', ')} · `, h('a', { href: `#/contadores/${per.value}` }, 'Cargar contadores')),
+              f.solo_abono && h('div', { class: 'apoyo' }, 'Se factura solo el abono: el consumo de este mes se sumará a la próxima lectura.')));
         })))) : h('div', { class: 'tarjeta vacio', style: 'margin-top:16px' }, h('b', null, 'No hay contratos para liquidar en ese período')),
       h('div', { class: 'acciones', style: 'margin-top:16px' }, boton));
   };
-  dest.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:center' }, h('label', null, 'Período ', per), h('label', null, sinC, ' Permitir sin lecturas (cobra solo el abono)'),
+  dest.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:center' }, h('label', null, 'Período ', per), h('label', null, sinC, ' Permitir facturar los que no tienen contadores (solo abono)'),
     h('button', { class: 'btn', type: 'button', onclick: cargar }, 'Calcular')), mensaje, zona);
   per.addEventListener('change', cargar); sinC.addEventListener('change', cargar);
   await cargar();
@@ -1319,6 +1325,7 @@ async function vistaVentaDirecta(destino) {
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
+const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
 const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
 
@@ -1334,6 +1341,7 @@ async function navegar() {
     else if (ruta === 'clientes' && puede('clientes.ver')) await (param === 'nuevo' && puede('clientes.editar') ? crm.vistaNuevoCliente(nuevo) : param ? vistaCliente(nuevo, param) : vistaClientes(nuevo));
     else if (ruta === 'hunting' && puede('leads.ver')) await crm.vistaHunting(nuevo);
     else if (ruta === 'contratos' && puede('contratos.ver')) await (param === 'nuevo' ? ctr.vistaNuevoContrato(nuevo, sub) : param ? ctr.vistaContrato(nuevo, param) : ctr.vistaContratos(nuevo));
+    else if (ruta === 'contadores' && puede('contadores.ver')) await cnt.vistaContadores(nuevo, param);
     else if (ruta === 'tickets' && puede('tickets.ver')) {
       if (param === 'nuevo' && puede('tickets.crear')) await vistaNuevoTicket(nuevo);
       else if (param && sub === 'cierre') await vistaCierre(nuevo, param);
