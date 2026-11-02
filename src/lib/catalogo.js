@@ -113,7 +113,7 @@ export const SLA_HORAS = { caba: 24, resto: 48 };
 
 export const NUMERADORES = [
   { clave: 'ticket', prefijo: 'T-', ancho: 4 },
-  { clave: 'remito', prefijo: '', ancho: 5 },
+  { clave: 'remito', prefijo: '0001-', ancho: 8 },
 ];
 
 export const REGLAS_ALERTA = [

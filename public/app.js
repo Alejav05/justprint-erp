@@ -7,6 +7,7 @@ import { crearContadores } from './contadores.js';
 import { crearPanelCliente } from './cliente_panel.js';
 import { crearCostos } from './costos.js';
 import { crearDocumentos } from './documentos.js';
+import { crearRemitos } from './remitos.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -76,6 +77,7 @@ const ICONOS = {
   tickets: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z',
   contadores: 'M4 18a8 8 0 1 1 16 0M12 18l4-6M12 18h.01',
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
+  remitos: 'M6 3h9l4 4v14H6zM14 3v5h5M9 14l2 2 4-4',
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   costos: 'M3 6h18M3 12h18M3 18h12M19 15v6M16 18h6',
@@ -101,6 +103,7 @@ const MENU = [
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'contadores', texto: 'Contadores', permiso: 'contadores.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
+  { ruta: 'remitos', texto: 'Remitos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
   { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
@@ -220,16 +223,19 @@ function grafico(serieCompleta) {
 
 
 /* ---------- mi día (técnico) ---------- */
+/** Google Maps con la ruta desde donde esté el técnico hasta la dirección (abre la app de mapas en el celular). */
+const urlMapa = (...partes) => { const d = partes.filter(Boolean).join(', '); return d ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${d}, Argentina`)}` : null; };
 const hora = (s) => (s ? new Date(`${String(s).replace(' ', 'T')}Z`).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' }) : null);
 function tarjetaVisita(t) {
-  const mapa = t.domicilio ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.domicilio)}` : null;
+  const mapa = urlMapa(t.domicilio, t.localidad);
   return h('div', { class: 'tarjeta visita' },
     h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px' }, t.visita_en && h('b', { class: 'hora' }, hora(t.visita_en)), h('span', { class: 'apoyo' }, t.numero),
       t.prioridad !== 'normal' && chip(t.prioridad, PRIORIDAD[t.prioridad]), chipSla(t.sla)),
     h('div', { class: 'nombre-cliente' }, t.cliente), h('div', { class: 'apoyo' }, [t.sede, t.equipo].filter(Boolean).join(' · ')),
     t.domicilio && h('div', null, h('a', { href: mapa, target: '_blank', rel: 'noopener' }, t.domicilio)),
+    t.indicaciones && h('div', { class: 'apoyo' }, `Acceso: ${t.indicaciones}`),
     h('p', { style: 'margin:8px 0' }, t.asunto),
-    h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: `#/tickets/${t.id}/cierre` }, 'Cerrar ticket'), h('a', { class: 'btn', href: `#/tickets/${t.id}` }, 'Ver detalle')));
+    h('div', { class: 'acciones' }, mapa && h('a', { class: 'btn', href: mapa, target: '_blank', rel: 'noopener' }, 'Cómo llegar'), h('a', { class: 'btn btn-principal', href: `#/tickets/${t.id}/cierre` }, 'Cerrar ticket'), h('a', { class: 'btn', href: `#/tickets/${t.id}` }, 'Ver detalle')));
 }
 
 async function vistaMiDia(destino) {
@@ -628,7 +634,7 @@ async function vistaCliente(destino, id) {
     seguimiento: () => h('div', { class: 'tarjeta' }, cargando()),
     negocio: () => cargando(),
     costos: () => cargando(),
-    documentos: () => docs.panel({ clienteId: id }),
+    documentos: () => h('div', null, docs.panel({ clienteId: id }), puede('insumos.ver') && rem.panelCliente(id)),
     contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
       d.contratos.length ? d.contratos.map((c) => h('div', null, tarjetaContrato(c), h('a', { class: 'apoyo', href: `#/contratos/${c.id}` }, 'Ver ficha del contrato'))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
     cartera: () => h('div', { class: 'tarjeta' }, cargando()),
@@ -799,6 +805,8 @@ async function vistaTicket(destino, id) {
   const recargar = () => navegar();
   const accion = async (ruta, cuerpo) => { try { await api(`/api/tickets/${id}/${ruta}`, { metodo: 'POST', cuerpo }); recargar(); } catch (e) { if (e.message !== 'sesion') contenedor.prepend(h('div', { class: 'error', role: 'alert' }, 'No se pudo completar la acción.')); } };
   const botones = [];
+  const mapaSede = t.sede?.domicilio ? urlMapa(t.sede.domicilio, t.sede.localidad) : null;
+  if (mapaSede && abierto) botones.push(h('a', { class: 'btn', href: mapaSede, target: '_blank', rel: 'noopener' }, 'Cómo llegar'));
   if (t.puede_atender && abierto) {
     if (t.estado === 'asignado') botones.push(h('button', { class: 'btn', onclick: () => accion('estado', { estado: 'en_curso' }) }, 'Empezar a atender'));
     if (t.estado === 'en_curso') botones.push(h('button', { class: 'btn', onclick: () => accion('estado', { estado: 'esperando_cliente' }) }, 'Esperando al cliente'));
@@ -828,7 +836,7 @@ async function vistaTicket(destino, id) {
         h('div', { class: 'tarjeta' }, h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px' }, chipTicket(t.estado), t.prioridad !== 'normal' && chip(t.prioridad, PRIORIDAD[t.prioridad]), chipSla(t.sla)),
           t.descripcion && h('p', { style: 'white-space:pre-line;margin-top:0' }, t.descripcion),
           h('dl', { class: 'datos', style: 'margin:0' },
-            ...[['Técnico', t.tecnico?.nombre ?? chip('Sin asignar', 'aviso')], ['Visita', t.visita_en ? cuando(t.visita_en) : '—'], ['Sede', t.sede ? `${t.sede.nombre}${t.sede.domicilio ? ` · ${t.sede.domicilio}` : ''}` : '—'],
+            ...[['Técnico', t.tecnico?.nombre ?? chip('Sin asignar', 'aviso')], ['Visita', t.visita_en ? cuando(t.visita_en) : '—'], ['Sede', t.sede ? h('span', null, `${t.sede.nombre}${t.sede.domicilio ? ` · ${t.sede.domicilio}` : ''}`) : '—'], ...(t.sede?.indicaciones ? [['Cómo se entra', t.sede.indicaciones]] : []),
               ['Equipo', t.equipo ? `${t.equipo.marca} ${t.equipo.modelo} · ${t.equipo.numero_serie}` : '—'], ['Abierto', cuando(t.abierto_en)], ['Vence', t.sla_medible ? cuando(t.vence_sla) : 'Sin SLA (migrado)']]
               .map(([k, v]) => h('div', null, h('dt', null, k), h('dd', null, v))))),
         t.partes.length > 0 && h('div', { class: 'tarjeta' }, h('h2', null, 'Trabajo realizado'), t.partes.map((p) => h('div', null,
@@ -858,13 +866,10 @@ async function vistaCierre(destino, id) {
   const pintarRep = () => { vaciar(listaRep).append(...repuestos.map((r, k) => h('div', { class: 'item-rep' }, h('span', null, `${r.cant} × ${r.nombre}`), h('button', { type: 'button', class: 'rapido', onclick: () => { repuestos.splice(k, 1); pintarRep(); } }, 'Quitar')))); };
   selIns.addEventListener('change', () => { if (!selIns.value) return; const i = insumos.find((x) => x.id === Number(selIns.value)); const ya = repuestos.find((r) => r.id === i.id); if (ya) ya.cant += 1; else repuestos.push({ id: i.id, nombre: i.descripcion, cant: 1 }); selIns.value = ''; pintarRep(); });
 
-  const quien = h('input', { id: 'qn', maxlength: 120, placeholder: 'Nombre de quien recibe' }); const cargo = h('input', { id: 'qc', maxlength: 80, placeholder: 'Cargo (opcional)' });
-  const lienzo = h('canvas', { class: 'firma', width: 600, height: 220, 'aria-label': 'Firma del cliente' });
-  let trazo = false; let hayFirma = false; const g = lienzo.getContext('2d'); g.lineWidth = 3; g.lineCap = 'round'; g.strokeStyle = '#0D1B2A';
-  const pos = (e) => { const r = lienzo.getBoundingClientRect(); return [(e.clientX - r.left) * (lienzo.width / r.width), (e.clientY - r.top) * (lienzo.height / r.height)]; };
-  lienzo.addEventListener('pointerdown', (e) => { trazo = true; lienzo.setPointerCapture(e.pointerId); g.beginPath(); g.moveTo(...pos(e)); });
-  lienzo.addEventListener('pointermove', (e) => { if (!trazo) return; g.lineTo(...pos(e)); g.stroke(); hayFirma = true; });
-  lienzo.addEventListener('pointerup', () => { trazo = false; });
+  const quien = h('input', { id: 'qn', maxlength: 120, placeholder: 'Nombre de quien recibe', autocomplete: 'off' }); const cargo = h('input', { id: 'qc', maxlength: 80, placeholder: 'Cargo (opcional)', autocomplete: 'off' });
+  const dniQ = h('input', { maxlength: 20, inputmode: 'numeric', placeholder: 'DNI (opcional)', autocomplete: 'off' });
+  const mailQ = h('input', { type: 'email', maxlength: 160, placeholder: 'Mail (opcional)', autocomplete: 'off' }); const telQ = h('input', { type: 'tel', maxlength: 40, inputmode: 'tel', placeholder: 'WhatsApp (opcional)', autocomplete: 'off' });
+  const pad = rem.lienzoFirma();
   const error = h('div', { class: 'error oculto', role: 'alert' });
   const boton = h('button', { class: 'btn btn-principal grande', type: 'submit' }, 'Cerrar ticket y generar remito');
   const MENSAJES = { contador_menor_al_anterior: 'El contador es menor al de la última lectura. Revisalo.', equipo_monocromo: 'Este equipo es monocromo: no lleva contador de color.', sin_stock: 'No hay stock suficiente de uno de los insumos.', firma_invalida: 'La firma no es válida. Volvé a firmar.', contador_color_requerido: 'Este equipo es color: cargá también el contador de color.', contador_negro_requerido: 'Cargá el contador negro.' };
@@ -873,13 +878,17 @@ async function vistaCierre(destino, id) {
     ev.preventDefault(); error.classList.add('oculto'); boton.disabled = true;
     const cuerpo = { trabajo_realizado: trabajo.value, repuestos: repuestos.map((r) => ({ insumo_id: r.id, cantidad: r.cant })) };
     if (cNegro.value !== '') cuerpo.contador_negro = Number(cNegro.value); if (color && cColor.value !== '') cuerpo.contador_color = Number(cColor.value);
-    if (quien.value.trim()) cuerpo.conformidad = { nombre: quien.value, ...(cargo.value.trim() ? { cargo: cargo.value } : {}), ...(hayFirma ? { firma: lienzo.toDataURL('image/png') } : {}) };
+    if (quien.value.trim()) cuerpo.conformidad = { nombre: quien.value.trim(), ...(cargo.value.trim() ? { cargo: cargo.value.trim() } : {}), ...(dniQ.value.trim() ? { dni: dniQ.value.trim() } : {}), ...(mailQ.value.trim() ? { email: mailQ.value.trim() } : {}), ...(telQ.value.trim() ? { telefono: telQ.value.trim() } : {}), ...(pad.hay() ? { firma: pad.png() } : {}) };
     try {
       const r = await api(`/api/tickets/${id}/cierre`, { metodo: 'POST', cuerpo });
-      vaciar(contenedor).append(h('div', { class: 'tarjeta vacio' }, h('b', null, r.estado === 'cerrado' ? 'Ticket cerrado' : 'Ticket resuelto'),
-        `Remito ${r.remito} generado.`, r.estado === 'resuelto' && h('p', null, 'Quedó pendiente la conformidad del cliente.'),
+      const remito = await api(`/api/remitos/${r.remito_id}`).catch(() => null);
+      vaciar(contenedor).append(h('div', { class: 'tarjeta listo' }, h('div', { class: 'tilde' }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M5 12.5l4.5 4.5L19 7.5' }))),
+        h('h2', null, r.estado === 'cerrado' ? 'Ticket cerrado' : 'Ticket resuelto'), h('p', null, `Remito ${r.remito} generado.`),
+        r.estado === 'resuelto' && h('p', { class: 'apoyo' }, 'Quedó pendiente la conformidad del cliente: podés tomarla ahora o dejarla para después.'),
         r.sla_cumplido != null && h('p', null, chip(r.sla_cumplido ? 'Dentro del SLA' : 'Fuera de SLA', r.sla_cumplido ? 'ok' : 'malo'), ` ${num1(r.horas_resolucion)} h hábiles`),
-        h('a', { class: 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets')));
+        h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar remito'),
+          h('a', { class: 'btn', href: `#/remitos/${r.remito_id}` }, 'Ver remito'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
+      remito && h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar el remito al cliente'), rem.panelEnvio(remito, null, { compacto: true })));
     } catch (e) {
       if (e.message === 'sesion') return; error.textContent = MENSAJES[e.datos?.error] ?? 'No se pudo cerrar el ticket. Revisá los datos.';
       error.classList.remove('oculto'); boton.disabled = false; error.scrollIntoView({ block: 'center' });
@@ -890,8 +899,8 @@ async function vistaCierre(destino, id) {
     h('p', { class: 'apoyo', style: 'margin:8px 0 0' }, color ? 'Equipo color: se toman los dos contadores.' : 'Equipo monocromo: solo contador negro.')),
   insumos.length > 0 && h('div', { class: 'tarjeta' }, h('h2', null, 'Insumos usados'), selIns, listaRep),
   h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad del cliente'), h('p', { class: 'apoyo', style: 'margin-top:0' }, 'Si no puede firmar ahora, dejalo vacío: el ticket queda resuelto, a la espera de la conformidad.'),
-    h('div', { class: 'dos-col' }, quien, cargo), lienzo,
-    h('button', { type: 'button', class: 'rapido', onclick: () => { g.clearRect(0, 0, lienzo.width, lienzo.height); hayFirma = false; } }, 'Borrar firma')),
+    h('div', { class: 'dos-col' }, quien, cargo), h('div', { class: 'dos-col', style: 'margin-top:10px' }, dniQ, telQ), h('div', { style: 'margin-top:10px' }, mailQ), pad.el,
+    h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center' }, h('span', { class: 'apoyo' }, 'Firmá con el dedo dentro del recuadro'), h('button', { type: 'button', class: 'rapido', onclick: () => pad.limpiar() }, 'Borrar firma'))),
   boton);
   destino.append(h('a', { href: `#/tickets/${id}`, class: 'apoyo' }, `← ${t.numero}`), encabezado(`Cerrar ${t.numero}`, `${t.cliente.nombre_comercial || t.cliente.razon_social} · ${t.asunto}`), form);
 }
@@ -968,15 +977,17 @@ async function escanear() {
 /** Etiqueta autoadhesiva 90 × 58 mm: logo, serie, modelo y QR que abre WhatsApp de soporte con el serie ya cargado. */
 function etiquetaSoporte(e) {
   return h('div', { class: 'label' }, h('div', { class: 'label-header' }, h('img', { src: '/img/logo-blanco.png', alt: 'JustPrint' })),
-    h('div', { class: 'label-body' }, h('div', { class: 'label-info' }, h('p', { class: 'label-cta' }, 'Solicitá soporte técnico', h('br'), 'escaneando este código'),
+    h('div', { class: 'label-body' }, h('div', { class: 'label-info' }, h('p', { class: 'label-cta' }, 'Soporte técnico e insumos', h('br'), 'escaneá el código'),
       h('div', null, h('p', { class: 'label-serie-cap' }, 'N° de Serie'), h('p', { class: 'label-serie-val' }, e.numero_serie), h('p', { class: 'label-modelo' }, `${e.marca} ${e.modelo}`)),
-      h('p', { class: 'label-footer-text' }, 'JustPrint · soporte@justprint.com.ar')),
+      h('p', { class: 'label-footer-text' }, 'justprint.com.ar')),
     h('div', { class: 'label-qr' }, h('img', { src: `/api/equipos/${e.id}/qr.svg`, alt: `QR ${e.numero_serie}` }))));
 }
 function imprimirEtiquetas() {
-  document.body.classList.add('imprimiendo-etiqueta');
+  // Se arma una zona aparte con copias de las etiquetas: al imprimir solo sale eso, una por hoja de 90 × 58 mm.
+  const zona = h('div', { id: 'zonaEtiquetas' }); document.querySelectorAll('.etiqueta-qr .label').forEach((l) => zona.append(l.cloneNode(true)));
+  document.body.append(zona); document.body.classList.add('imprimiendo-etiqueta');
   const hoja = h('style', { id: 'paginaEtiquetas' }, '@media print { @page { size: 90mm 58mm; margin: 0; } }'); document.head.append(hoja);
-  const fin = () => { document.body.classList.remove('imprimiendo-etiqueta'); hoja.remove(); window.removeEventListener('afterprint', fin); };
+  const fin = () => { document.body.classList.remove('imprimiendo-etiqueta'); hoja.remove(); zona.remove(); window.removeEventListener('afterprint', fin); };
   window.addEventListener('afterprint', fin); window.print();
 }
 
@@ -1107,7 +1118,7 @@ async function vistaEquipo(destino, id) {
 
 async function vistaInsumos(destino) {
   const r = await api('/api/insumos'); const edita = puede('insumos.mover'); const NIVEL = { sin_stock: ['Sin stock', 'malo'], bajo: ['Bajo el mínimo', 'aviso'], ok: ['Normal', 'ok'] };
-  destino.append(encabezado('Insumos', 'Stock según los movimientos registrados', edita && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/insumos/nuevo' }, '+ Nuevo insumo'), puede('remitos.crear') && h('a', { class: 'btn btn-principal', href: '#/insumos/entrega' }, 'Nueva entrega (remito)'))),
+  destino.append(encabezado('Insumos', 'Stock según los movimientos registrados', edita && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/insumos/nuevo' }, '+ Nuevo insumo'), puede('remitos.crear') && h('a', { class: 'btn btn-principal', href: '#/remitos/nuevo' }, 'Nueva entrega (remito)'))),
     h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Insumos'), h('div', { class: 'valor' }, String(r.items.length))),
       h('div', { class: `tarjeta kpi ${r.sin_stock ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, 'Sin stock'), h('div', { class: 'valor' }, String(r.sin_stock))),
       h('div', { class: `tarjeta kpi ${r.bajo_minimo ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, 'Bajo el mínimo'), h('div', { class: 'valor' }, String(r.bajo_minimo)))),
@@ -1139,34 +1150,6 @@ async function vistaNuevoInsumo(destino) {
   destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado('Nuevo insumo'),
     formularioEnLinea({ titulo: 'Datos', campos: [campoF('Código', cod, ''), campoF('Descripción', des, ''), campoF('Stock mínimo (avisa cuando baja de acá)', min, 'mi')], boton: 'Crear insumo',
       enviar: () => api('/api/insumos', { metodo: 'POST', cuerpo: { codigo: cod.value, descripcion: des.value, stock_minimo: Number(min.value || 0) } }), alExito: (r) => { location.hash = `#/insumos/${r.id}`; } }));
-}
-
-async function vistaEntrega(destino) {
-  const [clientes, insumos] = await Promise.all([api('/api/clientes?limite=100'), api('/api/insumos')]);
-  const cli = h('select', { required: true, 'aria-label': 'Cliente' }, h('option', { value: '' }, 'Elegí un cliente…'), clientes.clientes.map((c) => h('option', { value: c.id }, c.nombre_comercial || c.razon_social)));
-  const sede = h('select', { 'aria-label': 'Sede' }); const items = []; const lista = h('div');
-  const sel = h('select', { 'aria-label': 'Insumo' }, h('option', { value: '' }, 'Agregar un insumo…'), insumos.items.map((i) => h('option', { value: i.id, disabled: i.stock <= 0 }, `${i.descripcion} (stock ${i.stock})`)));
-  const pintar = () => vaciar(lista).append(...items.map((it, k) => h('div', { class: 'item-rep' }, h('span', null, `${it.cant} × ${it.nombre}`), h('span', null, h('button', { type: 'button', class: 'rapido', onclick: () => { it.cant += 1; pintar(); } }, '+'), ' ', h('button', { type: 'button', class: 'rapido', onclick: () => { it.cant -= 1; if (!it.cant) items.splice(k, 1); pintar(); } }, '−')))));
-  sel.addEventListener('change', () => { if (!sel.value) return; const i = insumos.items.find((x) => x.id === Number(sel.value)); const ya = items.find((x) => x.id === i.id); if (ya) ya.cant += 1; else items.push({ id: i.id, nombre: i.descripcion, cant: 1 }); sel.value = ''; pintar(); });
-  cli.addEventListener('change', async () => { vaciar(sede); if (!cli.value) return; (await api(`/api/tickets-ayuda/cliente/${cli.value}`)).sedes.forEach((s) => sede.append(h('option', { value: s.id, selected: s.es_principal }, s.nombre))); });
-  const obs = h('input', { maxlength: 1000, placeholder: 'Observaciones (opcional)' });
-  destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado('Nueva entrega', 'Genera el remito y descuenta el stock.'),
-    formularioEnLinea({ titulo: 'Remito de entrega', campos: [campoF('Cliente', cli, ''), campoF('Sede', sede, ''), sel, lista, obs], boton: 'Generar remito',
-      enviar: () => { if (!items.length) { const e = new Error('x'); e.datos = { error: 'sin_items' }; throw e; } return api('/api/remitos/entrega', { metodo: 'POST', cuerpo: { cliente_id: Number(cli.value), ...(sede.value ? { sede_id: Number(sede.value) } : {}), ...(obs.value.trim() ? { observaciones: obs.value } : {}), items: items.map((x) => ({ insumo_id: x.id, cantidad: x.cant })) } }); },
-      alExito: (r) => { if (r.costo_usd > 0) toast(`Remito generado. Se sumaron ${usd(r.costo_usd)} al costo del cliente.${r.insumos_sin_costo?.length ? ` Sin costo cargado: ${r.insumos_sin_costo.join(', ')}.` : ''}`); else if (r.insumos_sin_costo?.length) toast(`Remito generado. Estos insumos no tienen costo cargado y no suman al negocio: ${r.insumos_sin_costo.join(', ')}.`); location.hash = `#/remitos/${r.id}`; } }));
-}
-
-async function vistaRemito(destino, id) {
-  const r = await api(`/api/remitos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
-  if (!r) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese remito'))); return; }
-  destino.append(h('div', { class: 'acciones no-imprimir', style: 'margin-bottom:16px' }, h('button', { class: 'btn btn-principal', type: 'button', onclick: () => window.print() }, 'Imprimir / guardar PDF')),
-    h('div', { class: 'tarjeta remito' }, h('div', { style: 'display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap' }, h('div', null, h('h1', null, `Remito ${r.numero}`), h('div', { class: 'apoyo' }, r.emisor)),
-      h('div', { style: 'text-align:right' }, h('b', null, fecha(r.fecha)), h('div', { class: 'apoyo' }, r.tipo === 'servicio' ? `Servicio técnico${r.ticket ? ` · ticket ${r.ticket}` : ''}` : 'Entrega'))),
-    h('dl', { class: 'datos', style: 'margin:16px 0' }, h('div', null, h('dt', null, 'Cliente'), h('dd', null, r.cliente.nombre_comercial || r.cliente.razon_social)), h('div', null, h('dt', null, 'CUIT'), h('dd', null, r.cliente.cuit ?? '—')),
-      h('div', null, h('dt', null, 'Sede'), h('dd', null, r.sede ? `${r.sede.nombre}${r.sede.domicilio ? ` · ${r.sede.domicilio}` : ''}` : '—'))),
-    h('table', null, h('thead', null, h('tr', null, h('th', null, 'Descripción'), h('th', { class: 'num' }, 'Cantidad'))), h('tbody', null, r.items.map((i) => h('tr', null, h('td', null, i.descripcion), h('td', { class: 'num' }, i.cantidad))))),
-    r.observaciones && h('p', { style: 'white-space:pre-line' }, r.observaciones),
-    h('div', { style: 'margin-top:28px;border-top:1px solid var(--borde);padding-top:12px' }, r.conformidad ? h('div', null, chip('Conforme', 'ok'), ` ${r.conformidad.firmante_nombre}${r.conformidad.firmante_cargo ? ` · ${r.conformidad.firmante_cargo}` : ''} · ${cuando(r.conformidad.firmado_en)}`) : h('div', { style: 'height:60px' }, h('span', { class: 'apoyo' }, 'Firma y aclaración de quien recibe')))));
 }
 
 /* ---------- facturación y cobranzas ---------- */
@@ -1348,6 +1331,7 @@ async function vistaVentaDirecta(destino) {
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
 const docs = crearDocumentos({ h, vaciar, api, fecha, chip, puede, cargando, cajon: cajonLateral, aviso: toast });
+const rem = crearRemitos({ h, vaciar, api, fecha, cuando, chip, puede, cargando, encabezado, usd, cajon: cajonLateral, aviso: toast });
 const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes, puede, cajon: cajonLateral, aviso: toast });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
@@ -1382,11 +1366,15 @@ async function navegar() {
       else await vistaEquipos(nuevo);
     } else if (ruta === 'insumos' && puede('insumos.ver')) {
       if (param === 'nuevo' && puede('insumos.mover')) await vistaNuevoInsumo(nuevo);
-      else if (param === 'entrega' && puede('remitos.crear')) await vistaEntrega(nuevo);
+      else if (param === 'entrega' && puede('remitos.crear')) { location.replace('#/remitos/nuevo'); return; }
       else if (param) await vistaInsumo(nuevo, param);
       else await vistaInsumos(nuevo);
-    } else if (ruta === 'remitos' && param && puede('insumos.ver')) await vistaRemito(nuevo, param);
-    else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
+    } else if (ruta === 'remitos' && puede('insumos.ver')) {
+      if (param === 'nuevo' && puede('remitos.crear')) await rem.vistaNuevoRemito(nuevo, sub);
+      else if (param && sub === 'firmar' && puede('remitos.crear')) await rem.vistaFirma(nuevo, param);
+      else if (param) await rem.vistaRemito(nuevo, param);
+      else await rem.vistaRemitos(nuevo);
+    } else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
     else if (ruta === 'facturacion' && puede('importes.ver')) {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);

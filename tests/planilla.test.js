@@ -208,14 +208,14 @@ test('las entidades facturantes se unifican aunque estén escritas distinto', as
 
 test('los remitos conservan su número, y el siguiente continúa la serie incluso contando los excluidos', async () => {
   await importar({ aplicar: true });
-  assert.deepEqual((await db('remitos').orderBy('numero')).map((r) => [r.numero, r.estado]), [['00201', 'emitido'], ['00202', 'firmado']]);
+  assert.deepEqual((await db('remitos').orderBy('numero')).map((r) => [r.numero, r.estado]), [['0001-00000201', 'emitido'], ['0001-00000202', 'firmado']]);
   const items = await db('remito_items').join('remitos', 'remitos.id', 'remito_id').orderBy('numero');
   assert.equal(items[0].descripcion, 'TN-1 — Toner negro');
   assert.equal(items[0].cantidad, 2);
   assert.ok(items[0].insumo_id);
   assert.ok(items[1].equipo_id, 'el ítem de equipo se vincula por número de serie');
-  assert.match((await db('remitos').where({ numero: '00202' }).first()).observaciones, /Firmó: Ana Gómez/);
-  assert.equal(await db.transaction((t) => siguienteNumero(t, 'remito')), '00210');
+  assert.match((await db('remitos').where({ numero: '0001-00000202' }).first()).observaciones, /Firmó: Ana Gómez/);
+  assert.equal(await db.transaction((t) => siguienteNumero(t, 'remito')), '0001-00000210');
 });
 
 test('los tickets se numeran en orden cronológico y se atribuyen por nombre cuando hay usuario', async () => {

@@ -1,6 +1,7 @@
 import { interpretarFecha, finDePeriodo } from './fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
 import { auditar } from '../lib/audit.js';
+import { nuevoToken } from '../lib/remitos.js';
 
 class Deshacer extends Error {}
 
@@ -327,14 +328,14 @@ export async function importarPlanilla(db, datos, { aplicar = false, incluirPrue
       const remitos = dentro('Remitos', (r) => fuera.has(r.ID_Cliente));
       for (const r of S('Remitos')) maxNumero = Math.max(maxNumero, Math.round(Number(r.Numero) || 0));
       for (const r of remitos.sort((a, b) => Number(a.Numero) - Number(b.Numero))) {
-        const numero = String(Math.round(Number(r.Numero))).padStart(5, '0');
+        const numero = `0001-${String(Math.round(Number(r.Numero))).padStart(8, '0')}`;
         const firmado = !!texto(r.Link_Firma);
         const obs = [
           texto(r.Nombre_Firmante) && `Firmó: ${texto(r.Nombre_Firmante)}`, texto(r.Link_Firma) && `Firma: ${texto(r.Link_Firma)}`,
           texto(r.Link_PDF) && `PDF: ${texto(r.Link_PDF)}`, `Importado de la planilla (${r.ID_Remito}).`,
         ].filter(Boolean).join('\n');
         const [id] = await trx('remitos').insert({
-          numero, cliente_id: cliente.get(r.ID_Cliente), sede_id: sede.get(r.ID_Cliente), tipo: clave(r.Tipo) === 'mixto' ? 'mixto' : 'entrega',
+          numero, token: nuevoToken(), cliente_id: cliente.get(r.ID_Cliente), sede_id: sede.get(r.ID_Cliente), tipo: clave(r.Tipo) === 'mixto' ? 'mixto' : 'entrega',
           fecha: fecha(r.Fecha), estado: firmado ? 'firmado' : 'emitido', observaciones: obs,
         });
         cuenta('remitos');

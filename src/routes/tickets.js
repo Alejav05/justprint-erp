@@ -1,6 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import crypto from 'node:crypto';
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles, esArea, puede, usuariosVisibles } from '../lib/contexto.js';
@@ -8,9 +5,9 @@ import { AREA, SLA_HORAS } from '../lib/catalogo.js';
 import { hoy, json } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
 import { costoDeRemito } from '../lib/costos.js';
+import { guardarConformidad, nuevoToken, parseFirma, urlPublica } from '../lib/remitos.js';
 import { aSql, cargarFeriados, deSql, horasHabiles, sumarHorasHabiles } from '../lib/sla.js';
 import { estadoSla, kpiSla } from '../lib/servicio.js';
-import { config } from '../config.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const ABIERTOS = ['abierto', 'asignado', 'en_curso', 'esperando_cliente'];
@@ -54,6 +51,9 @@ const cierreSchema = z.object({
   conformidad: z.object({
     nombre: z.string().trim().min(2).max(120),
     cargo: z.string().trim().max(80).optional(),
+    dni: z.string().trim().max(20).optional(),
+    email: z.string().trim().toLowerCase().email().max(160).optional().or(z.literal('').transform(() => undefined)),
+    telefono: z.string().trim().max(40).optional(),
     firma: z.string().max(400000).optional(), // data URL PNG
   }).nullable().default(null),
 });
@@ -119,12 +119,12 @@ export default async function rutasTickets(app, { db }) {
       .leftJoin('equipos', 'equipos.id', 'tickets.equipo_id').leftJoin('modelos_equipo', 'modelos_equipo.id', 'equipos.modelo_id')
       .whereNull('tickets.deleted_at').where('tickets.asignado_a', req.ctx.id).whereIn('tickets.estado', ABIERTOS)
       .select('tickets.id', 'tickets.numero', 'tickets.asunto', 'tickets.estado', 'tickets.prioridad', 'tickets.tipo', 'tickets.abierto_en', 'tickets.visita_en', 'tickets.sla_horas', 'tickets.sla_medible',
-        'tickets.resuelto_en', 'tickets.sla_cumplido', 'clientes.razon_social', 'clientes.nombre_comercial', 'sedes.nombre as sede', 'sedes.domicilio',
+        'tickets.resuelto_en', 'tickets.sla_cumplido', 'clientes.razon_social', 'clientes.nombre_comercial', 'sedes.nombre as sede', 'sedes.domicilio', 'sedes.localidad', 'sedes.indicaciones',
         'equipos.numero_serie as serie', 'modelos_equipo.marca', 'modelos_equipo.modelo');
     const feriados = await cargarFeriados(db);
     const PESO = { urgente: 0, alta: 1, normal: 2, baja: 3 };
     const items = filas.map((t) => ({ id: t.id, numero: t.numero, asunto: t.asunto, estado: t.estado, prioridad: t.prioridad, tipo: t.tipo, cliente: t.nombre_comercial || t.razon_social,
-      sede: t.sede, domicilio: t.domicilio, equipo: t.serie ? `${t.marca} ${t.modelo} · ${t.serie}` : null, visita_en: t.visita_en ? t.visita_en : null, sla: estadoSla(t, feriados, ahora) }));
+      sede: t.sede, domicilio: t.domicilio, localidad: t.localidad, indicaciones: t.indicaciones, equipo: t.serie ? `${t.marca} ${t.modelo} · ${t.serie}` : null, visita_en: t.visita_en ? t.visita_en : null, sla: estadoSla(t, feriados, ahora) }));
     const ms = (t) => (t.visita_en ? deSql(t.visita_en) : null);
     const deHoy = items.filter((t) => ms(t) !== null && ms(t) >= ini && ms(t) < fin).sort((a, b) => ms(a) - ms(b));
     const atrasadas = items.filter((t) => ms(t) !== null && ms(t) < ini);
@@ -271,9 +271,8 @@ export default async function rutasTickets(app, { db }) {
 
     let firmaBuf = null;
     if (d.conformidad?.firma) {
-      const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(d.conformidad.firma);
-      firmaBuf = m ? Buffer.from(m[1], 'base64') : null;
-      if (!firmaBuf || firmaBuf.length > 250000 || firmaBuf.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return error(reply, 400, 'firma_invalida');
+      firmaBuf = parseFirma(d.conformidad.firma);
+      if (!firmaBuf) return error(reply, 400, 'firma_invalida');
     }
 
     const equipo = t.equipo_id ? await db('equipos').join('modelos_equipo', 'modelos_equipo.id', 'equipos.modelo_id').where('equipos.id', t.equipo_id).select('equipos.id', 'modelos_equipo.tipo').first() : null;
@@ -304,12 +303,10 @@ export default async function rutasTickets(app, { db }) {
         }
 
         const [remito] = await trx('remitos').insert({
-          numero: await siguienteNumero(trx, 'remito'), cliente_id: t.cliente_id, sede_id: t.sede_id, tipo: 'servicio', fecha: hoy(),
+          numero: await siguienteNumero(trx, 'remito'), token: nuevoToken(), cliente_id: t.cliente_id, sede_id: t.sede_id, tipo: 'servicio', fecha: hoy(),
           estado: d.conformidad ? 'firmado' : 'emitido', ticket_id: t.id, parte_id: parte, observaciones: d.trabajo_realizado, created_by: req.ctx.id,
         });
-        if (!d.repuestos.length) {
-          await trx('remito_items').insert({ remito_id: remito, equipo_id: equipo?.id ?? null, descripcion: `Servicio técnico: ${d.trabajo_realizado}`.slice(0, 200), cantidad: 1 });
-        }
+        await trx('remito_items').insert({ remito_id: remito, equipo_id: equipo?.id ?? null, descripcion: 'Servicio técnico', cantidad: 1 });
         for (const rep of d.repuestos) {
           const ins = await trx('insumos').where({ id: rep.insumo_id }).whereNull('deleted_at').first();
           if (!ins) throw Object.assign(new Error('insumo'), { codigo: 'insumo_invalido' });
@@ -321,20 +318,7 @@ export default async function rutasTickets(app, { db }) {
 
         if (d.repuestos.length) await costoDeRemito(trx, remito, req.ctx.id);
 
-        if (d.conformidad) {
-          let archivo = null;
-          if (firmaBuf) {
-            const nombre = `${crypto.randomUUID()}.png`;
-            const dir = path.join(config.archivosDir, 'firmas');
-            await fs.mkdir(dir, { recursive: true });
-            await fs.writeFile(path.join(dir, nombre), firmaBuf);
-            [archivo] = await trx('archivos').insert({ entidad_tipo: 'remito', entidad_id: remito, ruta: `firmas/${nombre}`, nombre_original: 'firma.png', mime: 'image/png', bytes: firmaBuf.length, subido_por: req.ctx.id });
-          }
-          await trx('conformidades').insert({
-            documento_tipo: 'remito', documento_id: remito, firmante_nombre: d.conformidad.nombre, firmante_cargo: d.conformidad.cargo ?? null,
-            firma_archivo_id: archivo, aceptado: true, dispositivo: String(req.headers['user-agent'] || '').slice(0, 255), ip: req.ip,
-          });
-        }
+        if (d.conformidad) await guardarConformidad(trx, remito, { ...d.conformidad, firma: firmaBuf, metodo: 'digital' }, { ip: req.ip, userAgent: req.headers['user-agent'], id: req.ctx.id });
 
         // SLA: horas hábiles entre que se abrió y que se resolvió.
         const horas = Math.round(horasHabiles(deSql(t.abierto_en), ahora, feriados) * 100) / 100;
@@ -347,7 +331,7 @@ export default async function rutasTickets(app, { db }) {
         await evento(trx, t.id, req.ctx.id, { tipo: 'estado', estado_anterior: t.estado, estado_nuevo: estado, comentario: d.conformidad ? `Cerrado con conformidad de ${d.conformidad.nombre}` : 'Resuelto, falta conformidad del cliente' });
         await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'tickets', t.id, { estado: t.estado }, { estado, parte, remito });
         const num = await trx('remitos').where({ id: remito }).first();
-        return { estado, parte_id: parte, remito_id: remito, remito: num.numero, horas_resolucion: t.sla_medible ? horas : null, sla_cumplido: t.sla_medible && t.sla_horas ? horas <= t.sla_horas : null };
+        return { estado, parte_id: parte, remito_id: remito, remito: num.numero, remito_url: urlPublica(req, num.token), horas_resolucion: t.sla_medible ? horas : null, sla_cumplido: t.sla_medible && t.sla_horas ? horas <= t.sla_horas : null };
       });
     } catch (e) {
       if (e.codigo === 'insumo_invalido') return error(reply, 400, 'insumo_invalido');

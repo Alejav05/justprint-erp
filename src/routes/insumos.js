@@ -1,9 +1,6 @@
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
-import { clientesVisibles } from '../lib/contexto.js';
-import { hoy, json } from '../lib/fechas.js';
-import { siguienteNumero } from '../lib/numeradores.js';
-import { costoDeRemito } from '../lib/costos.js';
+import { json } from '../lib/fechas.js';
 import { puede } from '../lib/contexto.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
@@ -76,53 +73,5 @@ export default async function rutasInsumos(app, { db }) {
       throw e;
     }
     return reply.code(201).send({ ok: true });
-  });
-
-  // ---------- remitos ----------
-  /** Entrega de insumos o equipos a un cliente, con baja de stock. Todo o nada. */
-  app.post('/api/remitos/entrega', { preHandler: [auth, requerirPermiso('remitos.crear', 'insumos.mover')] }, async (req, reply) => {
-    const d = z.object({
-      cliente_id: z.number().int().positive(), sede_id: z.number().int().positive().optional(), observaciones: z.string().max(1000).optional(),
-      items: z.array(z.object({ insumo_id: z.number().int().positive(), cantidad: z.number().int().min(1).max(999) })).min(1).max(30),
-    }).parse(req.body);
-    const visibles = await clientesVisibles(db, req.ctx);
-    if (visibles !== null && !visibles.includes(d.cliente_id)) return error(reply, 404, 'no_encontrado');
-    if (d.sede_id && !(await db('sedes').where({ id: d.sede_id, cliente_id: d.cliente_id }).first())) return error(reply, 400, 'sede_invalida');
-    try {
-      const out = await db.transaction(async (trx) => {
-        const numero = await siguienteNumero(trx, 'remito');
-        const [remito] = await trx('remitos').insert({ numero, cliente_id: d.cliente_id, sede_id: d.sede_id ?? null, tipo: 'entrega', fecha: hoy(), estado: 'emitido', observaciones: d.observaciones ?? null, created_by: req.ctx.id });
-        const juntos = new Map(); for (const it of d.items) juntos.set(it.insumo_id, (juntos.get(it.insumo_id) ?? 0) + it.cantidad);
-        for (const [insumoId, cantidad] of juntos) {
-          const ins = await trx('insumos').where({ id: insumoId }).whereNull('deleted_at').first();
-          if (!ins) throw Object.assign(new Error('x'), { codigo: 'insumo_invalido' });
-          if (((await stockDe(trx, [insumoId])).get(insumoId) ?? 0) < cantidad) throw Object.assign(new Error('x'), { codigo: 'sin_stock', insumo: ins.codigo });
-          await trx('remito_items').insert({ remito_id: remito, insumo_id: insumoId, descripcion: ins.descripcion, cantidad });
-          await trx('movimientos_insumo').insert({ insumo_id: insumoId, tipo: 'salida', cantidad, remito_id: remito, usuario_id: req.ctx.id, motivo: `Entrega remito ${numero}` });
-        }
-        await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'remitos', remito, null, { numero, cliente_id: d.cliente_id });
-        const costo = await costoDeRemito(trx, remito, req.ctx.id);
-        return { id: remito, numero, ...(puede(req.ctx, 'costos.ver') ? { costo_usd: costo?.usd ?? 0, insumos_sin_costo: costo?.sin_costo ?? [] } : {}) };
-      });
-      return reply.code(201).send(out);
-    } catch (e) {
-      if (e.codigo === 'sin_stock') return error(reply, 409, 'sin_stock', { insumo: e.insumo });
-      if (e.codigo === 'insumo_invalido') return error(reply, 400, 'insumo_invalido');
-      throw e;
-    }
-  });
-
-  app.get('/api/remitos/:id', { preHandler: [auth, requerirPermiso('insumos.ver')] }, async (req, reply) => {
-    const r = await db('remitos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
-    const visibles = r ? await clientesVisibles(db, req.ctx) : null;
-    if (!r || (visibles !== null && !visibles.includes(r.cliente_id))) return error(reply, 404, 'no_encontrado');
-    const [cliente, sede, items, conformidad] = await Promise.all([
-      db('clientes').where({ id: r.cliente_id }).select('razon_social', 'nombre_comercial', 'cuit').first(),
-      r.sede_id ? db('sedes').where({ id: r.sede_id }).select('nombre', 'domicilio', 'localidad').first() : null,
-      db('remito_items').where({ remito_id: r.id }).select('descripcion', 'cantidad'),
-      db('conformidades').where({ documento_tipo: 'remito', documento_id: r.id }).select('firmante_nombre', 'firmante_cargo', 'firmado_en').first(),
-    ]);
-    const ticket = r.ticket_id ? await db('tickets').where({ id: r.ticket_id }).select('numero').first() : null;
-    return { id: r.id, numero: r.numero, tipo: r.tipo, fecha: String(r.fecha).slice(0, 10), estado: r.estado, observaciones: r.observaciones, cliente, sede, items, conformidad: conformidad ?? null, ticket: ticket?.numero ?? null, emisor: 'Europa Haus S.A.S. · CUIT 30-71646173-0' };
   });
 }

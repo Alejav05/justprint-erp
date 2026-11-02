@@ -112,7 +112,7 @@ export default async function rutasEquipos(app, { db }) {
   app.get('/api/equipos/:id/qr.svg', { preHandler: ver }, async (req, reply) => {
     const e = await cargarEquipo(req.ctx, { 'equipos.id': Number(req.params.id) });
     if (!e) return error(reply, 404, 'no_encontrado');
-    const mensaje = `Hola, soy usuario de un equipo JustPrint y necesito soporte técnico.\nN° de Serie: ${e.numero_serie}\nModelo: ${e.marca} ${e.modelo}`;
+    const mensaje = `Hola, soy usuario de un equipo JustPrint y necesito soporte técnico o insumos.\nN° de Serie: ${e.numero_serie}\nModelo: ${e.marca} ${e.modelo}`;
     const url = `https://wa.me/${config.whatsappSoporte}?text=${encodeURIComponent(mensaje)}`;
     const svg = await QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
     return reply.type('image/svg+xml').header('Cache-Control', 'private, max-age=3600').send(svg);

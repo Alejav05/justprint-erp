@@ -7,11 +7,11 @@ import { seed as base } from '../seeds/01_base.js';
 
 const tablas = (db) => db.raw("select name from sqlite_master where type='table' and name not like 'knex_%' and name not like 'sqlite_%'");
 
-test('las migraciones crean las 50 tablas del modelo más la de sesiones, y se pueden revertir', async () => {
+test('las migraciones crean las tablas del modelo, y se pueden revertir', async () => {
   const db = knexLib(knexfile.test);
   await db.migrate.latest();
   const nombres = (await tablas(db)).map((t) => t.name);
-  assert.equal(nombres.length, 54);
+  assert.equal(nombres.length, 60);
   assert.ok(nombres.includes('sesiones'));
   for (const esperada of ['cartera_asignaciones', 'ticket_eventos', 'cobro_aplicaciones', 'contrato_condiciones', 'audit_log']) {
     assert.ok(nombres.includes(esperada), `falta ${esperada}`);
@@ -40,7 +40,7 @@ test('los números de remito y ticket no se repiten aunque se pidan a la vez', a
   const pedir = () => db.transaction((trx) => siguienteNumero(trx, 'remito'));
   const numeros = await Promise.all(Array.from({ length: 25 }, pedir));
   assert.equal(new Set(numeros).size, 25);
-  assert.equal(numeros.sort()[0], '00001');
+  assert.equal(numeros.sort()[0], '0001-00000001');
   assert.equal(await db.transaction((trx) => siguienteNumero(trx, 'ticket')), 'T-0001');
   await db.destroy();
 });

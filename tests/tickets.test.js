@@ -103,7 +103,7 @@ test('el cierre genera parte, remito de servicio, lectura de contadores, baja de
   assert.equal(r.statusCode, 201, r.body);
   const out = r.json();
   assert.equal(out.estado, 'cerrado');
-  assert.match(out.remito, /^\d{5}$/);
+  assert.match(out.remito, /^0001-\d{8}$/);
   const t = await ctx.db('tickets').where({ id }).first();
   assert.ok(t.resuelto_en && t.cerrado_en && t.horas_resolucion != null);
   assert.equal(t.sla_cumplido === 1 || t.sla_cumplido === true, true);
@@ -115,7 +115,7 @@ test('el cierre genera parte, remito de servicio, lectura de contadores, baja de
   const costo = await ctx.db('costos').where({ remito_id: out.remito_id }).first();
   assert.equal(Number(costo.importe_usd), 30, 'el repuesto usado se carga como costo del cliente'); assert.equal(costo.origen, 'remito'); assert.equal(costo.ticket_id, id);
   const conf = await ctx.db('conformidades').where({ documento_tipo: 'remito', documento_id: out.remito_id }).first();
-  assert.equal(conf.firmante_nombre, 'Marcela Duarte'); assert.ok(conf.firma_archivo_id);
+  assert.equal(conf.firmante_nombre, 'Marcela Duarte'); assert.ok(await ctx.db('conformidad_firmas').where({ conformidad_id: conf.id }).first(), 'la firma queda en la base');
   assert.equal((await mat.llamar('POST', `/api/tickets/${id}/cierre`, { trabajo_realizado: 'otra vez' })).statusCode, 409, 'no se cierra dos veces');
 });
 
