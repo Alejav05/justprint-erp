@@ -87,7 +87,7 @@ export function crearPanelCliente(U) {
       });
       return h('div', null, h('p', { class: 'apoyo' }, 'Pensado para compartir con el cliente: no incluye gestiones comerciales, costos ni notas internas.'),
         h('div', { style: 'display:grid;gap:10px;margin:12px 0' }, opciones.map(([k, t], i) => h('label', { style: 'display:flex;gap:8px;align-items:center' }, marcas[i][1], t))),
-        h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px' }, h('label', null, 'Desde ', desde), h('label', null, 'Hasta ', hasta)),
+        h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px' }, [['Desde', desde], ['Hasta', hasta]].map(([t, i]) => h('label', { style: 'display:grid;gap:4px;flex:1 1 150px' }, t, i))),
         h('p', { class: 'apoyo' }, 'Sin fechas, baja todo el historial.'), bajar);
     }) }, 'Descargar Excel');
   }
