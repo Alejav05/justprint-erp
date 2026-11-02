@@ -17,7 +17,7 @@ export function crearDocumentos(U) {
       const titulo = h('input', { type: 'text', maxlength: 160, placeholder: 'Ej.: Anexo I – equipo adicional' });
       const firma = h('input', { type: 'date', max: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10) });
       const notas = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'Opcional: qué cambia, quién firmó, etc.' });
-      const contrato = h('select', null, (contratos ?? []).map((c) => h('option', { value: c.id, selected: c.id === contratoId }, c.nombre)));
+      const contrato = h('select', null, (contratos ?? [{ id: contratoId, nombre: '' }]).map((c) => h('option', { value: c.id, selected: c.id === contratoId }, c.nombre)));
       const error = h('div', { class: 'error oculto', role: 'alert' }); const boton = h('button', { class: 'btn btn-principal', type: 'submit' }, 'Subir');
       archivo.addEventListener('change', () => { if (archivo.files[0] && !titulo.value) titulo.placeholder = archivo.files[0].name.replace(/\.pdf$/i, ''); });
       return h('form', { class: 'formulario', style: 'display:grid;gap:14px', onsubmit: async (ev) => {
