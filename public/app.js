@@ -6,6 +6,7 @@ import { crearCrm } from './crm.js';
 import { crearContadores } from './contadores.js';
 import { crearPanelCliente } from './cliente_panel.js';
 import { crearCostos } from './costos.js';
+import { crearDocumentos } from './documentos.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -606,6 +607,7 @@ async function vistaCliente(destino, id) {
   if (d.contactos) pestanas.push(['contactos', `Contactos (${d.contactos.length})`]);
   pestanas.push(['sedes', `Locales (${d.sedes.length})`]);
   if (d.contratos) pestanas.push(['contratos', `Contratos (${d.contratos.length})`]);
+  if (d.contratos) pestanas.push(['documentos', 'Documentos']);
   if (puede('crm.gestionar')) pestanas.push(['seguimiento', 'Seguimiento']);
   if (puede('cartera.asignar') || puede('crm.gestionar')) pestanas.push(['cartera', 'Cartera']);
   const barra = h('div', { class: 'pestanas', role: 'tablist' });
@@ -626,6 +628,7 @@ async function vistaCliente(destino, id) {
     seguimiento: () => h('div', { class: 'tarjeta' }, cargando()),
     negocio: () => cargando(),
     costos: () => cargando(),
+    documentos: () => docs.panel({ clienteId: id }),
     contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
       d.contratos.length ? d.contratos.map((c) => h('div', null, tarjetaContrato(c), h('a', { class: 'apoyo', href: `#/contratos/${c.id}` }, 'Ver ficha del contrato'))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
     cartera: () => h('div', { class: 'tarjeta' }, cargando()),
@@ -1344,10 +1347,11 @@ async function vistaVentaDirecta(destino) {
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
+const docs = crearDocumentos({ h, vaciar, api, fecha, chip, puede, cargando, cajon: cajonLateral, aviso: toast });
 const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes, puede, cajon: cajonLateral, aviso: toast });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
-const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
+const ctr = crearContratos({ documentos: (o) => docs.panel(o), cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
 
 async function navegar() {

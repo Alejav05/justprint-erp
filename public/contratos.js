@@ -1,6 +1,6 @@
 // Contratos: de acá sale todo lo que se factura. Lista, ficha, alta y edición.
 export function crearContratos(U) {
-  const { h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato } = U;
+  const { h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato, documentos } = U;
   const ESTADO = { borrador: ['Borrador', 'mudo'], vigente: ['Vigente', 'ok'], vencido: ['Vencido', 'aviso'], rescindido: ['Rescindido', 'malo'] };
   const MOTIVO = { alta: 'Alta', ajuste_ipc: 'Ajuste por IPC', renegociacion: 'Renegociación', sin_facturar: 'Sin facturar', otro: 'Otro' };
   const ERR = {
@@ -141,6 +141,7 @@ export function crearContratos(U) {
           h('div', { class: 'tarjeta' }, h('h2', null, 'Plazo de pago'), plazoContrato(c), h('p', { class: 'apoyo', style: 'margin:0' }, 'Desde la emisión de cada factura corre este plazo; después entra al semáforo de Cobranzas.')),
           h('div', { class: 'tarjeta' }, h('h2', null, `Equipos instalados (${d.equipos.length})`), d.equipos.length ? h('ul', { class: 'lista' }, d.equipos.map((e) => h('li', null, h('div', null, h('a', { href: `#/equipos/${e.id}` }, h('b', null, `${e.marca} ${e.modelo}`)), h('div', { class: 'apoyo' }, `${e.numero_serie}${e.sede ? ` · ${e.sede}` : ''}`)), chip(e.tipo === 'color' ? 'Color' : 'Monocromo', 'mudo'))))
             : h('p', { class: 'apoyo' }, 'Todavía no hay equipos. Instalalos desde Equipos para que entren en la liquidación.'), puede('equipos.editar') && h('a', { class: 'btn btn-chico', href: '#/equipos' }, 'Ir a equipos'))),
+      documentos({ contratoId: id }),
       c.notas && h('div', { class: 'tarjeta' }, h('h2', null, 'Notas'), h('p', { style: 'white-space:pre-line;margin:0' }, c.notas)))]);
   }
 

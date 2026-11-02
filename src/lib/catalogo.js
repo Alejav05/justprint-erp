@@ -21,6 +21,7 @@ export const PERMISOS = [
   ['leads.todos', 'clientes', 'Ver y gestionar los leads de todo el equipo'],
   ['contratos.ver', 'contratos', 'Ver contratos'],
   ['contratos.editar', 'contratos', 'Crear y editar contratos y condiciones'],
+  ['contratos.documentos', 'contratos', 'Subir el contrato firmado, anexos y adendas (PDF)'],
   ['importes.ver', 'finanzas', 'Ver importes: abonos, facturas y cobros'],
   ['facturas.emitir', 'finanzas', 'Generar y emitir facturas'],
   ['cobros.registrar', 'finanzas', 'Registrar cobros y aplicarlos'],
@@ -56,12 +57,12 @@ export const ROLES = {
   head_comercial: {
     descripcion: 'Líder del área comercial',
     permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'cartera.asignar',
-      'contratos.ver', 'contratos.editar', 'importes.ver', 'tickets.ver', 'equipos.ver', 'reportes.equipo', 'cobranzas.escaladas',
+      'contratos.ver', 'contratos.editar', 'contratos.documentos', 'importes.ver', 'tickets.ver', 'equipos.ver', 'reportes.equipo', 'cobranzas.escaladas',
       'leads.ver', 'leads.editar', 'leads.todos', 'contadores.ver'],
   },
   comercial: {
     descripcion: 'Comercial con cartera propia',
-    permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'contratos.ver',
+    permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'contratos.ver', 'contratos.documentos',
       'importes.ver', 'tickets.ver', 'equipos.ver', 'cobranzas.escaladas', 'leads.ver', 'leads.editar', 'contadores.ver'],
   },
   head_atencion: {
