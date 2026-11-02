@@ -2,6 +2,7 @@ import { interpretarFecha, finDePeriodo } from './fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
 import { auditar } from '../lib/audit.js';
 import { nuevoToken } from '../lib/remitos.js';
+import { numeroTicket } from '../lib/numero_ticket.js';
 
 class Deshacer extends Error {}
 
@@ -264,7 +265,7 @@ export async function importarPlanilla(db, datos, { aplicar = false, incluirPrue
       for (const t of tickets) {
         const abierto = momento(t.Fecha);
         const cerrado = clave(t.Estado) === 'resuelto';
-        const numero = await siguienteNumero(trx, 'ticket');
+        const numero = await numeroTicket(trx, cliente.get(t.ID_Cliente));
         const [id] = await trx('tickets').insert({
           numero, cliente_id: cliente.get(t.ID_Cliente), sede_id: sede.get(t.ID_Cliente), equipo_id: equipo.get(t.ID_Equipo) ?? null,
           asunto: (texto(t.Descripcion) ?? texto(t.Tipo) ?? 'Sin descripción').slice(0, 200),

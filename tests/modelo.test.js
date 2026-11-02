@@ -44,3 +44,9 @@ test('los números de remito y ticket no se repiten aunque se pidan a la vez', a
   assert.equal(await db.transaction((trx) => siguienteNumero(trx, 'ticket')), 'T-0001');
   await db.destroy();
 });
+
+import { abreviarCliente } from '../src/lib/numero_ticket.js';
+test('código corto del cliente: sin acentos ni razón social, 3 letras', () => {
+  assert.equal(abreviarCliente('Compañía Aconcagua S.A.'), 'ACO'); assert.equal(abreviarCliente('The Juju'), 'JUJ'); assert.equal(abreviarCliente('AC Servicios'), 'ACS');
+  assert.equal(abreviarCliente('Grupo 8.66'), 'GRU'); assert.equal(abreviarCliente('123'), 'CLI'); assert.equal(abreviarCliente('Álvarez y Asociados SRL'), 'ALV');
+});

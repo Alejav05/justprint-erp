@@ -180,7 +180,7 @@ export function crearCrm(U) {
   /* ---------- editar datos del cliente ---------- */
   async function formCliente(d, cerrar, alGuardar) {
     const c = d.cliente; const rub = await selectorRubro(c.rubro_id, c.subrubro_id);
-    const rs = inp('e-rs', c.razon_social, { max: 160 }); const nc = inp('e-nc', c.nombre_comercial, { max: 160 }); const cuit = inp('e-cuit', c.cuit, { max: 13, modo: 'numeric', ph: '30-12345678-9' });
+    const rs = inp('e-rs', c.razon_social, { max: 160 }); const nc = inp('e-nc', c.nombre_comercial, { max: 160 }); const cod = inp('e-cod', c.codigo_corto ?? '', { max: 4, ph: 'Ej.: CIA' }); const cuit = inp('e-cuit', c.cuit, { max: 13, modo: 'numeric', ph: '30-12345678-9' });
     const iva = h('select', { id: 'e-iva' }, opciones([['responsable_inscripto', 'Responsable inscripto'], ['monotributo', 'Monotributo'], ['exento', 'Exento'], ['consumidor_final', 'Consumidor final']], c.condicion_iva, 'Sin definir'));
     const web = inp('e-web', c.sitio_web, { max: 160 }); const tel = inp('e-tel', c.telefono, { max: 40, tipo: 'tel' }); const mail = inp('e-mail', c.email_general, { max: 160, tipo: 'email' });
     const dom = inp('e-dom', c.domicilio_fiscal, { max: 200 }); const loc = inp('e-loc', c.localidad_fiscal, { max: 100 }); const prov = inp('e-prov', c.provincia, { max: 60 });
@@ -191,13 +191,13 @@ export function crearCrm(U) {
     ok.addEventListener('click', async () => {
       e.classList.add('oculto'); if (rs.value.trim().length < 2) { mostrarErr(e, 'Falta la razón social.'); return; } ok.disabled = true;
       try {
-        await api(`/api/clientes/${c.id}`, { metodo: 'PATCH', cuerpo: { razon_social: rs.value.trim(), nombre_comercial: nc.value.trim() || null, cuit: cuit.value.trim() || null, condicion_iva: iva.value || undefined, ...rub.valor(), sitio_web: web.value.trim() || null, telefono: tel.value.trim() || null,
+        await api(`/api/clientes/${c.id}`, { metodo: 'PATCH', cuerpo: { razon_social: rs.value.trim(), nombre_comercial: nc.value.trim() || null, codigo_corto: cod.value.trim() || null, cuit: cuit.value.trim() || null, condicion_iva: iva.value || undefined, ...rub.valor(), sitio_web: web.value.trim() || null, telefono: tel.value.trim() || null,
           email_general: mail.value.trim() || null, domicilio_fiscal: dom.value.trim() || null, localidad_fiscal: loc.value.trim() || null, provincia: prov.value.trim() || null, cantidad_empleados: emp.value === '' ? null : Number(emp.value), notas: notas.value.trim() || null,
           estado: est, ...(est === 'inactivo' ? { motivo_baja: motivo.value.trim() || null } : {}) } });
         cerrar(); aviso('Cliente actualizado'); alGuardar();
       } catch (x) { mostrarErr(e, x.datos?.error ? msg(x) : 'No se pudo guardar.'); ok.disabled = false; }
     });
-    return h('div', null, campo('Razón social', rs, null, 'e-rs'), campo('Nombre comercial', nc, null, 'e-nc'), h('div', { class: 'dos-col' }, campo('CUIT', cuit, null, 'e-cuit'), campo('Condición frente al IVA', iva, null, 'e-iva')), rub.el,
+    return h('div', null, campo('Razón social', rs, null, 'e-rs'), campo('Nombre comercial', nc, null, 'e-nc'), campo('Código corto (2 a 4 letras)', cod, 'Es el comienzo del número de sus tickets, por ejemplo CIA-CL-01-TK0001. Los tickets ya creados no cambian.', 'e-cod'), h('div', { class: 'dos-col' }, campo('CUIT', cuit, null, 'e-cuit'), campo('Condición frente al IVA', iva, null, 'e-iva')), rub.el,
       h('div', { class: 'dos-col' }, campo('Teléfono', tel, null, 'e-tel'), campo('Mail general', mail, null, 'e-mail')), h('div', { class: 'dos-col' }, campo('Sitio web', web, null, 'e-web'), campo('Empleados', emp, null, 'e-emp')),
       campo('Domicilio fiscal', dom, null, 'e-dom'), h('div', { class: 'dos-col' }, campo('Localidad', loc, null, 'e-loc'), campo('Provincia', prov, null, 'e-prov')),
       h('div', { class: 'campo' }, h('label', null, 'Estado'), seg), campoMotivo, campo('Notas', notas, null, 'e-not'), e, h('div', { class: 'acciones-cajon' }, ok, h('button', { class: 'btn', type: 'button', onclick: cerrar }, 'Cancelar')));

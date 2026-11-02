@@ -28,7 +28,7 @@ test('un ticket nuevo recibe número, SLA de 24 horas hábiles por la zona CABA 
   const r = await crear(s);
   assert.equal(r.statusCode, 201);
   const t = (await s.llamar('GET', `/api/tickets/${r.json().id}`)).json();
-  assert.match(t.numero, /^T-\d{4}$/);
+  assert.match(t.numero, /^[A-Z]{3}-CL-\d{2}-TK\d{4}$/);
   assert.equal(t.sla_horas, 24);
   assert.ok(t.vence_sla > t.abierto_en);
   assert.equal(t.estado, 'abierto');
@@ -191,4 +191,19 @@ test('el tablero de Servicio: el técnico ve solo sus números, Atención no lo 
   assert.equal((await (await entrar(ctx.app, 'sofia@demo.local')).llamar('GET', '/api/tableros/servicio')).statusCode, 403);
   const head = (await (await entrar(ctx.app, 'head.tecnico@demo.local')).llamar('GET', '/api/tableros/servicio')).json();
   assert.ok(head.tecnicos.length >= 2);
+});
+
+test('los tickets se numeran por cliente: CÓDIGO-CL-ID-TK0001, y el código se puede cambiar sin tocar los ya creados', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const [a] = await ctx.db('clientes').insert({ razon_social: 'Compañía Aconcagua S.A.', estado: 'activo' });
+  const [b] = await ctx.db('clientes').insert({ razon_social: 'Estudio Rivarola', estado: 'activo' });
+  const crear = async (cliente_id) => { const r = await dir.llamar('POST', '/api/tickets', { cliente_id, asunto: 'Prueba de numeración', descripcion: 'x' }); assert.equal(r.statusCode, 201, r.body); return (await ctx.db('tickets').where({ id: r.json().id }).first()).numero; };
+  const n1 = await crear(a); const n2 = await crear(a); const m1 = await crear(b);
+  assert.equal(n1, `ACO-CL-${String(a).padStart(2, '0')}-TK0001`); assert.equal(n2, `ACO-CL-${String(a).padStart(2, '0')}-TK0002`);
+  assert.equal(m1, `EST-CL-${String(b).padStart(2, '0')}-TK0001`, 'cada cliente arranca en 1');
+  assert.equal((await dir.llamar('PATCH', `/api/clientes/${a}`, { codigo_corto: 'cia' })).statusCode, 200);
+  assert.equal((await ctx.db('clientes').where({ id: a }).first()).codigo_corto, 'CIA');
+  assert.equal((await dir.llamar('PATCH', `/api/clientes/${a}`, { codigo_corto: 'C1' })).statusCode, 400);
+  assert.equal(await crear(a), `CIA-CL-${String(a).padStart(2, '0')}-TK0003`, 'el contador sigue; el código nuevo vale para los tickets nuevos');
+  assert.equal((await ctx.db('tickets').where({ numero: n1 }).first()).numero, n1, 'los viejos no cambian');
 });

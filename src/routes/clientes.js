@@ -9,7 +9,7 @@ import { normalizarCuit } from '../lib/cuit.js';
 import { aFila, armarContacto, contactoSchema, datosDeNacimiento, validarContacto } from '../lib/contactos.js';
 
 const CAMPOS_EDITABLES = ['razon_social', 'nombre_comercial', 'cuit', 'condicion_iva', 'rubro', 'rubro_id', 'subrubro_id', 'tamano', 'estado', 'origen', 'notas', 'sitio_web', 'telefono', 'email_general',
-  'domicilio_fiscal', 'localidad_fiscal', 'provincia', 'cantidad_empleados', 'motivo_baja', 'fecha_baja'];
+  'domicilio_fiscal', 'localidad_fiscal', 'provincia', 'cantidad_empleados', 'motivo_baja', 'fecha_baja', 'codigo_corto'];
 const texto = (n) => z.string().trim().max(n).optional().nullable();
 
 const clienteSchema = z.object({
@@ -27,6 +27,7 @@ const clienteSchema = z.object({
   estado: z.enum(['prospecto', 'activo', 'inactivo']).optional(),
   origen: z.string().trim().max(60).optional().nullable(),
   notas: z.string().max(4000).optional().nullable(),
+  codigo_corto: z.string().trim().toUpperCase().regex(/^[A-Z]{2,4}$/).optional().nullable().or(z.literal('').transform(() => null)),
 });
 
 const altaSchema = clienteSchema.extend({

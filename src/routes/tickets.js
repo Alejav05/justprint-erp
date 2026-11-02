@@ -4,6 +4,7 @@ import { clientesVisibles, esArea, puede, usuariosVisibles } from '../lib/contex
 import { AREA, SLA_HORAS } from '../lib/catalogo.js';
 import { hoy, json } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
+import { numeroTicket } from '../lib/numero_ticket.js';
 import { costoDeRemito } from '../lib/costos.js';
 import { guardarConformidad, nuevoToken, parseFirma, urlPublica } from '../lib/remitos.js';
 import { aSql, cargarFeriados, deSql, horasHabiles, sumarHorasHabiles } from '../lib/sla.js';
@@ -96,7 +97,7 @@ export default async function rutasTickets(app, { db }) {
     else if (f.asignado) base.where('tickets.asignado_a', f.asignado);
     if (f.cliente) base.where('tickets.cliente_id', f.cliente);
     if (f.vencidos) base.whereIn('tickets.estado', ABIERTOS).whereNotNull('tickets.vence_sla').where('tickets.vence_sla', '<', ahoraSql());
-    if (f.q) base.where((w) => w.where('tickets.asunto', 'like', `%${f.q}%`).orWhere('tickets.numero', 'like', `%${f.q}%`).orWhere('clientes.razon_social', 'like', `%${f.q}%`));
+    if (f.q) base.where((w) => w.where('tickets.asunto', 'like', `%${f.q}%`).orWhere('tickets.numero', 'like', `%${f.q}%`).orWhere('tickets.numero_anterior', 'like', `%${f.q}%`).orWhere('clientes.razon_social', 'like', `%${f.q}%`));
     const [{ total }] = await base.clone().count({ total: 'tickets.id' });
     const filas = await base.clone().orderByRaw("case when tickets.estado in ('resuelto','cerrado') then 1 else 0 end")
       .orderBy('tickets.abierto_en', 'desc').limit(f.limite).offset((f.pagina - 1) * f.limite)
@@ -161,7 +162,7 @@ export default async function rutasTickets(app, { db }) {
     const sla_horas = SLA_HORAS[sede?.zona ?? 'caba'];
     const feriados = await cargarFeriados(db);
     const id = await db.transaction(async (trx) => {
-      const numero = await siguienteNumero(trx, 'ticket');
+      const numero = await numeroTicket(trx, d.cliente_id);
       const [nuevo] = await trx('tickets').insert({
         numero, cliente_id: d.cliente_id, sede_id: sede?.id ?? null, equipo_id: d.equipo_id ?? null, asunto: d.asunto,
         descripcion: d.descripcion ?? null, tipo: d.tipo, prioridad: d.prioridad, origen: d.origen,

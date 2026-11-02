@@ -220,8 +220,8 @@ test('los remitos conservan su número, y el siguiente continúa la serie inclus
 
 test('los tickets se numeran en orden cronológico y se atribuyen por nombre cuando hay usuario', async () => {
   const inf = await importar({ aplicar: true });
-  const t = await db('tickets').orderBy('numero');
-  assert.deepEqual(t.map((x) => x.numero), ['T-0001', 'T-0002']);
+  const t = await db('tickets').orderBy('id');
+  assert.ok(t.every((x) => /^[A-Z]{3}-CL-\d{2}-TK\d{4}$/.test(x.numero)), 'número por cliente'); assert.equal(new Set(t.map((x) => x.numero)).size, t.length);
   assert.equal(t[0].asunto, 'Toner', 'sin descripción se usa el tipo');
   assert.equal(t[0].estado, 'abierto');
   assert.equal(t[0].asignado_a, null, 'Fulano no existe como usuario');
