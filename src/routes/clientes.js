@@ -298,6 +298,7 @@ export default async function rutasClientes(app, { db }) {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || !(await puedeVerCliente(db, req.ctx, id))) return reply.code(404).send({ error: 'no_encontrado' });
     const cambios = clienteSchema.partial().parse(req.body);
+    if (cambios.codigo_corto && await db('clientes').where({ codigo_corto: cambios.codigo_corto }).whereNot({ id }).first()) return reply.code(409).send({ error: 'codigo_repetido' });
     const permitidos = Object.fromEntries(Object.entries(cambios).filter(([k]) => CAMPOS_EDITABLES.includes(k)));
     if (!Object.keys(permitidos).length) return reply.code(400).send({ error: 'sin_cambios' });
 

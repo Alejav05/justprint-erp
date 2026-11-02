@@ -8,7 +8,7 @@ export function crearCrm(U) {
     cuit_invalido: 'El CUIT no es válido. Revisá los 11 números.', cuit_duplicado: 'Ya hay un cliente con ese CUIT.', rubro_invalido: 'Ese rubro no está disponible.', subrubro_invalido: 'Ese subrubro no es de ese rubro.',
     subrubro_sin_rubro: 'Elegí primero el rubro.', contacto_sin_medio: 'Cada contacto necesita al menos un teléfono o un mail.', facturacion_sin_mail: 'Quien recibe las facturas necesita un mail.',
     nacimiento_invalido: 'La fecha de nacimiento no es válida.', sede_invalida: 'Esa sede no es de este cliente.', responsable_invalido: 'No podés asignar a esa persona.', sin_permiso: 'No tenés permiso para hacer eso.',
-    motivo_requerido: 'Contanos por qué se perdió.', ya_convertido: 'Este lead ya es cliente.', ganado_se_convierte: 'Para ganarlo, convertilo en cliente.', lead_perdido: 'Un lead perdido no se convierte.', validacion: 'Revisá los datos: hay algo incompleto o fuera de rango.',
+    motivo_requerido: 'Contanos por qué se perdió.', ya_convertido: 'Este lead ya es cliente.', ganado_se_convierte: 'Para ganarlo, convertilo en cliente.', lead_perdido: 'Un lead perdido no se convierte.', codigo_repetido: 'Ese código ya lo usa otro cliente.', validacion: 'Revisá los datos: hay algo incompleto o fuera de rango.',
   };
   const msg = (e) => ERR[e.datos?.error] ?? 'No se pudo guardar. Probá de nuevo.';
   const hoyISO = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);

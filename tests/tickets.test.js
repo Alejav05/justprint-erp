@@ -207,3 +207,17 @@ test('los tickets se numeran por cliente: CÓDIGO-CL-ID-TK0001, y el código se 
   assert.equal(await crear(a), `CIA-CL-${String(a).padStart(2, '0')}-TK0003`, 'el contador sigue; el código nuevo vale para los tickets nuevos');
   assert.equal((await ctx.db('tickets').where({ numero: n1 }).first()).numero, n1, 'los viejos no cambian');
 });
+
+test('el código corto no se repite: tres "Farmacias…" reciben códigos distintos y no se puede pisar uno existente', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const ids = [];
+  for (const n of ['Farmacias Mitre', 'Farmacias del Sur', 'Farmacias Norte']) ids.push((await ctx.db('clientes').insert({ razon_social: n, estado: 'activo' }))[0]);
+  const codigos = [];
+  for (const id of ids) {
+    const r = await dir.llamar('POST', '/api/tickets', { cliente_id: id, asunto: 'Prueba', descripcion: 'x' }); assert.equal(r.statusCode, 201, r.body);
+    codigos.push((await ctx.db('clientes').where({ id }).first()).codigo_corto);
+  }
+  assert.equal(new Set(codigos).size, 3, codigos.join(','));
+  assert.equal(codigos[0], 'FAR');
+  assert.equal((await dir.llamar('PATCH', `/api/clientes/${ids[1]}`, { codigo_corto: codigos[0] })).statusCode, 409);
+});
