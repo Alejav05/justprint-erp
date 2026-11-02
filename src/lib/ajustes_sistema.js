@@ -2,7 +2,7 @@
 export const MODULOS = [
   ['clientes', 'Clientes', ['/api/clientes', '/api/cartera']], ['contratos', 'Contratos', ['/api/contratos']], ['hunting', 'Hunting', ['/api/leads']], ['tickets', 'Tickets', ['/api/tickets']], ['servicio', 'Tablero de servicio', ['/api/tableros/servicio']],
   ['equipos', 'Equipos', ['/api/equipos']], ['contadores', 'Contadores', ['/api/contadores']], ['insumos', 'Insumos', ['/api/insumos', '/api/remitos']], ['facturacion', 'Facturación', ['/api/facturas', '/api/facturacion', '/api/cobros', '/api/ipc']],
-  ['cobranzas', 'Cobranzas', ['/api/cobranzas']],
+  ['cobranzas', 'Cobranzas', ['/api/cobranzas']], ['costos', 'Costos', ['/api/costos']],
 ];
 
 export const DEFINICIONES = [

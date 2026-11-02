@@ -5,6 +5,7 @@ import { crearContratos } from './contratos.js';
 import { crearCrm } from './crm.js';
 import { crearContadores } from './contadores.js';
 import { crearPanelCliente } from './cliente_panel.js';
+import { crearCostos } from './costos.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -76,6 +77,7 @@ const ICONOS = {
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
+  costos: 'M3 6h18M3 12h18M3 18h12M19 15v6M16 18h6',
   cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   configuracion: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
@@ -101,6 +103,7 @@ const MENU = [
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
   { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
+  { ruta: 'costos', texto: 'Costos', permiso: 'costos.ver' },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
   { ruta: 'alertas', texto: 'Alertas', permiso: 'alertas.configurar' },
@@ -599,6 +602,7 @@ async function vistaCliente(destino, id) {
   const panel = h('div');
   const pestanas = [['resumen', 'Resumen']];
   if (puede('importes.ver')) pestanas.push(['negocio', 'Negocio']);
+  if (puede('costos.ver')) pestanas.push(['costos', 'Costos']);
   if (d.contactos) pestanas.push(['contactos', `Contactos (${d.contactos.length})`]);
   pestanas.push(['sedes', `Locales (${d.sedes.length})`]);
   if (d.contratos) pestanas.push(['contratos', `Contratos (${d.contratos.length})`]);
@@ -621,6 +625,7 @@ async function vistaCliente(destino, id) {
     sedes: () => crm.pestanaSedes(d, () => navegar()),
     seguimiento: () => h('div', { class: 'tarjeta' }, cargando()),
     negocio: () => cargando(),
+    costos: () => cargando(),
     contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
       d.contratos.length ? d.contratos.map((c) => h('div', null, tarjetaContrato(c), h('a', { class: 'apoyo', href: `#/contratos/${c.id}` }, 'Ver ficha del contrato'))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin contratos'), 'Este cliente todavía no tiene contratos.')),
     cartera: () => h('div', { class: 'tarjeta' }, cargando()),
@@ -631,6 +636,7 @@ async function vistaCliente(destino, id) {
     vaciar(panel).append(vistas[clave]());
     if (clave === 'resumen') pcl.panel(id).then((n) => panelHueco.replaceWith(n));
     if (clave === 'negocio') await cob.negocioCliente(panel, id);
+    if (clave === 'costos') vaciar(panel).append(await cst.pestanaCostos(id));
     if (clave === 'seguimiento') vaciar(panel).append(await crm.pestanaSeguimiento(d));
     if (clave === 'cartera') {
       const r = await api(`/api/cartera/${id}/historial`).catch(() => null);
@@ -1333,6 +1339,7 @@ async function vistaVentaDirecta(destino) {
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
+const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
 const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
@@ -1375,7 +1382,8 @@ async function navegar() {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
       else await vistaFacturacion(nuevo, param);
-    } else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
+    } else if (ruta === 'costos' && puede('costos.ver')) await cst.vistaCostos(nuevo);
+    else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
     else if (ruta === 'configuracion' && puede('sistema.configurar')) await conf.vistaConfiguracion(nuevo, param);
     else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));
     else if (ruta === 'notificaciones') await vistaNotificaciones(nuevo);
