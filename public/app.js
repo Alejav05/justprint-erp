@@ -10,7 +10,7 @@ const raiz = document.getElementById('app');
 const estado = { me: null };
 
 /* ---------- utilidades ---------- */
-const TAGS_SVG = new Set(['svg', 'path', 'rect', 'g', 'text', 'line', 'title', 'circle']);
+const TAGS_SVG = new Set(['svg', 'path', 'rect', 'g', 'text', 'line', 'title', 'circle', 'polygon']);
 function agregar(el, hijos) {
   for (const c of hijos.flat(Infinity)) {
     if (c == null || c === false) continue;

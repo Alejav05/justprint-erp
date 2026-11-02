@@ -241,51 +241,93 @@ export function crearCobranzas(U) {
       return `Todavía no recuperó los costos: faltan ${usd(Math.abs(Math.min(0, n.totales.resultado)))} de ingresos.`;
     })();
     const nota = (n.facturas_sin_fecha ? `${plural(n.facturas_sin_fecha, 'factura sin fecha de emisión se ubicó', 'facturas sin fecha de emisión se ubicaron')} en su período. ` : '');
+    const ultimo = n.serie.at(-1);
+    const lectura = h('p', { class: 'apoyo', 'aria-live': 'polite', style: 'margin:10px 0 0;min-height:1.4em' });
+    const mostrar = (s) => {
+      if (modo !== 'acum' || !ultimo) { lectura.textContent = ''; return; }
+      const v = s ?? ultimo; const res = v.acum_resultado;
+      lectura.textContent = `${nombreMes(v.mes)}${s ? '' : ' (último mes)'} · ingresos ${usd(v.acum_ingresos)} · egresos ${usd(v.acum_egresos)} · resultado ${res < 0 ? '−' : ''}${usd(Math.abs(res))}`;
+    };
     function pintar() {
       [...mover.children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === modo)));
-      vaciar(lienzo).append(svgNegocio(n, modo));
+      vaciar(lienzo).append(svgNegocio(n, modo, mostrar)); mostrar(null);
+      caja.querySelectorAll('.ley-eq').forEach((e) => { e.style.display = modo === 'acum' ? '' : 'none'; });
     }
     [['acum', 'Acumulado'], ['mes', 'Por mes']].forEach(([m, t]) => mover.append(h('button', { type: 'button', 'data-m': m, onclick: () => { modo = m; pintar(); } }, t)));
     caja.append(h('div', { class: 'cab-grafico' }, h('h2', null, 'Ingresos y costos'), mover), lienzo,
-      h('div', { class: 'leyenda' }, h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Ingresos'), h('span', null, h('i', { style: 'background:#E08A2E' }), 'Egresos'), n.punto_equilibrio && modo === 'acum' && h('span', null, h('i', { style: 'background:#2FB37A;border-radius:50%' }), 'Punto de equilibrio')),
-      h('p', { class: 'conclusion' }, mensaje), nota && h('p', { class: 'apoyo' }, nota));
+      h('div', { class: 'leyenda' }, h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Ingresos'), h('span', null, h('i', { style: 'background:#E08A2E' }), 'Egresos'), n.punto_equilibrio && h('span', { class: 'ley-eq' }, h('i', { style: 'background:#2FB37A;border-radius:50%' }), 'Punto de equilibrio')),
+      lectura, h('p', { class: 'conclusion' }, mensaje), nota && h('p', { class: 'apoyo' }, nota));
     pintar(); return caja;
   }
 
-  function svgNegocio(n, modo) {
-    const movil = window.innerWidth < 600; const todo = n.serie; const serie = movil ? todo.slice(-6) : todo.slice(-18);
-    const W = movil ? 380 : 760; const H = movil ? 240 : 270; const m = { i: 46, d: 14, s: 22, b: 30 };
+  /** Evolución del negocio. Acumulado: desde el primer mes, con las dos curvas, el área entre ellas (verde si el cliente ya dejó ganancia, naranja si todavía debe recuperar costos) y el punto exacto donde se cruzan. */
+  function svgNegocio(n, modo, alMover) {
+    const movil = window.innerWidth < 600; const acum = modo === 'acum';
+    const serie = acum ? n.serie : n.serie.slice(movil ? -12 : -24);
+    const W = movil ? 380 : 760; const H = movil ? 270 : 300; const m = { i: 46, d: 12, s: 28, b: 32 };
     if (!serie.length) return h('div', { class: 'vacio' }, 'Sin datos.');
-    const vals = modo === 'acum' ? serie.flatMap((s) => [s.acum_ingresos, s.acum_egresos]) : serie.flatMap((s) => [s.ingresos, s.egresos]);
+    const vals = acum ? serie.flatMap((s) => [s.acum_ingresos, s.acum_egresos]) : serie.flatMap((s) => [s.ingresos, s.egresos]);
     const max = Math.max(1, ...vals); const paso = (() => { const c = max / 4; const p = 10 ** Math.floor(Math.log10(c)); return [1, 2, 2.5, 5, 10].map((f) => f * p).find((v) => v >= c); })(); const tope = paso * 4;
-    const ancho = (W - m.i - m.d) / serie.length; const y = (v) => m.s + (H - m.s - m.b) * (1 - v / tope); const cx = (k) => m.i + k * ancho + ancho / 2;
-    const svg = h('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Ingresos y egresos del cliente por mes' });
-    for (let k = 0; k <= 4; k += 1) { const v = paso * k; svg.append(h('line', { x1: m.i, x2: W - m.d, y1: y(v), y2: y(v), stroke: '#E6EDF1' }), h('text', { x: m.i - 8, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11.5, fill: '#6B7C88' }, v >= 1000 ? `${String(v / 1000).replace('.', ',')}k` : v)); }
-    const cadaN = serie.length > 12 ? 2 : 1;
-    serie.forEach((s, k) => { if (k % cadaN === 0) svg.append(h('text', { x: cx(k), y: H - 9, 'text-anchor': 'middle', 'font-size': movil ? 12.5 : 11.5, fill: '#5B6B76' }, mesCorto(s.mes))); });
-    if (modo === 'mes') {
+    const compacto = (v) => (v >= 1000 ? `${(v / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 })}k` : String(Math.round(v)));
+    const pw = W - m.i - m.d; const ph = H - m.s - m.b; const y = (v) => m.s + ph * (1 - v / tope);
+    const cantidad = serie.length; const ancho = pw / cantidad;
+    const x = acum ? (k) => m.i + (cantidad === 1 ? pw / 2 : (k * pw) / (cantidad - 1)) : (k) => m.i + k * ancho + ancho / 2;
+    const svg = h('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': acum ? 'Evolución acumulada de ingresos y egresos del cliente desde el primer mes' : 'Ingresos y egresos del cliente por mes', style: 'touch-action:pan-y' });
+    for (let k = 0; k <= 4; k += 1) { const v = paso * k; svg.append(h('line', { x1: m.i, x2: W - m.d, y1: y(v), y2: y(v), stroke: '#E6EDF1' }), h('text', { x: m.i - 8, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11.5, fill: '#6B7C88' }, compacto(v))); }
+    // Etiquetas de meses: con muchos meses se espacian, y se agrega el año.
+    const maxEtiquetas = movil ? 5 : 10; const cada = Math.max(1, Math.ceil(cantidad / maxEtiquetas)); const conAnio = acum && cantidad > 12;
+    const etiqueta = (s) => (conAnio ? `${mesCorto(s.mes)} ${s.mes.slice(2, 4)}` : mesCorto(s.mes));
+    serie.forEach((s, k) => { if (k % cada === 0 || (k === cantidad - 1 && (cantidad - 1) % cada >= cada / 2)) svg.append(h('text', { x: x(k), y: H - 10, 'text-anchor': acum && k === 0 && cantidad > 1 ? 'start' : 'middle', 'font-size': movil ? 12 : 11.5, fill: '#5B6B76' }, etiqueta(s))); });
+
+    if (!acum) {
       const bw = Math.min(16, ancho / 3);
       serie.forEach((s, k) => [[s.ingresos, '#0D1B2A', 'Ingresos'], [s.egresos, '#E08A2E', 'Egresos']].forEach(([v, c, nom], j) => {
-        svg.append(h('rect', { x: cx(k) - bw - 1 + j * (bw + 2), y: y(v), width: bw, height: Math.max(0, (H - m.s - m.b) * (v / tope)), rx: 3, fill: c }, h('title', null, `${nombreMes(s.mes)} · ${nom}: ${usd(v)}`)));
+        svg.append(h('rect', { x: x(k) - bw - 1 + j * (bw + 2), y: y(v), width: bw, height: Math.max(0, ph * (v / tope)), rx: 3, fill: c }, h('title', null, `${nombreMes(s.mes)} · ${nom}: ${usd(v)}`)));
       }));
       return svg;
     }
-    const linea = (campo, color) => {
-      const d = serie.map((s, k) => `${k ? 'L' : 'M'}${cx(k).toFixed(1)} ${y(s[campo]).toFixed(1)}`).join(' ');
-      svg.append(h('path', { d, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
-      serie.forEach((s, k) => svg.append(h('circle', { cx: cx(k), cy: y(s[campo]), r: 3.2, fill: '#fff', stroke: color, 'stroke-width': 2 }, h('title', null, `${nombreMes(s.mes)} · ${campo === 'acum_ingresos' ? 'Ingresos' : 'Egresos'} acumulados: ${usd(s[campo])}`))));
-    };
-    // El punto de equilibrio se marca con una línea vertical antes que las series, para que no las tape.
+
+    // Área entre las curvas, partida donde se cruzan.
+    const VERDE = 'rgba(47,179,122,.2)'; const NARANJA = 'rgba(224,138,46,.2)';
+    const poli = (pts, fill) => svg.append(h('polygon', { points: pts.map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join(' '), fill }));
+    for (let k = 1; k < cantidad; k += 1) {
+      const a = serie[k - 1]; const b = serie[k]; const d0 = a.acum_ingresos - a.acum_egresos; const d1 = b.acum_ingresos - b.acum_egresos;
+      const col = (d) => (d >= 0 ? VERDE : NARANJA);
+      if ((d0 >= 0 && d1 >= 0) || (d0 <= 0 && d1 <= 0)) poli([[x(k - 1), y(a.acum_ingresos)], [x(k), y(b.acum_ingresos)], [x(k), y(b.acum_egresos)], [x(k - 1), y(a.acum_egresos)]], col(d0 === 0 ? d1 : d0));
+      else {
+        const t = d0 / (d0 - d1); const xc = x(k - 1) + t * (x(k) - x(k - 1)); const yc = y(a.acum_ingresos + t * (b.acum_ingresos - a.acum_ingresos));
+        poli([[x(k - 1), y(a.acum_ingresos)], [xc, yc], [x(k - 1), y(a.acum_egresos)]], col(d0)); poli([[xc, yc], [x(k), y(b.acum_ingresos)], [x(k), y(b.acum_egresos)]], col(d1));
+      }
+    }
+    const linea = (campo, color) => svg.append(h('path', { d: serie.map((s, k) => `${k ? 'L' : 'M'}${x(k).toFixed(1)} ${y(s[campo]).toFixed(1)}`).join(' '), fill: 'none', stroke: color, 'stroke-width': 2.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    linea('acum_egresos', '#E08A2E'); linea('acum_ingresos', '#0D1B2A');
+    // Valor final de cada curva, rotulado sobre la propia línea.
+    const ult = serie.at(-1); const arriba = ult.acum_ingresos >= ult.acum_egresos;
+    [['acum_ingresos', '#0D1B2A', 'Ingresos', arriba], ['acum_egresos', '#E08A2E', 'Egresos', !arriba]].forEach(([c, col, nom, sobre]) => {
+      svg.append(h('circle', { cx: x(cantidad - 1), cy: y(ult[c]), r: 4, fill: col, stroke: '#fff', 'stroke-width': 2 }),
+        h('text', { x: x(cantidad - 1), y: y(ult[c]) + (sobre ? -10 : 18), 'text-anchor': 'end', 'font-size': 12, 'font-weight': 700, fill: col }, `${nom} ${compacto(ult[c])}`));
+    });
+    // Punto de equilibrio: donde la curva de ingresos pasa a la de egresos.
     const eq = n.punto_equilibrio ? serie.findIndex((s) => s.mes === n.punto_equilibrio) : -1;
     if (eq >= 0) {
-      svg.append(h('line', { x1: cx(eq), x2: cx(eq), y1: m.s - 4, y2: H - m.b, stroke: '#2FB37A', 'stroke-width': 2, 'stroke-dasharray': '4 4' }));
+      const b = serie[eq]; const a = serie[eq - 1]; let px = x(eq); let py = y(b.acum_ingresos);
+      if (a && a.acum_ingresos < a.acum_egresos) { const d0 = a.acum_ingresos - a.acum_egresos; const d1 = b.acum_ingresos - b.acum_egresos; const t = d0 / (d0 - d1); px = x(eq - 1) + t * (x(eq) - x(eq - 1)); py = y(a.acum_ingresos + t * (b.acum_ingresos - a.acum_ingresos)); }
+      const ancla = px < 100 ? 'start' : px > W - 130 ? 'end' : 'middle';
+      svg.append(h('line', { x1: px, x2: px, y1: m.s - 6, y2: y(0), stroke: '#2FB37A', 'stroke-width': 1.5, 'stroke-dasharray': '4 4' }),
+        h('circle', { cx: px, cy: py, r: 7, fill: '#2FB37A', stroke: '#fff', 'stroke-width': 3 }),
+        h('text', { x: px, y: 12, 'text-anchor': ancla, 'font-size': 12.5, 'font-weight': 700, fill: '#0F6B49' }, `Equilibrio · ${mesCorto(b.mes)} ${b.mes.slice(0, 4)}`));
     }
-    linea('acum_egresos', '#E08A2E'); linea('acum_ingresos', '#0D1B2A');
-    if (eq >= 0) {
-      const s = serie[eq]; const ancla = cx(eq) > W - 120 ? 'end' : 'middle';
-      svg.append(h('circle', { cx: cx(eq), cy: y(s.acum_ingresos), r: 7, fill: '#2FB37A', stroke: '#fff', 'stroke-width': 3 }),
-        h('text', { x: cx(eq), y: 12, 'text-anchor': ancla, 'font-size': 12.5, 'font-weight': 700, fill: '#0F6B49' }, `Equilibrio · ${mesCorto(s.mes)} ${s.mes.slice(0, 4)}`));
-    }
+    // Lectura al tocar o pasar el cursor: guía vertical y detalle del mes.
+    const guia = h('g', { style: 'pointer-events:none', visibility: 'hidden' }, h('line', { y1: m.s - 6, y2: y(0), stroke: '#5B6B76', 'stroke-width': 1 }), h('circle', { r: 4.5, fill: '#0D1B2A', stroke: '#fff', 'stroke-width': 2 }), h('circle', { r: 4.5, fill: '#E08A2E', stroke: '#fff', 'stroke-width': 2 }));
+    svg.append(guia);
+    const mover = (ev) => {
+      const r = svg.getBoundingClientRect(); const px = ((ev.clientX - r.left) * W) / r.width;
+      const k = cantidad === 1 ? 0 : Math.max(0, Math.min(cantidad - 1, Math.round(((px - m.i) / pw) * (cantidad - 1))));
+      const [l, c1, c2] = guia.children; l.setAttribute('x1', x(k)); l.setAttribute('x2', x(k)); c1.setAttribute('cx', x(k)); c1.setAttribute('cy', y(serie[k].acum_ingresos)); c2.setAttribute('cx', x(k)); c2.setAttribute('cy', y(serie[k].acum_egresos));
+      guia.setAttribute('visibility', 'visible'); alMover?.(serie[k]);
+    };
+    svg.addEventListener('pointermove', mover); svg.addEventListener('pointerdown', mover);
+    svg.addEventListener('pointerleave', () => { guia.setAttribute('visibility', 'hidden'); alMover?.(null); });
     return svg;
   }
 
