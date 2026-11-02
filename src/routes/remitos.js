@@ -7,6 +7,7 @@ import { costoDeRemito } from '../lib/costos.js';
 import { canales } from '../lib/canales.js';
 import { cargarRemitoCompleto, codigoVerificacion, contactosDe, guardarConformidad, nuevoToken, parseFirma, telefonoAR, urlPublica } from '../lib/remitos.js';
 import { generarRemitoPdf } from '../lib/remito_pdf.js';
+import { leerEncuesta } from '../lib/encuestas.js';
 import { paginaPublicaRemito } from '../lib/remito_publico.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 import { stockDe } from './insumos.js';
@@ -134,9 +135,9 @@ export default async function rutasRemitos(app, { db }) {
       contactosDe(db, r.cliente_id),
     ]);
     const { token, ...resto } = c;
-    return { ...resto, conformidad: c.conformidad ? { ...c.conformidad, firma: undefined } : null, url_publica: urlPublica(req, token), codigo: codigoVerificacion(token), envios, contactos,
+    return { ...resto, encuesta: await leerEncuesta(db, r.id), conformidad: c.conformidad ? { ...c.conformidad, firma: undefined } : null, url_publica: urlPublica(req, token), codigo: codigoVerificacion(token), envios, contactos,
       canales: { mail: canales.mail.configurado(), whatsapp: canales.whatsapp.configurado() }, puede_firmar: puede(req.ctx, 'remitos.crear') && r.estado === 'emitido',
-      emisor: 'Europa Haus S.A.S. · CUIT 30-71646173-0', whatsapp_soporte: config.whatsappSoporte };
+      emisor: 'JustPrint · CUIT 30-71646173-0', whatsapp_soporte: config.whatsappSoporte };
   });
 
   app.get('/api/remitos/:id/pdf', { preHandler: ver }, async (req, reply) => {
@@ -257,7 +258,7 @@ export default async function rutasRemitos(app, { db }) {
     const r = await porToken(req.params.token);
     if (!r) return reply.code(404).type('text/html; charset=utf-8').header('X-Robots-Tag', 'noindex').send(paginaPublicaRemito(null));
     const c = await cargarRemitoCompleto(db, r);
-    return reply.type('text/html; charset=utf-8').header('X-Robots-Tag', 'noindex').header('Cache-Control', 'no-store').send(paginaPublicaRemito(c, { codigo: codigoVerificacion(r.token) }));
+    return reply.type('text/html; charset=utf-8').header('X-Robots-Tag', 'noindex').header('Cache-Control', 'no-store').send(paginaPublicaRemito(c, { codigo: codigoVerificacion(r.token), encuesta: await leerEncuesta(db, r.id) }));
   });
   app.get('/r/:token/pdf', async (req, reply) => {
     const r = await porToken(req.params.token); if (!r) return reply.code(404).send('No encontrado');

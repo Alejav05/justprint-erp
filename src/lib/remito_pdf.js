@@ -46,7 +46,7 @@ export async function generarRemitoPdf(r) {
   const cli = r.cliente;
   const y1 = col(M, colW, 'Entregado a', [cli.nombre_comercial || cli.razon_social, cli.nombre_comercial && cli.nombre_comercial !== cli.razon_social ? cli.razon_social : null, cli.cuit ? `CUIT ${cli.cuit}` : null,
     r.sede ? [r.sede.nombre, r.sede.domicilio, r.sede.localidad].filter(Boolean).join(' · ') : null]);
-  const y2 = col(M + colW + 28, colW, 'Emitido por', [`${EMISOR.marca} · ${EMISOR.nombre}`, `CUIT ${EMISOR.cuit}`, EMISOR.mail, `WhatsApp ${telFormato(config.whatsappSoporte)}`]);
+  const y2 = col(M + colW + 28, colW, 'Emitido por', [EMISOR.marca, `CUIT ${EMISOR.cuit}`, EMISOR.mail, `WhatsApp ${telFormato(config.whatsappSoporte)}`]);
   y = Math.max(y1, y2) + 14;
 
   // ---- detalle

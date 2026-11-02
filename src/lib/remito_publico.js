@@ -1,5 +1,6 @@
 // Página del remito para el cliente: se abre desde el enlace que le llega por WhatsApp o mail. Sin sesión, sin costos.
 import { config } from '../config.js';
+import { ASPECTOS } from './encuestas.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dmy = (s) => { const [a, m, d] = String(s).slice(0, 10).split('-'); return `${d}/${m}/${a}`; };
@@ -27,12 +28,37 @@ main{max-width:640px;margin:0 auto;padding:16px 16px 40px}
 .btn{display:block;text-align:center;background:var(--cian);color:var(--navy);font-weight:700;text-decoration:none;border-radius:12px;padding:15px 18px;font-size:16px;margin-bottom:10px}
 .btn.sec{background:#fff;border:1.5px solid var(--linea);color:var(--navy)}
 .soporte{background:var(--navy);color:#fff}.soporte h2{color:#9FB4BD}.soporte p{margin:0 0 10px;color:#D5E1E6}.soporte a{color:var(--cian);font-weight:700}
+.op h2{margin-bottom:4px}.op .preg{font-size:18px;font-weight:700;margin:0 0 4px}
+.estrellas{display:flex;flex-direction:row-reverse;justify-content:center;gap:4px;margin:10px 0 6px}
+.estrellas input{position:absolute;opacity:0;pointer-events:none}
+.estrellas label{font-size:46px;line-height:1;color:#CBD6DC;cursor:pointer;padding:0 2px;transition:transform .08s}
+.estrellas label:active{transform:scale(1.12)}
+.estrellas input:checked~label,.estrellas label:hover,.estrellas label:hover~label{color:#F5B301}
+.estrellas input:focus-visible+label{outline:2px solid var(--cian-os);border-radius:6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}.chips input{position:absolute;opacity:0}
+.chips label{border:1.5px solid var(--linea);border-radius:99px;padding:8px 14px;font-size:15px;cursor:pointer;background:#fff}
+.chips input:checked+label{background:#E0F7FA;border-color:var(--cian);color:var(--cian-os);font-weight:700}
+.chips input:focus-visible+label{outline:2px solid var(--cian-os)}
+.op textarea{width:100%;border:1.5px solid var(--linea);border-radius:12px;padding:12px;font:inherit;resize:vertical;min-height:84px}
+.op button{width:100%;border:0;cursor:pointer;font:inherit;font-weight:700}.op .fin{text-align:center;font-size:44px;letter-spacing:6px;color:#F5B301;margin:4px 0}
 .pie{text-align:center;color:var(--suave);font-size:12.5px;margin-top:22px}
 `;
 
 const base = (titulo, cuerpo) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(titulo)}</title><link rel="icon" href="/img/logo-oscuro.png"><style>${CSS}</style></head><body>${cuerpo}</body></html>`;
 
-export function paginaPublicaRemito(r, { codigo } = {}) {
+function bloqueOpinion(r, e) {
+  if (e) return `<div class="tarjeta op" id="opinion"><h2>Tu opinión</h2><div class="fin" aria-label="${e.puntaje} de 5 estrellas">${'★'.repeat(e.puntaje)}<span style="color:#CBD6DC">${'★'.repeat(5 - e.puntaje)}</span></div><p class="preg" style="text-align:center">¡Gracias por contarnos cómo te fue!</p><p class="apoyo" style="text-align:center">Lo leemos para mejorar la atención.</p></div>`;
+  const estrellas = [5, 4, 3, 2, 1].map((n) => `<input type="radio" name="puntaje" id="p${n}" value="${n}" required><label for="p${n}" title="${n} de 5">★</label>`).join('');
+  const chips = ASPECTOS.map((a) => `<input type="checkbox" name="aspectos" id="a-${a.clave}" value="${a.clave}"><label for="a-${a.clave}">${esc(a.texto)}</label>`).join('');
+  return `<form class="tarjeta op" id="opinion" method="post" action="/r/${esc(r.token)}/encuesta"><h2>Tu opinión</h2><p class="preg">¿Cómo fue la atención que recibiste?</p>
+    <div class="estrellas" role="radiogroup" aria-label="Calificación de 1 a 5 estrellas">${estrellas}</div>
+    <p class="apoyo" style="text-align:center;margin-bottom:12px">Tocá una estrella: 5 es excelente.</p>
+    <p class="apoyo" style="margin:0 0 2px"><b>¿Qué querés destacar o qué podemos mejorar?</b> (opcional)</p><div class="chips">${chips}</div>
+    <textarea name="comentario" maxlength="1000" placeholder="¿Algo más que quieras contarnos? (opcional)" aria-label="Comentario"></textarea>
+    <button class="btn" type="submit" style="margin:12px 0 0">Enviar opinión</button></form>`;
+}
+
+export function paginaPublicaRemito(r, { codigo, encuesta } = {}) {
   if (!r) {
     return base('Remito no encontrado · JustPrint', `<div class="cab"><div class="fila"><img src="/img/logo-blanco.png" alt="JustPrint"><h1>No encontramos este remito</h1><p>Revisá que el enlace esté completo o pedinos que te lo reenviemos.</p></div></div>
       <main><div class="tarjeta soporte"><h2>Contacto</h2><p>Escribinos por WhatsApp y te lo mandamos de nuevo.</p><a href="https://wa.me/${esc(config.whatsappSoporte)}">Abrir WhatsApp</a></div></main>`);
@@ -51,6 +77,7 @@ export function paginaPublicaRemito(r, { codigo } = {}) {
   <div class="tarjeta"><h2>Detalle de lo entregado</h2>${items}</div>
   ${r.observaciones ? `<div class="tarjeta"><h2>${r.tipo === 'servicio' ? 'Trabajo realizado' : 'Observaciones'}</h2><p class="obs">${esc(r.observaciones)}</p></div>` : ''}
   ${conf}
+  ${c ? bloqueOpinion(r, encuesta) : ''}
   <a class="btn" href="/r/${esc(r.token)}/pdf">Ver o descargar el PDF</a>
   <div class="tarjeta soporte"><h2>¿Necesitás soporte técnico o insumos?</h2><p>Escaneá el QR pegado en tu equipo o escribinos.</p><a href="https://wa.me/${esc(config.whatsappSoporte)}">Escribir por WhatsApp</a> &nbsp;·&nbsp; <a href="mailto:soporte@justprint.com.ar">soporte@justprint.com.ar</a></div>
   <p class="pie">Europa Haus S.A.S. · JustPrint · Comprobante de entrega, no es un documento fiscal.${codigo ? `<br>Código de verificación ${esc(codigo)}` : ''}</p>

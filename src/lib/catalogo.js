@@ -35,6 +35,7 @@ export const PERMISOS = [
   ['tickets.asignar', 'servicio', 'Asignar tickets y visitas'],
   ['partes.editar', 'servicio', 'Cargar partes técnicos'],
   ['remitos.crear', 'servicio', 'Crear remitos'],
+  ['encuestas.ver', 'servicio', 'Ver las encuestas de satisfacción y el ranking de atención'],
   ['contadores.ver', 'servicio', 'Ver la toma mensual de contadores'],
   ['contadores.cargar', 'servicio', 'Cargar los contadores del mes'],
   ['equipos.ver', 'equipos', 'Ver equipos y su historial'],
@@ -68,7 +69,7 @@ export const ROLES = {
   head_atencion: {
     descripcion: 'Líder de atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'tickets.atender',
-      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'contadores.ver', 'contadores.cargar'],
+      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar'],
   },
   atencion: {
     descripcion: 'Atención al cliente',
@@ -78,11 +79,11 @@ export const ROLES = {
   head_tecnico: {
     descripcion: 'Líder del área técnica',
     permisos: ['clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'tickets.asignar', 'partes.editar',
-      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'contadores.ver', 'contadores.cargar'],
+      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar'],
   },
   tecnico: {
     descripcion: 'Técnico de servicio',
-    permisos: ['tableros.servicio', 'clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'partes.editar', 'remitos.crear',
+    permisos: ['tableros.servicio', 'encuestas.ver', 'clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'partes.editar', 'remitos.crear',
       'insumos.ver', 'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar'],
   },
   facturacion: {
@@ -110,6 +111,8 @@ export const PUENTES = [
 
 // Horas comprometidas para resolver un ticket según la zona de la sede.
 export const SLA_HORAS = { caba: 24, resto: 48 };
+/** El SLA solo corre para soporte técnico. Instalaciones, retiros e insumos se programan: no se miden contra el plazo. */
+export const TIPOS_CON_SLA = ['soporte'];
 
 export const NUMERADORES = [
   { clave: 'ticket', prefijo: 'T-', ancho: 4 },

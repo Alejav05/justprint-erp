@@ -100,6 +100,7 @@ const MENU = [
   { grupo: 'Servicio' },
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
+  { ruta: 'encuestas', texto: 'Opiniones de clientes', permiso: 'encuestas.ver' },
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'contadores', texto: 'Contadores', permiso: 'contadores.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
@@ -479,7 +480,7 @@ async function vistaInicio(destino) {
       kpi(`Facturado en ${mesCorto(mes.periodo)}`, usd(mes.facturado), `Cobrado de eso: ${usd(mes.cobrado)}`),
       kpi('Por cobrar', usd(t.por_cobrar.usd), `${t.por_cobrar.facturas} factura${t.por_cobrar.facturas === 1 ? '' : 's'} emitida${t.por_cobrar.facturas === 1 ? '' : 's'}`, t.por_cobrar.usd > 0 ? 'alerta' : ''),
       kpi('Clientes activos', String(t.clientes.activo), `${t.equipos.instalado} equipos instalados`)),
-    h('div', { class: 'rejilla dos' },
+    h('div', { class: 'rejilla dos-iguales' },
       h('div', { class: 'tarjeta grafico' }, h('p', { class: 'etiqueta' }, `Facturado y cobrado, últimos ${window.innerWidth < 600 ? 6 : 12} meses`), grafico(t.serie),
         h('div', { class: 'leyenda' }, h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Facturado'), h('span', null, h('i', { style: 'background:#00BCD4' }), 'Cobrado'),
           t.serie.some((s) => s.sin_comprobante) && h('span', null, h('i', { style: 'background:#B7C6CD' }), 'Cuentas sin comprobante (aparte)'))),
@@ -831,7 +832,7 @@ async function vistaTicket(destino, id) {
 
   destino.append(h('a', { href: '#/tickets', class: 'apoyo' }, '← Tickets'),
     encabezado(`${t.numero} · ${t.asunto}`, t.cliente.nombre_comercial || t.cliente.razon_social, h('div', { class: 'acciones' }, ...botones)),
-    h('div', { class: 'rejilla dos' },
+    h('div', { class: 'rejilla dos-iguales' },
       h('div', null,
         h('div', { class: 'tarjeta' }, h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px' }, chipTicket(t.estado), t.prioridad !== 'normal' && chip(t.prioridad, PRIORIDAD[t.prioridad]), chipSla(t.sla)),
           t.descripcion && h('p', { style: 'white-space:pre-line;margin-top:0' }, t.descripcion),
@@ -888,6 +889,7 @@ async function vistaCierre(destino, id) {
         r.sla_cumplido != null && h('p', null, chip(r.sla_cumplido ? 'Dentro del SLA' : 'Fuera de SLA', r.sla_cumplido ? 'ok' : 'malo'), ` ${num1(r.horas_resolucion)} h hábiles`),
         h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar remito'),
           h('a', { class: 'btn', href: `#/remitos/${r.remito_id}` }, 'Ver remito'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
+      remito && remito.estado === 'firmado' && rem.panelEncuesta(remito),
       remito && h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar el remito al cliente'), rem.panelEnvio(remito, null, { compacto: true })));
     } catch (e) {
       if (e.message === 'sesion') return; error.textContent = MENSAJES[e.datos?.error] ?? 'No se pudo cerrar el ticket. Revisá los datos.';
@@ -903,6 +905,46 @@ async function vistaCierre(destino, id) {
     h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center' }, h('span', { class: 'apoyo' }, 'Firmá con el dedo dentro del recuadro'), h('button', { type: 'button', class: 'rapido', onclick: () => pad.limpiar() }, 'Borrar firma'))),
   boton);
   destino.append(h('a', { href: `#/tickets/${id}`, class: 'apoyo' }, `← ${t.numero}`), encabezado(`Cerrar ${t.numero}`, `${t.cliente.nombre_comercial || t.cliente.razon_social} · ${t.asunto}`), form);
+}
+
+const ASPECTOS_ENC = { puntualidad: 'Puntualidad', trato: 'Trato', resolucion: 'Que quedó resuelto', claridad: 'Claridad en las explicaciones', orden: 'Orden y limpieza' };
+async function vistaEncuestas(destino) {
+  const desdeIni = new Date(Date.now() - 90 * 864e5 - 3 * 36e5).toISOString().slice(0, 10);
+  const desde = h('input', { type: 'date', value: desdeIni, 'aria-label': 'Desde' }); const hasta = h('input', { type: 'date', 'aria-label': 'Hasta' });
+  const cuerpo = h('div');
+  const estrellas = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+  const kpi = (rotulo, valor, nota, clase) => h('div', { class: `tarjeta kpi ${clase ?? ''}` }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor), h('div', { class: 'nota' }, nota));
+  async function pintar() {
+    vaciar(cuerpo).append(cargando());
+    const q = new URLSearchParams(); if (desde.value) q.set('desde', desde.value); if (hasta.value) q.set('hasta', hasta.value);
+    const d = await api(`/api/encuestas?${q}`);
+    if (!d.cantidad) { vaciar(cuerpo).append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay opiniones en este período'), 'Aparecen cuando el cliente califica la atención al firmar el remito o desde el enlace que recibe.')); return; }
+    const max = Math.max(...d.distribucion.map((x) => x.cantidad), 1);
+    const propio = !puede('tickets.asignar');
+    vaciar(cuerpo).append(...[
+      h('div', { class: 'rejilla kpis' },
+        kpi('Calificación media', `${String(d.promedio).replace('.', ',')} ★`, `${d.cantidad} ${d.cantidad === 1 ? 'opinión' : 'opiniones'}`),
+        kpi('Clientes satisfechos', `${d.satisfechos}%`, 'Dieron 4 o 5 estrellas'),
+        kpi('Respuesta', d.tasa_respuesta == null ? '—' : `${d.tasa_respuesta}%`, 'De los remitos firmados'),
+        kpi('Para revisar', String(d.para_revisar.length), '1 o 2 estrellas', d.para_revisar.length ? 'alerta' : '')),
+      h('div', { class: 'rejilla dos-iguales' },
+        h('div', { class: 'tarjeta' }, h('h2', null, 'Cómo se reparten'), d.distribucion.map((x) => h('div', { class: 'barra-dist' }, h('span', null, `${x.puntaje} ★`), h('div', { class: 'pista' }, h('i', { style: `width:${(x.cantidad / max) * 100}%` })), h('span', { class: 'num' }, String(x.cantidad))))),
+        h('div', { class: 'tarjeta' }, h('h2', null, 'Qué destacan y qué piden mejorar'), h('p', { class: 'apoyo', style: 'margin:0 0 6px' }, 'Destacan: 4 y 5 estrellas. A mejorar: 1 a 3.'), h('table', null, h('thead', null, h('tr', null, h('th', null, 'Aspecto'), h('th', { class: 'num' }, 'Destacan'), h('th', { class: 'num' }, 'A mejorar'))),
+          h('tbody', null, d.aspectos.map((a) => h('tr', null, h('td', null, a.texto), h('td', { class: 'num' }, String(a.destacados)), h('td', { class: 'num' }, a.a_mejorar ? chip(String(a.a_mejorar), 'aviso') : '0'))))))),
+      !propio && h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('p', { class: 'etiqueta', style: 'padding:14px 14px 0' }, 'Ranking de atención'), h('table', { class: 'tarjetas' },
+        h('thead', null, h('tr', null, ['Técnico', 'Calificación', 'Opiniones', '1-2 estrellas'].map((t) => h('th', { class: t === 'Técnico' ? '' : 'num' }, t)))),
+        h('tbody', null, d.ranking.map((t, i) => h('tr', null, h('td', { 'data-rotulo': 'Técnico' }, h('span', { class: 'nombre-cliente' }, `${i + 1}. ${t.nombre}`)),
+          h('td', { class: 'num', 'data-rotulo': 'Calificación' }, `${String(t.promedio).replace('.', ',')} ★`, t.cantidad < 5 && h('span', { class: 'apoyo' }, ' · pocas')), h('td', { class: 'num', 'data-rotulo': 'Opiniones' }, String(t.cantidad)),
+          h('td', { class: 'num', 'data-rotulo': '1-2 estrellas' }, t.bajas ? chip(String(t.bajas), 'malo') : '0')))))),
+      h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('p', { class: 'etiqueta', style: 'padding:14px 14px 0' }, 'Últimas opiniones'),
+        h('ul', { class: 'lista' }, d.ultimas.map((x) => h('li', null, h('div', null, h('span', { class: 'estrellas-fijas', style: 'font-size:18px' }, estrellas(x.puntaje)), ' ', h('a', { href: `#/remitos/${x.remito_id}` }, x.cliente),
+          h('div', { class: 'apoyo' }, `${x.tecnico ?? 'Sin técnico'} · remito ${x.remito} · ${cuando(x.created_at)}`),
+          x.aspectos.length > 0 && h('div', { class: 'apoyo' }, x.aspectos.map((a) => ASPECTOS_ENC[a] ?? a).join(' · ')),
+          x.comentario && h('p', { style: 'margin:4px 0 0' }, `“${x.comentario}”`)), x.puntaje <= 2 && chip('Revisar', 'malo')))))].filter(Boolean));
+  }
+  destino.append(encabezado('Opiniones de clientes', propio_texto()), h('div', { class: 'filtros-cobro' }, h('label', { class: 'apoyo' }, 'Desde ', desde), h('label', { class: 'apoyo' }, 'Hasta ', hasta), h('button', { class: 'btn', type: 'button', onclick: () => pintar().catch(() => {}) }, 'Aplicar')), cuerpo);
+  function propio_texto() { return 'Cómo califican la atención al firmar el remito'; }
+  await pintar();
 }
 
 async function vistaServicio(destino) {
@@ -1100,7 +1142,7 @@ async function vistaEquipo(destino, id) {
     }
   }
   destino.append(h('a', { href: '#/equipos', class: 'apoyo' }, '← Equipos'), encabezado(`${e.marca} ${e.modelo}`, `Serie ${e.numero_serie}`, chipEquipo(e.estado)),
-    h('div', { class: 'rejilla dos' }, h('div', null,
+    h('div', { class: 'rejilla dos-iguales' }, h('div', null,
       h('div', { class: 'tarjeta' }, h('dl', { class: 'datos', style: 'margin:0' }, dato('Tipo', color ? 'Color (cuenta negro y color)' : 'Monocromo'),
         dato('Cliente', e.cliente_id ? h('a', { href: `#/clientes/${e.cliente_id}` }, e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—')), dato('Sede', e.sede), dato('Contrato', e.contrato),
         dato('Última lectura', ult ? `${ult.contador_negro}${color ? ` / ${ult.contador_color}` : ''} · ${fecha(ult.fecha)}` : '—'),
@@ -1375,6 +1417,7 @@ async function navegar() {
       else if (param) await rem.vistaRemito(nuevo, param);
       else await rem.vistaRemitos(nuevo);
     } else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
+    else if (ruta === 'encuestas' && puede('encuestas.ver')) await vistaEncuestas(nuevo);
     else if (ruta === 'facturacion' && puede('importes.ver')) {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);

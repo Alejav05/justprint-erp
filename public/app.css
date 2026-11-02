@@ -425,3 +425,20 @@ canvas.firma-grande.firmando{border-style:solid;border-color:var(--cian-os)}
 .tilde svg{width:34px;height:34px;fill:none;stroke:#14693A;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
 @media (max-width:1000px){.rejilla.dos-remito{grid-template-columns:1fr}}
 @media (max-width:600px){.hr-partes{grid-template-columns:1fr;gap:14px}.hr-cab{padding:18px}.hr-cuerpo{padding:18px}.hr-num b{font-size:22px}.hr-num{text-align:left}}
+
+/* Encuesta de satisfacción */
+.encuesta .preg-enc{font-size:18px;font-weight:700;margin:0 0 2px;text-align:center}
+.estrellas-tap{display:flex;justify-content:center;gap:6px;margin:6px 0 2px}
+.estrellas-tap button{border:0;background:none;font-size:52px;line-height:1;padding:2px 4px;color:#CBD6DC;cursor:pointer;min-width:52px;min-height:56px;transition:transform .08s,color .12s}
+.estrellas-tap button.on{color:#F5B301}
+.estrellas-tap button:active{transform:scale(1.15)}
+.estrellas-tap button:focus-visible{outline:2px solid var(--cian-os);border-radius:8px}
+.estrellas-fijas{color:#F5B301;font-size:28px;letter-spacing:3px;line-height:1.1}
+.rapido.activo{background:#E0F7FA;border-color:var(--cian);color:var(--cian-os)}
+.encuesta textarea{width:100%;border:1px solid #CBD8DE;border-radius:12px;padding:10px 12px;font:inherit;resize:vertical}
+.encuesta .gracias{text-align:center;padding:6px 0}
+.encuesta .gracias b{display:block;margin-top:4px}
+/* Tablero de opiniones */
+.barra-dist{display:grid;grid-template-columns:34px 1fr 36px;gap:8px;align-items:center;margin:6px 0;font-size:14px}
+.barra-dist .pista{background:var(--fondo,#EEF3F6);border-radius:99px;height:10px;overflow:hidden}
+.barra-dist .pista i{display:block;height:100%;background:#F5B301;border-radius:99px}

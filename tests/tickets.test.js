@@ -221,3 +221,19 @@ test('el código corto no se repite: tres "Farmacias…" reciben códigos distin
   assert.equal(codigos[0], 'FAR');
   assert.equal((await dir.llamar('PATCH', `/api/clientes/${ids[1]}`, { codigo_corto: codigos[0] })).statusCode, 409);
 });
+
+test('el SLA corre solo en soporte técnico: instalación, retiro e insumos no se miden', async () => {
+  const s = await entrar(ctx.app, 'sofia@demo.local');
+  const sop = (await crear(s, { tipo: 'soporte' })).json().id;
+  const ins = (await crear(s, { tipo: 'instalacion', asunto: 'Instalación programada' })).json().id;
+  const ret = (await crear(s, { tipo: 'retiro', asunto: 'Retiro de equipo' })).json().id;
+  const filas = await ctx.db('tickets').whereIn('id', [sop, ins, ret]).select('id', 'sla_horas', 'sla_medible', 'vence_sla');
+  const por = Object.fromEntries(filas.map((f) => [f.id, f]));
+  assert.ok(por[sop].sla_horas > 0 && por[sop].vence_sla && Boolean(por[sop].sla_medible));
+  for (const id of [ins, ret]) { assert.equal(por[id].sla_horas, null); assert.equal(por[id].vence_sla, null); assert.ok(!por[id].sla_medible); }
+  const lista = (await s.llamar('GET', '/api/tickets?limite=100')).json().items;
+  assert.equal(lista.find((t) => t.id === ins).sla, null, 'la instalación no muestra SLA');
+  assert.ok(lista.find((t) => t.id === sop).sla, 'el soporte sí');
+  const venc = (await s.llamar('GET', '/api/tickets?vencidos=true&limite=100')).json().items;
+  assert.ok(!venc.some((t) => t.id === ins));
+});

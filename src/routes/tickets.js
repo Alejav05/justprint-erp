@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles, esArea, puede, usuariosVisibles } from '../lib/contexto.js';
-import { AREA, SLA_HORAS } from '../lib/catalogo.js';
+import { AREA, SLA_HORAS, TIPOS_CON_SLA } from '../lib/catalogo.js';
 import { hoy, json } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
 import { numeroTicket } from '../lib/numero_ticket.js';
@@ -159,7 +159,8 @@ export default async function rutasTickets(app, { db }) {
     }
 
     const ahora = Date.now();
-    const sla_horas = SLA_HORAS[sede?.zona ?? 'caba'];
+    const conSla = TIPOS_CON_SLA.includes(d.tipo);
+    const sla_horas = conSla ? SLA_HORAS[sede?.zona ?? 'caba'] : null;
     const feriados = await cargarFeriados(db);
     const id = await db.transaction(async (trx) => {
       const numero = await numeroTicket(trx, d.cliente_id);
@@ -167,7 +168,7 @@ export default async function rutasTickets(app, { db }) {
         numero, cliente_id: d.cliente_id, sede_id: sede?.id ?? null, equipo_id: d.equipo_id ?? null, asunto: d.asunto,
         descripcion: d.descripcion ?? null, tipo: d.tipo, prioridad: d.prioridad, origen: d.origen,
         estado: d.asignado_a ? 'asignado' : 'abierto', asignado_a: d.asignado_a ?? null, creado_por: req.ctx.id, created_by: req.ctx.id,
-        abierto_en: aSql(ahora), sla_horas, vence_sla: aSql(sumarHorasHabiles(ahora, sla_horas, feriados)),
+        abierto_en: aSql(ahora), sla_horas, sla_medible: conSla, vence_sla: conSla ? aSql(sumarHorasHabiles(ahora, sla_horas, feriados)) : null,
       });
       await evento(trx, nuevo, req.ctx.id, { tipo: 'creado', estado_nuevo: d.asignado_a ? 'asignado' : 'abierto' });
       if (d.asignado_a) await evento(trx, nuevo, req.ctx.id, { tipo: 'asignado', asignado_a: d.asignado_a });

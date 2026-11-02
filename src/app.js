@@ -19,6 +19,7 @@ import rutasContadores from './routes/contadores.js';
 import rutasClientePanel from './routes/cliente_panel.js';
 import rutasCostos from './routes/costos.js';
 import rutasRemitos from './routes/remitos.js';
+import rutasEncuestas from './routes/encuestas.js';
 import rutasDocumentos from './routes/documentos.js';
 import rutasRubros from './routes/rubros.js';
 import rutasLeads from './routes/leads.js';
@@ -89,6 +90,7 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasCostos, { db });
   await app.register(rutasDocumentos, { db });
   await app.register(rutasRemitos, { db });
+  await app.register(rutasEncuestas, { db });
   await app.register(rutasContratos, { db });
   await app.register(rutasRubros, { db });
   await app.register(rutasLeads, { db });

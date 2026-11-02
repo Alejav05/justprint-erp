@@ -115,3 +115,47 @@ test('los remitos viejos se renumeran al formato nuevo sin perder el orden', asy
   const filas = await ctx.db('remitos').select('numero');
   assert.ok(filas.every((f) => /^0001-\d{8}$/.test(f.numero)));
 });
+
+test('encuesta: se toma después de la conformidad, una sola vez, y también desde el enlace público', async () => {
+  const head = await entrar('head.tecnico@demo.local');
+  const nuevo = async () => (await head.llamar('POST', '/api/remitos/entrega', { cliente_id: cli.prueba, items: [{ insumo_id: insumo, cantidad: 1 }] })).json().id;
+  const a = await nuevo();
+  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 5 })).json().error, 'sin_conformidad', 'primero la conformidad');
+  await head.llamar('POST', `/api/remitos/${a}/conformidad`, { nombre: 'Ana Gómez', firma: PNG });
+  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 9 })).statusCode, 400);
+  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 5, aspectos: ['trato', 'puntualidad'], comentario: 'Todo muy bien' })).statusCode, 201);
+  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 1 })).json().error, 'ya_respondida');
+  const det = (await head.llamar('GET', `/api/remitos/${a}`)).json();
+  assert.equal(det.encuesta.puntaje, 5); assert.deepEqual(det.encuesta.aspectos, ['trato', 'puntualidad']);
+
+  // Desde el enlace del cliente, sin sesión y sin JavaScript (formulario común).
+  const b = await nuevo(); const tokenB = (await ctx.db('remitos').where({ id: b }).first()).token;
+  let pagina = (await ctx.app.inject({ method: 'GET', url: `/r/${tokenB}` })).body;
+  assert.ok(!pagina.includes('Tu opinión'), 'sin firmar no se pide opinión');
+  await head.llamar('POST', `/api/remitos/${b}/conformidad`, { nombre: 'Luis Paz', firma: PNG });
+  pagina = (await ctx.app.inject({ method: 'GET', url: `/r/${tokenB}` })).body;
+  assert.match(pagina, /¿Cómo fue la atención que recibiste\?/);
+  const envio = await ctx.app.inject({ method: 'POST', url: `/r/${tokenB}/encuesta`, payload: 'puntaje=2&aspectos=puntualidad&aspectos=trato&comentario=Llegaron+tarde', headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+  assert.equal(envio.statusCode, 303);
+  const e = await ctx.db('encuestas').where({ remito_id: b }).first();
+  assert.equal(e.puntaje, 2); assert.equal(e.origen, 'enlace'); assert.equal(e.comentario, 'Llegaron tarde'); assert.deepEqual(JSON.parse(e.aspectos), ['puntualidad', 'trato']);
+  await ctx.app.inject({ method: 'POST', url: `/r/${tokenB}/encuesta`, payload: 'puntaje=5', headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+  assert.equal((await ctx.db('encuestas').where({ remito_id: b })).length, 1, 'no se pisa la primera respuesta');
+  assert.match((await ctx.app.inject({ method: 'GET', url: `/r/${tokenB}` })).body, /Gracias por contarnos/);
+  assert.equal((await ctx.app.inject({ method: 'POST', url: `/r/${'0'.repeat(32)}/encuesta`, payload: 'puntaje=5', headers: { 'content-type': 'application/x-www-form-urlencoded' } })).statusCode, 404);
+
+  const dir = await entrar('direccion@demo.local');
+  const r = (await dir.llamar('GET', '/api/encuestas')).json();
+  assert.equal(r.cantidad, 2); assert.equal(r.promedio, 3.5); assert.equal(r.satisfechos, 50); assert.equal(r.para_revisar.length, 1);
+  assert.equal(r.aspectos.find((x) => x.clave === 'trato').destacados, 1); assert.equal(r.aspectos.find((x) => x.clave === 'trato').a_mejorar, 1);
+  assert.ok(r.ranking.length >= 1);
+  const com = await entrar('valentina@demo.local');
+  assert.equal((await com.llamar('GET', '/api/encuestas')).statusCode, 403, 'el comercial no ve las encuestas');
+});
+
+test('el pie del remito dice solo JustPrint como emisor', async () => {
+  const head = await entrar('head.tecnico@demo.local');
+  const { id } = (await head.llamar('POST', '/api/remitos/entrega', { cliente_id: cli.prueba, items: [{ insumo_id: insumo, cantidad: 1 }] })).json();
+  const d = (await head.llamar('GET', `/api/remitos/${id}`)).json();
+  assert.equal(d.emisor, 'JustPrint · CUIT 30-71646173-0');
+});
