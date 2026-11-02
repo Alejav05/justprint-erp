@@ -11,7 +11,7 @@ before(async () => {
   const db = ctx.db;
   const prueba = (await db('clientes').where({ razon_social: 'Cliente Prueba SRL' }).first()).id;
   const equipo = (await db('equipos').where({ numero_serie: 'PRUEBA-003' }).first()).id;
-  const [insumo] = await db('insumos').insert({ codigo: 'TN-T1', descripcion: 'Tóner negro TN-T1' });
+  const [insumo] = await db('insumos').insert({ codigo: 'TN-T1', descripcion: 'Tóner negro TN-T1', costo_referencia: 30, moneda: 'USD' });
   await db('movimientos_insumo').insert({ insumo_id: insumo, tipo: 'entrada', cantidad: 3 });
   const [mono] = await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'MONO-1', tipo: 'monocromo' });
   const [eqMono] = await db('equipos').insert({ modelo_id: mono, numero_serie: 'MONO-001', estado: 'instalado' });
@@ -112,6 +112,8 @@ test('el cierre genera parte, remito de servicio, lectura de contadores, baja de
   assert.deepEqual(stock.map((m) => m.tipo), ['entrada', 'salida']);
   const remito = await ctx.db('remitos').where({ id: out.remito_id }).first();
   assert.equal(remito.estado, 'firmado'); assert.equal(remito.tipo, 'servicio');
+  const costo = await ctx.db('costos').where({ remito_id: out.remito_id }).first();
+  assert.equal(Number(costo.importe_usd), 30, 'el repuesto usado se carga como costo del cliente'); assert.equal(costo.origen, 'remito'); assert.equal(costo.ticket_id, id);
   const conf = await ctx.db('conformidades').where({ documento_tipo: 'remito', documento_id: out.remito_id }).first();
   assert.equal(conf.firmante_nombre, 'Marcela Duarte'); assert.ok(conf.firma_archivo_id);
   assert.equal((await mat.llamar('POST', `/api/tickets/${id}/cierre`, { trabajo_realizado: 'otra vez' })).statusCode, 409, 'no se cierra dos veces');

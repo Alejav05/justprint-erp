@@ -25,6 +25,7 @@ export const PERMISOS = [
   ['facturas.emitir', 'finanzas', 'Generar y emitir facturas'],
   ['cobros.registrar', 'finanzas', 'Registrar cobros y aplicarlos'],
   ['costos.ver', 'finanzas', 'Ver costos y rentabilidad'],
+  ['costos.cargar', 'finanzas', 'Cargar, corregir y eliminar costos, y fijar el costo de los insumos'],
   ['cobranzas.gestionar', 'finanzas', 'Gestionar cobranzas: reclamar, registrar gestiones y escalar al comercial'],
   ['cobranzas.escaladas', 'finanzas', 'Ver y gestionar las facturas que cobranzas le pasó al comercial'],
   ['tickets.ver', 'servicio', 'Ver tickets'],
@@ -86,7 +87,7 @@ export const ROLES = {
   facturacion: {
     descripcion: 'Facturación y cobranzas',
     permisos: ['clientes.ver', 'contactos.ver', 'contratos.ver', 'importes.ver', 'facturas.emitir', 'cobros.registrar',
-      'costos.ver', 'cobranzas.gestionar', 'contadores.ver'],
+      'costos.ver', 'costos.cargar', 'cobranzas.gestionar', 'contadores.ver'],
   },
 };
 

@@ -3,6 +3,8 @@ import { auditar } from '../lib/audit.js';
 import { clientesVisibles } from '../lib/contexto.js';
 import { hoy, json } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
+import { costoDeRemito } from '../lib/costos.js';
+import { puede } from '../lib/contexto.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const error = (reply, code, e, extra = {}) => reply.code(code).send({ error: e, ...extra });
@@ -34,7 +36,8 @@ export default async function rutasInsumos(app, { db }) {
     if (!i) return error(reply, 404, 'no_encontrado');
     const movimientos = await db('movimientos_insumo as m').leftJoin('usuarios as u', 'u.id', 'm.usuario_id').leftJoin('remitos as r', 'r.id', 'm.remito_id')
       .where('m.insumo_id', i.id).orderBy('m.id', 'desc').limit(50).select('m.fecha', 'm.tipo', 'm.cantidad', 'm.motivo', 'u.nombre as usuario', 'r.numero as remito');
-    return { ...i, modelos_compatibles: json(i.modelos_compatibles, []), stock: (await stockDe(db, [i.id])).get(i.id) ?? 0, movimientos };
+    const { costo_referencia: cr, moneda: mo, ...resto } = i;
+    return { ...resto, ...(puede(req.ctx, 'costos.ver') ? { costo_referencia: cr == null ? null : Number(cr), moneda: mo } : {}), modelos_compatibles: json(i.modelos_compatibles, []), stock: (await stockDe(db, [i.id])).get(i.id) ?? 0, movimientos };
   });
 
   app.post('/api/insumos', { preHandler: [auth, requerirPermiso('insumos.mover')] }, async (req, reply) => {
@@ -43,6 +46,16 @@ export default async function rutasInsumos(app, { db }) {
     const [id] = await db('insumos').insert({ ...d, created_by: req.ctx.id });
     await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'insumos', id, null, d);
     return reply.code(201).send({ id });
+  });
+
+  /** Costo de referencia de un insumo: es lo que se le carga al cliente como costo cuando sale en un remito. */
+  app.patch('/api/insumos/:id/costo', { preHandler: [auth, requerirPermiso('costos.cargar')] }, async (req, reply) => {
+    const d = z.object({ costo_referencia: z.number().min(0).max(1e9).nullable(), moneda: z.enum(['USD', 'ARS']) }).parse(req.body);
+    const i = await db('insumos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
+    if (!i) return error(reply, 404, 'no_encontrado');
+    await db('insumos').where({ id: i.id }).update({ costo_referencia: d.costo_referencia, moneda: d.moneda, updated_by: req.ctx.id });
+    await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'insumos', i.id, { costo_referencia: i.costo_referencia, moneda: i.moneda }, d);
+    return { ok: true };
   });
 
   /** Entradas (compras, devoluciones) y ajustes por inventario. Las salidas salen por remito. */
@@ -88,7 +101,8 @@ export default async function rutasInsumos(app, { db }) {
           await trx('movimientos_insumo').insert({ insumo_id: insumoId, tipo: 'salida', cantidad, remito_id: remito, usuario_id: req.ctx.id, motivo: `Entrega remito ${numero}` });
         }
         await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'remitos', remito, null, { numero, cliente_id: d.cliente_id });
-        return { id: remito, numero };
+        const costo = await costoDeRemito(trx, remito, req.ctx.id);
+        return { id: remito, numero, ...(puede(req.ctx, 'costos.ver') ? { costo_usd: costo?.usd ?? 0, insumos_sin_costo: costo?.sin_costo ?? [] } : {}) };
       });
       return reply.code(201).send(out);
     } catch (e) {

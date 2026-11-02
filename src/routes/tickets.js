@@ -7,6 +7,7 @@ import { clientesVisibles, esArea, puede, usuariosVisibles } from '../lib/contex
 import { AREA, SLA_HORAS } from '../lib/catalogo.js';
 import { hoy, json } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
+import { costoDeRemito } from '../lib/costos.js';
 import { aSql, cargarFeriados, deSql, horasHabiles, sumarHorasHabiles } from '../lib/sla.js';
 import { estadoSla, kpiSla } from '../lib/servicio.js';
 import { config } from '../config.js';
@@ -317,6 +318,8 @@ export default async function rutasTickets(app, { db }) {
           await trx('remito_items').insert({ remito_id: remito, insumo_id: ins.id, equipo_id: equipo?.id ?? null, descripcion: ins.descripcion, cantidad: rep.cantidad });
           await trx('movimientos_insumo').insert({ insumo_id: ins.id, tipo: 'salida', cantidad: rep.cantidad, remito_id: remito, parte_id: parte, usuario_id: req.ctx.id, motivo: `Ticket ${t.numero}` });
         }
+
+        if (d.repuestos.length) await costoDeRemito(trx, remito, req.ctx.id);
 
         if (d.conformidad) {
           let archivo = null;

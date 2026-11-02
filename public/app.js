@@ -1119,9 +1119,14 @@ async function vistaInsumo(destino, id) {
   const tipo = h('select', { 'aria-label': 'Tipo' }, h('option', { value: 'entrada' }, 'Entrada (compra o devolución)'), h('option', { value: 'ajuste' }, 'Ajuste de inventario (+/−)'));
   const cant = h('input', { type: 'number', step: 1, required: true, placeholder: 'Cantidad', 'aria-label': 'Cantidad' }); const motivo = h('input', { required: true, maxlength: 255, placeholder: 'Motivo', 'aria-label': 'Motivo' });
   const MOV = { entrada: 'Entrada', salida: 'Salida', ajuste: 'Ajuste' };
+  const costoIn = h('input', { type: 'number', min: 0, step: '0.01', inputmode: 'decimal', value: i.costo_referencia ?? '', placeholder: 'Sin cargar' }); const monedaIn = h('select', null, ['USD', 'ARS'].map((m) => h('option', { value: m, selected: (i.moneda ?? 'USD') === m }, m === 'USD' ? 'Dólares (USD)' : 'Pesos (ARS)')));
   destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado(i.descripcion, i.codigo, chip(`Stock ${i.stock}`, i.stock <= 0 ? 'malo' : i.stock < i.stock_minimo ? 'aviso' : 'ok')),
     puede('insumos.mover') && formularioEnLinea({ titulo: 'Registrar movimiento', campos: [tipo, h('div', { class: 'dos-col' }, cant, motivo)], boton: 'Guardar',
       enviar: () => api(`/api/insumos/${id}/movimientos`, { metodo: 'POST', cuerpo: { tipo: tipo.value, cantidad: Number(cant.value), motivo: motivo.value } }), alExito: () => navegar() }),
+    puede('costos.cargar') && formularioEnLinea({ titulo: 'Costo de referencia', campos: [h('p', { class: 'apoyo', style: 'margin:0' }, 'Cada vez que sale este insumo en un remito para un cliente, su costo se suma al negocio de ese cliente.'),
+      h('div', { class: 'dos-col' }, campoF('Costo por unidad', costoIn, ''), campoF('Moneda', monedaIn, ''))], boton: 'Guardar costo',
+      enviar: () => api(`/api/insumos/${id}/costo`, { metodo: 'PATCH', cuerpo: { costo_referencia: costoIn.value === '' ? null : Number(costoIn.value), moneda: monedaIn.value } }), alExito: () => { toast('Costo guardado'); navegar(); } }),
+    !puede('costos.cargar') && puede('costos.ver') && i.costo_referencia != null && h('p', { class: 'apoyo' }, `Costo de referencia: ${i.moneda === 'ARS' ? '$' : 'USD'} ${Number(i.costo_referencia).toLocaleString('es-AR')}`),
     h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Movimientos'), i.movimientos.length ? h('table', null, h('tbody', null, i.movimientos.map((m) => h('tr', null, h('td', null, cuando(m.fecha)), h('td', null, MOV[m.tipo]),
       h('td', { class: 'num' }, `${m.tipo === 'salida' ? '−' : m.cantidad > 0 ? '+' : ''}${m.cantidad}`), h('td', { class: 'apoyo' }, [m.motivo, m.remito && `remito ${m.remito}`, m.usuario].filter(Boolean).join(' · ')))))) : h('p', { class: 'apoyo' }, 'Sin movimientos.')));
 }
@@ -1145,7 +1150,7 @@ async function vistaEntrega(destino) {
   destino.append(h('a', { href: '#/insumos', class: 'apoyo' }, '← Insumos'), encabezado('Nueva entrega', 'Genera el remito y descuenta el stock.'),
     formularioEnLinea({ titulo: 'Remito de entrega', campos: [campoF('Cliente', cli, ''), campoF('Sede', sede, ''), sel, lista, obs], boton: 'Generar remito',
       enviar: () => { if (!items.length) { const e = new Error('x'); e.datos = { error: 'sin_items' }; throw e; } return api('/api/remitos/entrega', { metodo: 'POST', cuerpo: { cliente_id: Number(cli.value), ...(sede.value ? { sede_id: Number(sede.value) } : {}), ...(obs.value.trim() ? { observaciones: obs.value } : {}), items: items.map((x) => ({ insumo_id: x.id, cantidad: x.cant })) } }); },
-      alExito: (r) => { location.hash = `#/remitos/${r.id}`; } }));
+      alExito: (r) => { if (r.costo_usd > 0) toast(`Remito generado. Se sumaron ${usd(r.costo_usd)} al costo del cliente.${r.insumos_sin_costo?.length ? ` Sin costo cargado: ${r.insumos_sin_costo.join(', ')}.` : ''}`); else if (r.insumos_sin_costo?.length) toast(`Remito generado. Estos insumos no tienen costo cargado y no suman al negocio: ${r.insumos_sin_costo.join(', ')}.`); location.hash = `#/remitos/${r.id}`; } }));
 }
 
 async function vistaRemito(destino, id) {
@@ -1339,7 +1344,7 @@ async function vistaVentaDirecta(destino) {
 /* ---------- navegación ---------- */
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
-const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes });
+const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes, puede, cajon: cajonLateral, aviso: toast });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
 const ctr = crearContratos({ cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });

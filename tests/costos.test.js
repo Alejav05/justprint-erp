@@ -38,3 +38,42 @@ test('solo quien tiene permiso de costos los ve, y el Excel sale con el total', 
   const ws = libro.getWorksheet('Costos'); assert.equal(ws.rowCount, 6, 'encabezado + 4 costos + total');
   assert.equal(ws.getRow(6).getCell(11).value, 500);
 });
+
+test('cargar, corregir y borrar costos a mano, con permisos y conversión de pesos', async () => {
+  await ctx.db('cotizaciones_usd').insert({ fecha: '2026-10-01', valor: 1500, fuente: 'BNA' });
+  const jul = await entrar(ctx.app, 'julia@demo.local');
+  const ok = await jul.llamar('POST', '/api/costos', { fecha: '2026-10-12', concepto: 'Repuesto fusor', tipo: 'insumo', importe: 150000, moneda: 'ARS', cliente_id: a, proveedor: 'Repuestos SA' });
+  assert.equal(ok.statusCode, 201, ok.body);
+  const id = ok.json().id;
+  const fila = (await jul.llamar('GET', `/api/costos?cliente_id=${a}`)).json().costos.find((x) => x.id === id);
+  assert.equal(fila.moneda, 'ARS'); assert.equal(fila.importe, 150000); assert.ok(fila.importe_usd > 0 && fila.importe_usd < 150000, 'convertido a USD con la cotización'); assert.equal(fila.proveedor, 'Repuestos SA'); assert.equal(fila.origen, 'manual');
+  assert.equal((await jul.llamar('PATCH', `/api/costos/${id}`, { fecha: '2026-10-12', concepto: 'Repuesto fusor (corregido)', tipo: 'insumo', importe: 90, moneda: 'USD', cliente_id: a })).statusCode, 200);
+  assert.equal((await jul.llamar('GET', `/api/costos?cliente_id=${a}`)).json().costos.find((x) => x.id === id).importe_usd, 90);
+  assert.equal((await jul.llamar('POST', '/api/costos', { fecha: '2999-01-01', concepto: 'Futuro', importe: 1, moneda: 'USD', cliente_id: a })).json().error, 'fecha_futura');
+  assert.equal((await jul.llamar('POST', '/api/costos', { fecha: '2026-10-12', concepto: 'xx', importe: 1, moneda: 'USD', cliente_id: 99999 })).statusCode, 404);
+  const tec = await entrar(ctx.app, 'matias@demo.local');
+  assert.equal((await tec.llamar('POST', '/api/costos', { fecha: '2026-10-12', concepto: 'No debería', importe: 1, moneda: 'USD', cliente_id: a })).statusCode, 403);
+  assert.equal((await tec.llamar('DELETE', `/api/costos/${id}`)).statusCode, 403);
+  assert.equal((await jul.llamar('DELETE', `/api/costos/${id}`)).statusCode, 200);
+  assert.equal((await jul.llamar('GET', `/api/costos?cliente_id=${a}`)).json().costos.some((x) => x.id === id), false);
+  assert.ok(await ctx.db('audit_log').where({ tabla: 'costos', accion: 'eliminar' }).first());
+});
+
+test('un remito de insumos a un cliente suma su costo al negocio, y los insumos sin costo se avisan', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const [con] = await ctx.db('insumos').insert({ codigo: 'TN-COSTO', descripcion: 'Tóner con costo', costo_referencia: 40, moneda: 'USD' });
+  const [sin] = await ctx.db('insumos').insert({ codigo: 'TN-SIN', descripcion: 'Tóner sin costo' });
+  await ctx.db('movimientos_insumo').insert([{ insumo_id: con, tipo: 'entrada', cantidad: 10, motivo: 'stock' }, { insumo_id: sin, tipo: 'entrada', cantidad: 10, motivo: 'stock' }]);
+  const r = await dir.llamar('POST', '/api/remitos/entrega', { cliente_id: b, items: [{ insumo_id: con, cantidad: 2 }, { insumo_id: sin, cantidad: 1 }] });
+  assert.equal(r.statusCode, 201, r.body);
+  assert.equal(r.json().costo_usd, 80); assert.deepEqual(r.json().insumos_sin_costo, ['TN-SIN']);
+  const k = (await dir.llamar('GET', `/api/costos?cliente_id=${b}`)).json().costos.find((x) => x.automatico);
+  assert.equal(k.importe_usd, 80); assert.equal(k.tipo, 'insumo'); assert.match(k.concepto, new RegExp(r.json().numero));
+  assert.equal((await dir.llamar('PATCH', `/api/costos/${k.id}`, { fecha: k.fecha, concepto: 'Cambio', importe: 1, moneda: 'USD', cliente_id: b })).statusCode, 409, 'los costos de remito no se editan a mano');
+  assert.equal((await dir.llamar('DELETE', `/api/costos/${k.id}`)).statusCode, 409);
+  // El costo del insumo se fija con permiso de costos.
+  assert.equal((await dir.llamar('PATCH', `/api/insumos/${sin}/costo`, { costo_referencia: 12.5, moneda: 'USD' })).statusCode, 200);
+  const tec = await entrar(ctx.app, 'matias@demo.local');
+  assert.equal((await tec.llamar('PATCH', `/api/insumos/${sin}/costo`, { costo_referencia: 1, moneda: 'USD' })).statusCode, 403);
+  assert.equal((await tec.llamar('GET', `/api/insumos/${con}`)).json().costo_referencia, undefined, 'el técnico no ve costos');
+});
