@@ -215,7 +215,7 @@ export function crearCobranzas(U) {
       const t = n.totales; const col = t.resultado >= 0 ? 'pos' : 'neg';
       const kpi = (r, v, nota, c) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, r), h('div', { class: `valor ${c ?? ''}` }, v), nota && h('div', { class: 'nota' }, nota));
       nodo.append(h('div', { class: 'carril' }, h('h2', null, 'Rentabilidad'), h('p', null, 'Lo facturado contra lo que costó, mes a mes. No depende de si ya se cobró.')),
-        h('div', { class: 'rejilla negocio-kpis' }, kpi('Ingresos (facturado)', usd(t.ingresos), 'USD netos'), kpi('Egresos (costos)', usd(t.egresos), n.sin_costos ? 'Sin costos cargados' : null),
+        h('div', { class: 'rejilla negocio-kpis' }, kpi('Ingresos (facturado)', usd(t.ingresos), n.ingresos_sin_comprobante > 0 ? `USD netos · incluye ${usd(n.ingresos_sin_comprobante)} sin comprobante` : 'USD netos'), kpi('Egresos (costos)', usd(t.egresos), n.sin_costos ? 'Sin costos cargados' : null),
           kpi('Resultado', `${t.resultado < 0 ? '−' : ''}${usd(Math.abs(t.resultado))}`, null, col), kpi('Margen', t.margen == null ? '—' : `${String(t.margen).replace('.', ',')} %`, null, col)));
       nodo.append(graficoNegocio(n));
     }

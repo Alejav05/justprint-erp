@@ -126,6 +126,9 @@ test('negocio del cliente: ingresos y costos por mes, punto de equilibrio y lo p
   assert.equal(r.serie[0].acum_resultado, -150); assert.equal(r.punto_equilibrio, '2026-09', 'acum. ingresos 400 >= egresos 300 recién en septiembre');
   assert.equal(r.totales.ingresos, 400); assert.equal(r.totales.egresos, 300); assert.equal(r.totales.resultado, 100); assert.equal(r.totales.margen, 25);
   assert.equal(r.por_cobrar.usd, 100, 'la de septiembre sigue sin cobrarse pero cuenta como ingreso'); assert.equal(r.por_cobrar.facturas, 1);
+  await fac('2026-10-10', 50, { entidad_facturante_id: null });
+  const r2 = (await s.llamar('GET', `/api/clientes/${c}/negocio`)).json();
+  assert.equal(r2.totales.ingresos, 450, 'lo cobrado sin comprobante también es ingreso del negocio'); assert.equal(r2.ingresos_sin_comprobante, 50);
   assert.equal((await (await entrar('nicolas@demo.local')).llamar('GET', `/api/clientes/${c}/negocio`)).statusCode, 403, 'el comercial no ve costos');
 });
 

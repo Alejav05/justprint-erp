@@ -165,7 +165,7 @@ export default async function rutasCobranzas(app, { db }) {
     let sinFecha = 0;
     for (const f of fact) {
       const usd = Number(f.neto_usd ?? 0); const emi = aDia(f.fecha_emision); if (!emi) sinFecha += 1;
-      const c = celda(emi ? mes(emi) : f.periodo); if (f.entidad_facturante_id) c.ingresos += usd; else c.sin_comprobante += usd;
+      const c = celda(emi ? mes(emi) : f.periodo); c.ingresos += usd; if (!f.entidad_facturante_id) c.sin_comprobante += usd; // sin comprobante también es ingreso del negocio
     }
     for (const k of costos) celda(mes(aDia(k.fecha))).egresos += Number(k.importe_usd ?? 0);
     const claves = [...m.keys()].sort(); const serie = []; let punto_equilibrio = null;
@@ -184,7 +184,7 @@ export default async function rutasCobranzas(app, { db }) {
     const sinEgresos = costos.length === 0;
     return { moneda: 'USD', neto: true, serie, punto_equilibrio,
       totales: { ingresos: tot.acum_ingresos, egresos: tot.acum_egresos, resultado: tot.acum_resultado, margen: tot.acum_ingresos > 0 ? Math.round((tot.acum_resultado / tot.acum_ingresos) * 1000) / 10 : null },
-      sin_costos: sinEgresos, facturas_sin_fecha: sinFecha,
+      sin_costos: sinEgresos, facturas_sin_fecha: sinFecha, ingresos_sin_comprobante: redondear(serie.reduce((t, x) => t + x.sin_comprobante, 0)),
       por_cobrar: { usd: redondear(pend.reduce((s, i) => s + i.saldo_usd, 0)), facturas: pend.length, rojas: pend.filter((i) => i.color === 'rojo').length, amarillas: pend.filter((i) => i.color === 'amarillo').length, detalle: pend } };
   });
 }
