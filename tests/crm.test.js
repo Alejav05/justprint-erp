@@ -169,3 +169,10 @@ test('seguimiento de la cuenta: gestiones, próxima tarea y alcance', async () =
   assert.equal((await dir.llamar('POST', `/api/tareas/${s.tareas[0].id}/hecha`)).statusCode, 200);
   assert.equal((await dir.llamar('GET', `/api/clientes/${K.cli}/seguimiento`)).json().tareas.length, 0);
 });
+
+test('editar cliente: los campos opcionales se pueden vaciar (null)', async () => {
+  const dir = await entrar('direccion@demo.local');
+  const n = await dir.llamar('POST', '/api/clientes', alta({ cuit: '20-11839654-6', razon_social: 'Vaciar Campos SA' })); assert.equal(n.statusCode, 201, n.body);
+  const r = await dir.llamar('PATCH', `/api/clientes/${n.json().id}`, { nombre_comercial: null, notas: null, rubro: null, tamano: null, origen: null, sitio_web: null });
+  assert.equal(r.statusCode, 200, r.body);
+});

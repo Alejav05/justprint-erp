@@ -14,19 +14,19 @@ const texto = (n) => z.string().trim().max(n).optional().nullable();
 
 const clienteSchema = z.object({
   razon_social: z.string().trim().min(2).max(160),
-  nombre_comercial: z.string().trim().max(160).optional(),
+  nombre_comercial: z.string().trim().max(160).optional().nullable(),
   cuit: z.string().trim().max(13).optional().nullable().or(z.literal('').transform(() => null)),
   condicion_iva: z.enum(['responsable_inscripto', 'monotributo', 'exento', 'consumidor_final']).optional(),
-  rubro: z.string().trim().max(80).optional(),
+  rubro: z.string().trim().max(80).optional().nullable(),
   rubro_id: z.number().int().positive().optional().nullable(),
   subrubro_id: z.number().int().positive().optional().nullable(),
-  tamano: z.string().trim().max(40).optional(),
+  tamano: z.string().trim().max(40).optional().nullable(),
   sitio_web: texto(160), telefono: texto(40), email_general: z.string().trim().toLowerCase().email().max(160).optional().nullable().or(z.literal('').transform(() => null)),
   domicilio_fiscal: texto(200), localidad_fiscal: texto(100), provincia: texto(60), cantidad_empleados: z.number().int().min(0).max(1000000).optional().nullable(),
   motivo_baja: texto(255), fecha_baja: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   estado: z.enum(['prospecto', 'activo', 'inactivo']).optional(),
-  origen: z.string().trim().max(60).optional(),
-  notas: z.string().max(4000).optional(),
+  origen: z.string().trim().max(60).optional().nullable(),
+  notas: z.string().max(4000).optional().nullable(),
 });
 
 const altaSchema = clienteSchema.extend({
