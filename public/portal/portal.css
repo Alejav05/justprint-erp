@@ -133,3 +133,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 .seg-tabs.sm button{height:32px;padding:0 12px;font-size:13px}
+
+.conojo{position:relative}.conojo input{width:100%;padding-right:52px}
+.ojo{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;background:transparent;border-radius:10px;display:grid;place-content:center;color:var(--mut);cursor:pointer}
+.ojo:hover{background:#EAEFF5}.ojo.on{color:var(--ink)}.ojo svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}

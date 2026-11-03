@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { config } from '../config.js';
 import { aDia, hoy } from '../lib/fechas.js';
-import { hashear, validarPolitica, verificar } from '../lib/passwords.js';
+import { hashear, validarPoliticaPortal, verificar } from '../lib/passwords.js';
 import { encuestaSchema, guardarEncuesta } from '../lib/encuestas.js';
 import { ASPECTOS } from '../lib/encuestas.js';
 import { ahora, auditarPortal, COOKIE, crearEnlace, crearSesionPortal, dentroDe, enviarEnlace, hashToken, diaAnterior, mesesEntre, sumarMeses, urlEnlace } from '../lib/portal.js';
@@ -93,7 +93,7 @@ export default async function rutasPortal(app, { db }) {
   app.post('/portal/api/clave', { preHandler: portal }, async (req, reply) => {
     if (req.portal.vista) return reply.code(403).send({ error: 'solo_lectura' });
     const { clave } = z.object({ clave: z.string().max(200) }).parse(req.body);
-    const err = validarPolitica(clave); if (err) return reply.code(400).send({ error: 'clave_debil', mensaje: err });
+    const err = validarPoliticaPortal(clave); if (err) return reply.code(400).send({ error: 'clave_debil', mensaje: err });
     await db('portal_accesos').where({ id: req.portal.acceso.id }).update({ password_hash: await hashear(clave), estado: 'activo', updated_at: db.fn.now() });
     await auditarPortal(db, { ip: req.ip }, 'portal_clave', req.portal.acceso.id);
     return { ok: true };

@@ -56,6 +56,12 @@ async function api(url, { metodo = 'GET', cuerpo } = {}) {
 
 // ── pantallas de acceso ────────────────────────────────────
 const logo = (cls) => h('img', { class: cls, src: '/img/logo-oscuro.png', alt: 'JustPrint' });
+/** Campo de contraseña con el ojito para verla u ocultarla mientras se escribe. */
+function conOjo(input) {
+  const ojo = h('button', { class: 'ojo', type: 'button', 'aria-label': 'Mostrar contraseña', 'aria-pressed': 'false' }, icono(I.eye));
+  ojo.addEventListener('click', () => { const ver = input.type === 'password'; input.type = ver ? 'text' : 'password'; ojo.setAttribute('aria-pressed', String(ver)); ojo.setAttribute('aria-label', ver ? 'Ocultar contraseña' : 'Mostrar contraseña'); ojo.classList.toggle('on', ver); input.focus(); });
+  return h('div', { class: 'conojo' }, input, ojo);
+}
 function campo(id, etiqueta, attrs) { return h('div', { class: 'fld' }, h('label', { for: id }, etiqueta), h('input', { id, ...attrs })); }
 
 function pantallaLogin(aviso) {
@@ -73,7 +79,7 @@ function pantallaLogin(aviso) {
     enviar.disabled = false;
   } },
   logo('logo'), h('h1', null, 'Tu portal de JustPrint'), h('p', { class: 'mut', style: 'margin:0;font-size:16px' }, 'Tus equipos, contadores, conformidades y facturas en un solo lugar.'),
-  h('div', { class: 'fld' }, h('label', { for: 'email' }, 'Mail'), email), h('div', { class: 'fld' }, h('label', { for: 'clave' }, 'Contraseña'), clave),
+  h('div', { class: 'fld' }, h('label', { for: 'email' }, 'Mail'), email), h('div', { class: 'fld' }, h('label', { for: 'clave' }, 'Contraseña'), conOjo(clave)),
   enviar, msg,
   h('p', { style: 'margin:18px 0 0;font-size:14px;color:var(--mut)' }, '¿Primera vez o no recordás la contraseña? ',
     h('button', { class: 'linkbtn', type: 'button', onclick: async () => {
@@ -86,8 +92,8 @@ function pantallaLogin(aviso) {
 
 function pantallaClave() {
   vaciar(raiz);
-  const a = h('input', { id: 'c1', type: 'password', autocomplete: 'new-password', required: true, minlength: 10 });
-  const b = h('input', { id: 'c2', type: 'password', autocomplete: 'new-password', required: true, minlength: 10 });
+  const a = h('input', { id: 'c1', type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
+  const b = h('input', { id: 'c2', type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
   const msg = h('div', { role: 'alert' });
   raiz.append(h('div', { class: 'centro' }, h('form', { class: 'login', onsubmit: async (ev) => {
     ev.preventDefault(); vaciar(msg).className = '';
@@ -95,8 +101,8 @@ function pantallaClave() {
     try { await api('/portal/api/clave', { metodo: 'POST', cuerpo: { clave: a.value } }); toast('Contraseña guardada'); await cargar(); }
     catch (e) { msg.className = 'msg bad'; msg.append(e.mensaje || 'No pudimos guardarla. Probá con otra.'); }
   } },
-  logo('logo'), h('h1', null, 'Elegí tu contraseña'), h('p', { class: 'mut', style: 'margin:0;font-size:16px' }, 'La próxima vez vas a entrar con tu mail y esta contraseña. Usá al menos 10 caracteres, con letras y números.'),
-  h('div', { class: 'fld' }, h('label', { for: 'c1' }, 'Contraseña nueva'), a), h('div', { class: 'fld' }, h('label', { for: 'c2' }, 'Repetila'), b),
+  logo('logo'), h('h1', null, 'Elegí tu contraseña'), h('p', { class: 'mut', style: 'margin:0;font-size:16px' }, 'La próxima vez vas a entrar con tu mail y esta contraseña. Usá al menos 8 caracteres, con letras y números.'),
+  h('div', { class: 'fld' }, h('label', { for: 'c1' }, 'Contraseña nueva'), conOjo(a)), h('div', { class: 'fld' }, h('label', { for: 'c2' }, 'Repetila'), conOjo(b)),
   h('button', { class: 'btn', type: 'submit', style: 'width:100%;margin-top:20px' }, 'Guardar y entrar'), msg,
   h('p', { style: 'margin:14px 0 0;text-align:center' }, h('button', { class: 'linkbtn', type: 'button', onclick: () => cargar() }, 'Ahora no, entrar igual')))));
   a.focus();

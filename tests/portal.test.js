@@ -47,6 +47,9 @@ test('invitar, entrar por el enlace, elegir contraseña y volver a entrar con ma
   assert.equal(d.periodos.length, 12);
 
   assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'corta' })).statusCode, 400);
+  assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'Abcde12' })).statusCode, 400, '7 caracteres no alcanzan');
+  assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'abcdefgh' })).statusCode, 400, 'sin números no sirve');
+  assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'Abcde123' })).statusCode, 200, '8 caracteres con letras y números sirven');
   assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'Clave-Segura-2026' })).statusCode, 200);
   const l = await portal().post('/portal/api/login', { email: 'MARCELA@cliente.com', password: 'Clave-Segura-2026' });
   assert.equal(l.statusCode, 200); assert.equal((await portal(cookieDe(l)).get('/portal/api/inicio')).statusCode, 200);

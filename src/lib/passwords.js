@@ -16,3 +16,10 @@ export function validarPolitica(clave) {
   if (!/[A-Za-z]/.test(clave) || !/[0-9]/.test(clave)) return 'La contraseña debe combinar letras y números.';
   return null;
 }
+
+/** Portal de clientes: más corta que la del equipo (8 caracteres), pero siempre con letras y números. */
+export function validarPoliticaPortal(clave) {
+  if (typeof clave !== 'string' || clave.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
+  if (!/[A-Za-z]/.test(clave) || !/[0-9]/.test(clave)) return 'La contraseña debe combinar letras y números.';
+  return null;
+}
