@@ -18,7 +18,7 @@ const dia = (s) => (s ? String(s).slice(0, 10) : null);
 export async function datosContadores(db, clienteId) {
   const asigs = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('equipos as e', 'e.id', 'a.equipo_id').join('modelos_equipo as m', 'm.id', 'e.modelo_id')
     .leftJoin('sedes as s', 's.id', 'a.sede_id').where('c.cliente_id', clienteId).whereNull('c.deleted_at')
-    .select('a.id', 'a.equipo_id', 'a.contrato_id', 'a.desde', 'a.hasta', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'e.numero_serie', 'm.marca', 'm.modelo', 'm.tipo', 's.nombre as sede', 'c.nombre as contrato');
+    .select('a.id', 'a.equipo_id', 'a.contrato_id', 'a.desde', 'a.hasta', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'e.numero_serie', 'm.marca', 'm.modelo', 'm.tipo', 's.nombre as sede', 's.domicilio as sede_domicilio', 's.localidad as sede_localidad', 'c.nombre as contrato');
   const ids = [...new Set(asigs.map((a) => a.equipo_id))];
   const filas = ids.length ? await db('lecturas_contador as l').leftJoin('usuarios as u', 'u.id', 'l.usuario_id').whereIn('l.equipo_id', ids).orderBy('l.fecha').orderBy('l.id').select('l.*', 'u.nombre as usuario') : [];
   const porEquipo = new Map();

@@ -1,7 +1,7 @@
 // Portal de clientes de JustPrint. Solo lectura de lo operativo; el cliente puede calificar la atención y elegir su contraseña.
 const raiz = document.getElementById('raiz');
 let D = null; // datos del portal
-const E = { vista: 'inicio', eq: 'todos', doc: 'conf', ct: null, menu: false };
+const E = { vista: 'inicio', eq: 'todos', doc: 'conf', ct: null, menu: false, meses: 12 };
 
 // ── utilidades ─────────────────────────────────────────────
 const SVG = 'http://www.w3.org/2000/svg';
@@ -39,6 +39,8 @@ const fechaLarga = (s) => { const [a, m, d] = s.slice(0, 10).split('-').map(Numb
 const mesCorto = (p) => MES[Number(p.slice(5, 7)) - 1][0].toUpperCase() + MES[Number(p.slice(5, 7)) - 1].slice(1);
 const mesLargo = (p) => `${MES_LARGO[Number(p.slice(5, 7)) - 1][0].toUpperCase()}${MES_LARGO[Number(p.slice(5, 7)) - 1].slice(1)} ${p.slice(0, 4)}`;
 const plata = (mon, v) => (mon === 'USD' ? `USD ${Number(v).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$ ${Number(v).toLocaleString('es-AR', { maximumFractionDigits: 0 })}`);
+const neto = (f) => `${plata(f.moneda, f.neto)}${f.iva > 0 ? ' + IVA' : ''}`;
+const botonExcel = (extra = '') => h('a', { class: `btn ghost ${extra}`.trim(), href: '/portal/api/excel', download: '' }, icono(I.down), 'Descargar Excel');
 const iniciales = (s) => String(s || '?').replace(/\(.*?\)/g, '').trim().split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
 const TIPO_TK = { soporte: 'Soporte técnico', instalacion: 'Instalación', retiro: 'Retiro de equipo' };
 const ESTADO_TK = { abierto: 'Recibido', asignado: 'Técnico asignado', en_curso: 'En curso', esperando_cliente: 'Esperando tu respuesta' };
@@ -148,12 +150,23 @@ function pedirSoporte() {
 function periodoActual() { const c = D.consumo.filter((x) => x.hay); return c.length ? c.at(-1).periodo : D.periodos.at(-1); }
 const sumar = (l, k) => l.reduce((t, x) => t + (x[k] ?? 0), 0);
 
+/** Anillo de consumo: cuánto se usó de lo incluido. Pasado el 100 % cambia a ámbar y dice cuántas páginas de más. */
+function anillo(titulo, usado, incluido, trazo) {
+  const R = 54; const C = Math.round(2 * Math.PI * R); const pct = incluido > 0 ? Math.round((usado / incluido) * 100) : null;
+  const pasado = pct != null && pct > 100; const off = pct == null ? C : Math.round(C * (1 - Math.min(100, pct) / 100));
+  const s = document.createElementNS(SVG, 'svg'); s.setAttribute('viewBox', '0 0 140 140'); s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="13"></circle><circle class="ring-fg" cx="70" cy="70" r="${R}" fill="none" stroke="${pasado ? '#FFB547' : trazo}" stroke-width="13" stroke-linecap="round" style="--c:${C};stroke-dasharray:${C};stroke-dashoffset:${off}"></circle>`;
+  return h('div', { class: 'ringcol' },
+    h('div', { class: 'ringbox', role: 'img', 'aria-label': pct == null ? `${titulo}: ${n(usado)} páginas` : `${titulo}: ${pct} por ciento de lo incluido` }, s,
+      h('div', { class: 'mid' }, pct == null ? h('span', { class: 'big', style: 'font-size:26px' }, n(usado)) : h('span', { class: 'big', style: 'font-size:36px' }, `${pct}`, h('small', { style: 'font-size:18px;letter-spacing:0' }, '%')))),
+    h('p', { style: 'font-weight:700;font-size:15px;margin-top:12px' }, titulo),
+    h('p', { class: 'mut', style: 'font-size:14px;margin-top:2px' }, incluido > 0 ? `${n(usado)} de ${n(incluido)}` : 'Sin tope de páginas'),
+    pasado && h('p', { style: 'font-size:13px;margin-top:4px;color:#FFB547;font-weight:600' }, `${n(usado - incluido)} sobre lo incluido`));
+}
+
 function vistaInicio() {
   const per = periodoActual(); const u = D.consumo.find((x) => x.periodo === per) ?? { negro: 0, color: 0 };
-  const incN = sumar(D.contratos, 'franquicia_negro'); const incC = sumar(D.contratos, 'franquicia_color'); const inc = incN + incC;
-  const pct = inc ? Math.min(100, Math.round(((u.negro + u.color) / inc) * 100)) : null;
-  const off = pct == null ? 528 : Math.round(528 * (1 - pct / 100));
-  const medidor = (t, v, tope, cls) => tope > 0 && h('div', null, h('div', { style: 'display:flex;justify-content:space-between;font-size:14px;font-weight:600;margin-bottom:6px' }, h('span', null, t), h('span', { class: 'mut' }, `${n(v)} de ${n(tope)}`)), h('div', { class: 'meter' }, h('b', { class: cls, style: `width:${Math.min(100, Math.round((v / tope) * 100))}%` })));
+  const incN = sumar(D.contratos, 'franquicia_negro'); const incC = sumar(D.contratos, 'franquicia_color');
   const pend = D.conformidades.find((c) => c.puntaje == null);
   const com = D.comercial;
   const f = D.facturas[0];
@@ -163,13 +176,9 @@ function vistaInicio() {
     h('h1', { class: 'h1', id: 'h-ini' }, `${saludo}, ${D.usuario.nombre.split(' ')[0]}.`),
     h('p', { class: 'sub' }, `Todo lo de ${D.cliente.nombre} con JustPrint, en un solo lugar: tus equipos, cuánto imprimiste y lo que necesitás descargar.`),
     h('div', { class: 'bento' },
-      h('div', { class: 'tile dark s7' }, h('div', { class: 'hero-flex', style: 'display:flex;align-items:center;gap:36px' },
-        pct != null && h('div', { class: 'ringbox' }, (() => { const s = document.createElementNS(SVG, 'svg'); s.setAttribute('viewBox', '0 0 200 200'); s.setAttribute('aria-hidden', 'true');
-          s.innerHTML = `<circle cx="100" cy="100" r="84" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="16"></circle><circle class="ring-fg" cx="100" cy="100" r="84" fill="none" stroke="#00BCD4" stroke-width="16" stroke-linecap="round" style="stroke-dasharray:528;stroke-dashoffset:${off}"></circle>`; return s; })(),
-          h('div', { class: 'mid', role: 'img', 'aria-label': `${pct} por ciento del volumen del contrato usado` }, h('span', { class: 'big', style: 'font-size:52px' }, `${pct}`, h('small', { style: 'font-size:26px;letter-spacing:0' }, '%')), h('span', { class: 'mut', style: 'font-size:14px;margin-top:4px' }, 'del volumen'))),
-        h('div', { style: 'flex:1;min-width:0;width:100%' }, h('p', { class: 'lbl' }, mesLargo(per)), h('p', { class: 'big', style: 'margin-top:6px' }, n(u.negro + u.color)),
-          h('p', { class: 'mut', style: 'margin:6px 0 20px;font-size:16px' }, `páginas impresas entre ${D.equipos.length === 1 ? 'tu equipo' : `tus ${D.equipos.length} equipos`}${D.contratos.length > 1 ? ` y ${D.contratos.length} contratos` : ''}`),
-          h('div', { style: 'display:flex;flex-direction:column;gap:14px' }, medidor('Blanco y negro', u.negro, incN, ''), medidor('Color', u.color, incC, 'c2'))))),
+      h('div', { class: 'tile dark s7' }, h('p', { class: 'lbl' }, mesLargo(per)), h('p', { class: 'big', style: 'margin-top:6px' }, n(u.negro + u.color)),
+        h('p', { class: 'mut', style: 'margin:6px 0 24px;font-size:16px' }, `páginas impresas entre ${D.equipos.length === 1 ? 'tu equipo' : `tus ${D.equipos.length} equipos`}${D.contratos.length > 1 ? ` y ${D.contratos.length} contratos` : ''}`),
+        h('div', { class: 'rings' }, anillo('Blanco y negro', u.negro, incN, '#FFFFFF'), (incC > 0 || u.color > 0) && anillo('Color', u.color, incC, '#00BCD4'))),
 
       h('div', { class: 'tile s5' }, D.soporte ? [
         h('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px' }, h('p', { class: 'lbl' }, 'Tu pedido de soporte'), h('span', { class: 'chip cy' }, h('span', { class: 'dot' }), ESTADO_TK[D.soporte.estado] ?? 'En curso')),
@@ -188,7 +197,7 @@ function vistaInicio() {
         h('p', { class: 't2', style: 'font-size:15px;margin:8px 0 14px' }, `Cerramos tu ${(TIPO_TK[pend.tipo] || 'servicio').toLowerCase()} del ${fecha(pend.fecha)}. Tu opinión nos ayuda a mejorar la atención.`),
         D.usuario.vista ? estrellas({ valor: 0, bloqueada: true }) : h('button', { class: 'btn cy', type: 'button', onclick: () => sheet('Tu opinión', `${pend.asunto} · ${fecha(pend.fecha)}`, (cerrar) => formularioOpinion(pend, () => { cerrar(); mostrar(); })) }, icono(I.star), 'Calificar la atención')),
 
-      f && h('div', { class: 'tile s4' }, h('p', { class: 'lbl' }, 'Última factura'), h('p', { class: 'h2', style: 'margin-top:12px;font-size:34px' }, plata(f.moneda, f.total)),
+      f && h('div', { class: 'tile s4' }, h('p', { class: 'lbl' }, 'Última factura'), h('p', { class: 'h2', style: 'margin-top:12px;font-size:34px' }, neto(f)),
         h('p', { class: 't2', style: 'margin-top:6px' }, `${mesLargo(f.periodo)}${f.vencimiento ? ` · ${f.estado === 'cobrada' ? 'pagada' : `vence el ${fechaLarga(f.vencimiento).replace(/ de \d+$/, '')}`}` : ''}`),
         h('div', { style: 'margin-top:20px' }, chipFactura(f))),
 
@@ -208,7 +217,7 @@ function chipFactura(f) {
 
 function vistaEquipos() {
   const uno = D.equipos.find((e) => String(e.id) === E.eq);
-  const serie = uno ? uno.consumo : D.consumo; const color = uno ? uno.color : D.equipos.some((e) => e.color);
+  const serie = (uno ? uno.consumo : D.consumo).slice(-E.meses); const color = uno ? uno.color : D.equipos.some((e) => e.color);
   const max = Math.max(1, ...serie.map((x) => x.negro + x.color)); const H = 196;
   const per = periodoActual(); const i = serie.findIndex((x) => x.periodo === per); const a = serie[i]; const ant = serie[i - 1];
   const tot = a ? a.negro + a.color : 0; const totAnt = ant ? ant.negro + ant.color : 0;
@@ -220,20 +229,20 @@ function vistaEquipos() {
     h('div', { class: 'eqsplit', style: 'display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:16px;margin-top:36px;align-items:start' },
       h('div', { style: 'display:flex;flex-direction:column;gap:10px' }, lista.map((e) => h('button', { class: 'eq', type: 'button', 'aria-pressed': String(E.eq === e.id), onclick: () => { E.eq = e.id; mostrar(); } }, h('span', { class: 'ic' }, icono(e.d)), h('span', { class: 'grow' }, h('span', { class: 't1', style: 'display:block' }, e.modelo), h('span', { class: 't2', style: 'display:block' }, e.sede))))),
       h('div', { class: 'tile', style: 'padding:32px' },
-        h('div', { style: 'display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start' }, h('div', null, h('h2', { class: 'h2' }, uno ? uno.modelo : 'Todos los equipos'), h('p', { class: 't2', style: 'font-size:16px;margin-top:6px' }, uno ? (uno.sede || uno.contrato) : `${D.equipos.length} ${D.equipos.length === 1 ? 'equipo' : 'equipos'}`)),
+        h('div', { style: 'display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start' }, h('div', null, h('h2', { class: 'h2' }, uno ? uno.modelo : 'Todos los equipos'), h('p', { class: 't2', style: 'font-size:16px;margin-top:6px' }, uno ? [uno.sede || uno.contrato, uno.domicilio].filter(Boolean).join(' · ') : `${D.equipos.length} ${D.equipos.length === 1 ? 'equipo' : 'equipos'}`)),
           uno && h('span', { class: 'chip ok' }, h('span', { class: 'dot' }), 'Activo')),
         h('div', { style: 'display:flex;gap:40px;flex-wrap:wrap;margin-top:28px' }, h('div', null, h('p', { class: 'lbl' }, `Total ${MES_LARGO[Number(per.slice(5, 7)) - 1]}`), h('p', { class: 'big', style: 'margin-top:6px' }, n(tot))),
           h('div', null, h('p', { class: 'lbl' }, 'Blanco y negro'), h('p', { class: 'big', style: 'margin-top:6px;font-size:36px' }, n(a?.negro))),
           color && h('div', null, h('p', { class: 'lbl' }, 'Color'), h('p', { class: 'big', style: 'margin-top:6px;font-size:36px;color:var(--cyd)' }, n(a?.color))),
           ant && h('div', null, h('p', { class: 'lbl' }, `Frente a ${MES_LARGO[Number(ant.periodo.slice(5, 7)) - 1]}`), h('p', { class: 'big', style: 'margin-top:6px;font-size:36px' }, delta))),
         !serie.some((x) => x.hay) ? h('p', { class: 't2', style: 'margin:32px 0 0;font-size:16px' }, 'Todavía no hay lecturas de contadores para mostrar. Aparecen apenas se toma la primera lectura del mes.') : [h('div', { style: 'margin-top:32px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap' }, h('p', { class: 't1' }, 'Páginas por mes'),
-          h('div', { style: 'display:flex;gap:16px;font-size:13px;font-weight:600;color:var(--mut)' }, h('span', { style: 'display:flex;align-items:center;gap:6px' }, h('span', { style: 'width:12px;height:12px;border-radius:4px;background:var(--ink)' }), 'Blanco y negro'),
+          h('div', { style: 'display:flex;gap:16px;font-size:13px;font-weight:600;color:var(--mut);align-items:center;flex-wrap:wrap' }, h('div', { class: 'seg-tabs sm', role: 'group', 'aria-label': 'Meses a mostrar' }, [6, 12].map((m) => h('button', { type: 'button', 'aria-pressed': String(E.meses === m), onclick: () => { E.meses = m; mostrar(); } }, `${m} meses`))), h('span', { style: 'display:flex;align-items:center;gap:6px' }, h('span', { style: 'width:12px;height:12px;border-radius:4px;background:var(--ink)' }), 'Blanco y negro'),
             color && h('span', { style: 'display:flex;align-items:center;gap:6px' }, h('span', { style: 'width:12px;height:12px;border-radius:4px;background:var(--cy)' }), 'Color'))),
-        h('div', { class: 'chart', role: 'img', 'aria-label': `Páginas impresas por mes, de ${MES_LARGO[Number(serie[0].periodo.slice(5, 7)) - 1]} a ${MES_LARGO[Number(serie.at(-1).periodo.slice(5, 7)) - 1]}` },
+        h('div', { class: `chart ${serie.length > 8 ? 'p12' : ''}`, role: 'img', 'aria-label': `Páginas impresas por mes, de ${MES_LARGO[Number(serie[0].periodo.slice(5, 7)) - 1]} a ${MES_LARGO[Number(serie.at(-1).periodo.slice(5, 7)) - 1]}` },
           serie.map((x, k) => { const hB = Math.round((x.negro / max) * H); const hC = Math.round((x.color / max) * H);
             return h('div', { class: 'col' }, h('small', { class: 'v' }, x.hay ? n(x.negro + x.color) : '—'), h('div', { class: 'stack', style: `animation-delay:${k * 0.07}s` }, h('div', { class: `seg cl ${hC && !hB ? 'only' : ''}`, style: `height:${hC}px` }), h('div', { class: `seg bn ${hB && !hC ? 'only' : ''}`, style: `height:${hB}px` })), h('small', null, mesCorto(x.periodo))); }))],
-        uno && h('div', { class: 'facts', style: 'margin-top:28px;padding-top:24px;border-top:1px solid var(--line)' }, dato('Modelo', uno.modelo), dato('Número de serie', uno.serie), dato('Instalado', fecha(uno.instalado)), dato('Última lectura', fecha(uno.ultima_lectura))),
-        h('div', { style: 'display:flex;gap:10px;margin-top:28px;flex-wrap:wrap' }, h('button', { class: 'btn ghost', type: 'button', onclick: pedirSoporte }, 'Reportar un problema')))));
+        uno && h('div', { class: 'facts', style: 'margin-top:28px;padding-top:24px;border-top:1px solid var(--line)' }, dato('Modelo', uno.modelo), dato('Número de serie', uno.serie), dato('Ubicación', uno.sede || '—'), dato('Dirección', uno.domicilio || '—'), dato('Instalado', fecha(uno.instalado)), dato('Última lectura', fecha(uno.ultima_lectura))),
+        h('div', { style: 'display:flex;gap:10px;margin-top:28px;flex-wrap:wrap' }, h('button', { class: 'btn ghost', type: 'button', onclick: pedirSoporte }, 'Reportar un problema'), botonExcel()))));
 }
 
 function vistaDocumentos() {
@@ -247,11 +256,11 @@ function vistaDocumentos() {
       : !D.usuario.vista && h('button', { class: 'btn cy', type: 'button', onclick: () => sheet('Tu opinión', `${c.asunto} · ${fecha(c.fecha)}`, (cerrar) => formularioOpinion(c, () => { cerrar(); mostrar(); })) }, icono(I.star), 'Calificar'),
     pdf(`/r/${c.token}/pdf`, `Descargar conformidad ${c.numero}`)));
   else if (E.doc === 'rem') filas = D.remitos.map((r) => fila(`Remito ${r.numero}`, `${fecha(r.fecha)}${r.detalle ? ` · ${r.detalle}` : ''}`, null, null, pdf(`/r/${r.token}/pdf`, `Descargar remito ${r.numero}`)));
-  else if (E.doc === 'fact') filas = D.facturas.map((f) => fila(f.numero ? `${f.tipo ? `Factura ${f.tipo} ` : ''}${f.numero}` : `Factura ${mesLargo(f.periodo)}`, `${mesLargo(f.periodo)} · ${plata(f.moneda, f.total)}`, f.estado === 'cobrada' ? null : (f.vencimiento ? `Vence el ${fecha(f.vencimiento)}` : null), chipFactura(f), null));
+  else if (E.doc === 'fact') filas = D.facturas.map((f) => fila(f.numero ? `${f.tipo ? `Factura ${f.tipo} ` : ''}${f.numero}` : `Factura ${mesLargo(f.periodo)}`, `${mesLargo(f.periodo)} · ${neto(f)}`, f.estado === 'cobrada' ? null : (f.vencimiento ? `Vence el ${fecha(f.vencimiento)}` : null), chipFactura(f), null));
   else filas = D.documentos.map((d) => fila(d.titulo, `${{ contrato: 'Contrato firmado', anexo: 'Anexo', adenda: 'Adenda', otro: 'Documento' }[d.tipo] || 'Documento'}${d.fecha ? ` · ${fecha(d.fecha)}` : ''}`, null, null, pdf(`/portal/api/documentos/${d.id}/archivo`, `Descargar ${d.titulo}`)));
   const VACIO = { conf: 'Todavía no tenés conformidades. Aparecen cuando cerramos un soporte, una instalación o un retiro.', rem: 'Todavía no tenés remitos de entrega.', fact: 'Todavía no hay facturas para mostrar.', con: 'Todavía no hay documentos del contrato cargados.' };
   return h('section', { class: 'view', 'aria-labelledby': 'h-doc' }, h('h1', { class: 'h1', id: 'h-doc' }, 'Tus documentos'),
-    h('p', { class: 'sub' }, 'Conformidades de cada visita, remitos de lo que te entregamos, tus facturas y tu contrato firmado.'),
+    h('p', { class: 'sub' }, 'Conformidades de cada visita, remitos de lo que te entregamos, tus facturas y tu contrato firmado.'), h('div', { style: 'margin-top:20px' }, botonExcel()),
     h('div', { style: 'margin-top:32px' }, h('div', { class: 'seg-tabs', role: 'group', 'aria-label': 'Tipo de documento' }, tabs.map(([k, t]) => h('button', { type: 'button', 'aria-pressed': String(E.doc === k), onclick: () => { E.doc = k; mostrar(); } }, t)))),
     h('div', { class: 'tile', style: 'margin-top:16px;padding:12px 28px' }, filas.length ? filas : vacio(VACIO[E.doc])));
 }

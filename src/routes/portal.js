@@ -101,11 +101,10 @@ export default async function rutasPortal(app, { db }) {
 
   // ───── Datos ─────
 
-  app.get('/portal/api/inicio', { preHandler: portal }, async (req) => {
-    const { acceso, vista, clienteId } = req.portal;
+  const armar = async ({ acceso, vista, clienteId }, meses = 12) => {
     const h = hoy();
     const c = await db('clientes').where({ id: clienteId }).first();
-    const periodos = ultimosPeriodos(h, 6);
+    const periodos = ultimosPeriodos(h, meses);
 
     // Contratos vigentes con su abono (más IVA) y las páginas incluidas por mes.
     const contratos = await db('contratos').where({ cliente_id: clienteId, estado: 'vigente' }).whereNull('deleted_at').orderBy('id');
@@ -130,7 +129,7 @@ export default async function rutasPortal(app, { db }) {
     const equipos = vivas.map((a) => {
       const ls = porEquipo.get(a.equipo_id) ?? [];
       return {
-        id: a.equipo_id, modelo: `${a.marca} ${a.modelo}`, serie: a.numero_serie, color: a.tipo === 'color', sede: a.sede, contrato: a.contrato, contrato_id: a.contrato_id, instalado: dia(a.desde),
+        id: a.equipo_id, modelo: `${a.marca} ${a.modelo}`, serie: a.numero_serie, color: a.tipo === 'color', sede: a.sede, domicilio: [a.sede_domicilio, a.sede_localidad].filter(Boolean).join(', ') || null, contrato: a.contrato, contrato_id: a.contrato_id, instalado: dia(a.desde),
         ultima_lectura: ls.length ? dia(ls.at(-1).fecha) : null,
         consumo: consumoPorPeriodo([{ ...a, desde: dia(a.desde) }], porEquipo, periodos).map((x) => ({ periodo: x.periodo, negro: x.negro, color: x.color, hay: x.equipos > 0 })),
       };
@@ -156,7 +155,7 @@ export default async function rutasPortal(app, { db }) {
 
     const facturas = (await db('facturas').where({ cliente_id: clienteId }).whereNull('deleted_at').whereNotIn('estado', ['borrador', 'anulada']).orderBy('periodo', 'desc').limit(24)
       .select('id', 'numero', 'tipo_comprobante', 'periodo', 'fecha_emision', 'vencimiento', 'moneda', 'neto', 'iva', 'total', 'estado')).map((f) => ({
-      id: f.id, numero: f.numero, tipo: f.tipo_comprobante, periodo: f.periodo, emision: dia(f.fecha_emision), vencimiento: dia(f.vencimiento), moneda: f.moneda, total: Number(f.total), estado: f.estado,
+      id: f.id, numero: f.numero, tipo: f.tipo_comprobante, periodo: f.periodo, emision: dia(f.fecha_emision), vencimiento: dia(f.vencimiento), moneda: f.moneda, neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total), estado: f.estado,
       vencida: f.estado !== 'cobrada' && !!f.vencimiento && dia(f.vencimiento) < h,
     }));
 
@@ -173,6 +172,59 @@ export default async function rutasPortal(app, { db }) {
       soporte: t ? { numero: t.numero, asunto: t.asunto, tipo: t.tipo, estado: t.estado, tecnico: t.tecnico, equipo: t.marca ? `${t.marca} ${t.modelo}` : null, abierto: dia(t.abierto_en) } : null,
       conformidades, remitos, facturas, documentos, aspectos: ASPECTOS,
     };
+  };
+
+  app.get('/portal/api/inicio', { preHandler: portal }, async (req) => armar(req.portal, 12));
+
+  /** Excel con todo lo que el cliente ve en su portal: contrato, equipos y ubicaciones, contadores, tickets y facturas. */
+  app.get('/portal/api/excel', { preHandler: portal }, async (req, reply) => {
+    const { clienteId } = req.portal;
+    const d = await armar(req.portal, 24);
+    const { default: ExcelJS } = await import('exceljs');
+    const libro = new ExcelJS.Workbook(); libro.creator = 'JustPrint'; libro.created = new Date();
+  
+    const hoja = (titulo, columnas, filas) => {
+      const ws = libro.addWorksheet(titulo, { views: [{ state: 'frozen', ySplit: 1 }] });
+      ws.columns = columnas.map(([header, key, width]) => ({ header, key, width }));
+      ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1B2A' } };
+      filas.forEach((f) => ws.addRow(f));
+      if (filas.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columnas.length } };
+      return ws;
+    };
+    const resumen = libro.addWorksheet('Resumen'); resumen.columns = [{ width: 26 }, { width: 60 }];
+    [['Cliente', d.cliente.nombre], d.cliente.razon_social !== d.cliente.nombre ? ['Razón social', d.cliente.razon_social] : null, ['Generado el', d.hoy], ['Equipos instalados', d.equipos.length], ['Contratos vigentes', d.contratos.length]]
+      .filter(Boolean).forEach((f) => { const r = resumen.addRow(f); r.getCell(1).font = { bold: true }; });
+    resumen.getCell('B1').font = { bold: true, size: 13 };
+
+    hoja('Contratos', [['Contrato', 'nombre', 30], ['Inicio', 'inicio', 13], ['Vence', 'fin', 13], ['Meses restantes', 'rest', 16], ['Abono mensual (más IVA)', 'abono', 24], ['Moneda', 'moneda', 9], ['Páginas B/N incluidas por mes', 'fn', 28], ['Páginas color incluidas por mes', 'fc', 30], ['Equipos', 'equipos', 10]],
+      d.contratos.map((k) => ({ nombre: k.nombre, inicio: k.inicio, fin: k.fin, rest: k.meses_restantes, abono: k.abono_sin_cargo ? 'Sin cargo' : k.abono, moneda: k.moneda, fn: k.franquicia_negro, fc: k.franquicia_color, equipos: k.equipos })));
+    hoja('Equipos', [['Modelo', 'modelo', 28], ['Serie', 'serie', 18], ['Tipo', 'tipo', 12], ['Local', 'sede', 24], ['Dirección', 'dom', 40], ['Contrato', 'contrato', 28], ['Instalado el', 'inst', 14], ['Última lectura', 'ult', 14]],
+      d.equipos.map((e) => ({ modelo: e.modelo, serie: e.serie, tipo: e.color ? 'Color' : 'Monocromo', sede: e.sede ?? '', dom: e.domicilio ?? '', contrato: e.contrato, inst: e.instalado, ult: e.ultima_lectura ?? '' })));
+    const incN = d.contratos.reduce((t, k) => t + (k.franquicia_negro ?? 0), 0); const incC = d.contratos.reduce((t, k) => t + (k.franquicia_color ?? 0), 0);
+    hoja('Consumo mensual', [['Período', 'p', 12], ['Páginas blanco y negro', 'n', 24], ['Páginas color', 'c', 16], ['Total', 't', 12], ['Incluidas B/N', 'in', 15], ['Incluidas color', 'ic', 16]],
+      [...d.consumo].reverse().filter((x) => x.hay).map((x) => ({ p: x.periodo, n: x.negro, c: x.color, t: x.negro + x.color, in: incN || '', ic: incC || '' })));
+    hoja('Contadores por equipo', [['Período', 'p', 12], ['Equipo', 'e', 28], ['Serie', 's', 18], ['Local', 'l', 24], ['Páginas blanco y negro', 'n', 24], ['Páginas color', 'c', 16], ['Total', 't', 12]],
+      d.periodos.slice().reverse().flatMap((p) => d.equipos.map((e) => ({ e, x: e.consumo.find((y) => y.periodo === p) })).filter(({ x }) => x?.hay).map(({ e, x }) => ({ p, e: e.modelo, s: e.serie, l: e.sede ?? '', n: x.negro, c: x.color, t: x.negro + x.color }))));
+
+    const tk = await db('tickets as t').leftJoin('equipos as e', 'e.id', 't.equipo_id').leftJoin('modelos_equipo as m', 'm.id', 'e.modelo_id').leftJoin('usuarios as u', 'u.id', 't.asignado_a')
+      .where('t.cliente_id', clienteId).whereNull('t.deleted_at').orderBy('t.abierto_en', 'desc').select('t.numero', 't.asunto', 't.tipo', 't.estado', 't.abierto_en', 't.resuelto_en', 'm.marca', 'm.modelo', 'e.numero_serie', 'u.nombre as tecnico');
+    const TIPO = { soporte: 'Soporte técnico', instalacion: 'Instalación', retiro: 'Retiro de equipo' };
+    const EST = { abierto: 'Recibido', asignado: 'Técnico asignado', en_curso: 'En curso', esperando_cliente: 'Esperando respuesta', resuelto: 'Resuelto', cerrado: 'Cerrado' };
+    hoja('Tickets', [['Período', 'per', 11], ['Número', 'num', 14], ['Fecha', 'f', 13], ['Tipo', 'tipo', 18], ['Asunto', 'a', 40], ['Equipo', 'eq', 28], ['Serie', 'se', 16], ['Técnico', 'tec', 22], ['Estado', 'est', 18], ['Resuelto el', 'res', 13]],
+      tk.map((t) => ({ per: dia(t.abierto_en)?.slice(0, 7), num: t.numero, f: dia(t.abierto_en), tipo: TIPO[t.tipo] ?? t.tipo, a: t.asunto, eq: t.marca ? `${t.marca} ${t.modelo}` : '', se: t.numero_serie ?? '', tec: t.tecnico ?? '', est: EST[t.estado] ?? t.estado, res: dia(t.resuelto_en) ?? '' })));
+    hoja('Conformidades', [['Fecha', 'f', 13], ['Número', 'n', 14], ['Tipo', 't', 18], ['Asunto', 'a', 40], ['Equipo', 'e', 28], ['Atendió', 'tec', 22], ['Tu calificación (1 a 5)', 'p', 22]],
+      d.conformidades.map((c) => ({ f: c.fecha, n: c.numero, t: TIPO[c.tipo] ?? c.tipo, a: c.asunto, e: c.equipo ?? '', tec: c.tecnico ?? '', p: c.puntaje ?? '' })));
+    const FEST = { cobrada: 'Pagada', cobrada_parcial: 'Pago parcial' };
+    const fa = hoja('Facturas', [['Período', 'p', 11], ['Comprobante', 'n', 22], ['Emisión', 'em', 13], ['Vencimiento', 'v', 13], ['Moneda', 'mo', 9], ['Importe sin IVA', 'ne', 17], ['IVA', 'iv', 12], ['Total', 't', 14], ['Estado', 'es', 14]],
+      d.facturas.map((f) => ({ p: f.periodo, n: [f.tipo && `Factura ${f.tipo}`, f.numero].filter(Boolean).join(' ') || '—', em: f.emision ?? '', v: f.vencimiento ?? '', mo: f.moneda, ne: f.neto, iv: f.iva, t: f.total, es: FEST[f.estado] ?? (f.vencida ? 'Vencida' : 'Por vencer') })));
+    ['ne', 'iv', 't'].forEach((k) => { fa.getColumn(k).numFmt = '#,##0.00'; });
+    hoja('Remitos', [['Fecha', 'f', 13], ['Número', 'n', 14], ['Detalle', 'd', 60]], d.remitos.map((r) => ({ f: r.fecha, n: r.numero, d: r.detalle ?? '' })));
+    hoja('Documentos', [['Fecha', 'f', 13], ['Tipo', 't', 18], ['Documento', 'd', 50]], d.documentos.map((x) => ({ f: x.fecha ?? '', t: { contrato: 'Contrato firmado', anexo: 'Anexo', adenda: 'Adenda' }[x.tipo] ?? 'Documento', d: x.titulo })));
+
+    const buf = Buffer.from(await libro.xlsx.writeBuffer());
+    const archivo = `JustPrint_${d.cliente.nombre.normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'cliente'}_${d.hoy}.xlsx`;
+    return reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('Content-Disposition', `attachment; filename="${archivo}"`).header('Cache-Control', 'private, no-store').send(buf);
   });
 
   app.get('/portal/api/documentos/:id/archivo', { preHandler: portal }, async (req, reply) => {

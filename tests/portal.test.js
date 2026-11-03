@@ -44,7 +44,7 @@ test('invitar, entrar por el enlace, elegir contraseña y volver a entrar con ma
   const d = inicio.json();
   assert.equal(d.usuario.vista, false); assert.ok(d.cliente.nombre); assert.ok(d.contratos.length >= 1); assert.ok(Array.isArray(d.equipos));
   assert.ok(!JSON.stringify(d).includes('costo')); // nada de costos
-  assert.equal(d.periodos.length, 6);
+  assert.equal(d.periodos.length, 12);
 
   assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'corta' })).statusCode, 400);
   assert.equal((await portal(ck).post('/portal/api/clave', { clave: 'Clave-Segura-2026' })).statusCode, 200);
@@ -137,4 +137,27 @@ test('eliminar un acceso: solo si no está activo; borra enlaces y sesiones', as
   await dir.llamar('POST', `/api/portal/accesos/${act.id}/baja`);
   assert.equal((await dir.llamar('DELETE', `/api/portal/accesos/${act.id}`)).statusCode, 200);
   assert.equal((await (await entrar(ctx.app, 'matias@demo.local')).llamar('DELETE', `/api/portal/accesos/${act.id}`)).statusCode, 403);
+});
+
+test('el portal muestra 12 meses, el neto de la factura, la ubicación de los equipos y baja un Excel solo del propio cliente', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-09', tipo_comprobante: 'A', numero: '0001-00000042', fecha_emision: '2026-10-01', vencimiento: '2026-10-15', moneda: 'USD', neto: 85, iva: 17.85, total: 102.85, estado: 'emitida' });
+  await ctx.db('facturas').insert({ cliente_id: otro, periodo: '2026-09', tipo_comprobante: 'A', numero: '0001-00000099', fecha_emision: '2026-10-01', vencimiento: '2026-10-15', moneda: 'USD', neto: 1, iva: 0.21, total: 1.21, estado: 'emitida' });
+  const r = await dir.llamar('POST', `/api/clientes/${cli}/portal`, { nombre: 'Excel Cliente', email: 'excel@cliente.com' });
+  const en = await portal().post('/portal/api/entrar', { token: (r.json().url ?? enviados.at(-1).text).match(/#\/entrar\/([\w-]+)/)[1] });
+  assert.equal(r.statusCode, 201, r.body); assert.equal(en.statusCode, 200, en.body); const ck = cookieDe(en);
+  const ini = await portal(ck).get('/portal/api/inicio'); assert.equal(ini.statusCode, 200, ini.body); const d = ini.json();
+  assert.equal(d.periodos.length, 12); assert.equal(d.consumo.length, 12);
+  assert.ok(d.equipos.every((e) => 'domicilio' in e));
+  const f = d.facturas.find((x) => x.numero === '0001-00000042'); assert.equal(f.neto, 85); assert.equal(f.iva, 17.85);
+  assert.ok(!d.facturas.some((x) => x.numero === '0001-00000099'), 'no aparece la factura de otro cliente');
+  assert.equal((await portal().get('/portal/api/excel')).statusCode, 401);
+  const x = await portal(ck).get('/portal/api/excel');
+  assert.equal(x.statusCode, 200); assert.match(x.headers['content-type'], /spreadsheetml/); assert.match(x.headers['content-disposition'], /\.xlsx/);
+  const { default: ExcelJS } = await import('exceljs'); const wb = new ExcelJS.Workbook(); await wb.xlsx.load(x.rawPayload);
+  const nombres = wb.worksheets.map((w) => w.name);
+  for (const n of ['Resumen', 'Contratos', 'Equipos', 'Consumo mensual', 'Contadores por equipo', 'Tickets', 'Facturas']) assert.ok(nombres.includes(n), n);
+  const celdas = []; wb.eachSheet((w) => w.eachRow((row) => row.eachCell((c) => celdas.push(String(c.value)))));
+  assert.ok(!celdas.includes('0001-00000099'), 'el Excel no trae datos de otro cliente');
+  assert.ok(!nombres.some((n) => /costo|margen/i.test(n)), 'sin costos ni márgenes');
 });

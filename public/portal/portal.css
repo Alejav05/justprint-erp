@@ -47,7 +47,10 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 .ringbox svg{width:220px;height:220px;transform:rotate(-90deg)}
 .ringbox .mid{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
 .ring-fg{animation:ringIn 1.6s cubic-bezier(.2,.8,.2,1) .15s both}
-@keyframes ringIn{from{stroke-dashoffset:528}}
+@keyframes ringIn{from{stroke-dashoffset:var(--c,528)}}
+.rings{display:flex;gap:clamp(24px,6vw,64px);flex-wrap:wrap}
+.ringcol{display:flex;flex-direction:column;align-items:flex-start}
+.ringcol .ringbox{width:168px;height:168px}.ringcol .ringbox svg{width:168px;height:168px}
 @keyframes barIn{from{transform:scaleY(0)}}
 @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
 .meter{height:10px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
@@ -78,7 +81,8 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 .eq:hover{transform:translateX(3px)}
 .eq[aria-pressed="true"]{box-shadow:0 0 0 2px var(--cy);background:var(--cys)}
 .eq .grow{min-width:0}
-.chart{display:flex;align-items:flex-end;gap:clamp(8px,3vw,28px);height:240px;padding-top:12px}
+.chart{display:flex;align-items:flex-end;gap:clamp(8px,3vw,28px);margin-top:20px}
+.chart.p12{gap:clamp(3px,1.2vw,12px)}.chart.p12 .col small{font-size:11px}.chart.p12 .col{gap:6px}
 .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0}
 .stack{width:100%;max-width:64px;display:flex;flex-direction:column;justify-content:flex-end;height:208px;animation:barIn .9s cubic-bezier(.2,.8,.2,1) both;transform-origin:bottom}
 .seg{width:100%;transition:height .7s cubic-bezier(.2,.8,.2,1)}
@@ -126,3 +130,5 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 .who{margin-left:auto}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.seg-tabs.sm button{height:32px;padding:0 12px;font-size:13px}
