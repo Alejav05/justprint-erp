@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles } from '../lib/contexto.js';
@@ -7,6 +8,7 @@ import { ultimaCotizacion } from '../lib/cotizacion.js';
 import { plazoDefecto, sumarDias } from '../lib/cobranzas.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
+const MAX_PDF = 10 * 1024 * 1024;
 const error = (reply, code, e, extra = {}) => reply.code(code).send({ error: e, ...extra });
 const periodoSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
@@ -26,6 +28,8 @@ export default async function rutasFacturacion(app, { db }) {
   const auth = requerirSesion(db);
   const ver = [auth, requerirPermiso('importes.ver')];
   const emitir = [auth, requerirPermiso('facturas.emitir')];
+  // El PDF del comprobante llega como cuerpo binario; el parser vale solo para este plugin.
+  app.addContentTypeParser(['application/pdf', 'application/octet-stream'], { parseAs: 'buffer', bodyLimit: MAX_PDF + 1024 }, (req, body, done) => done(null, body));
   const cobrar = [auth, requerirPermiso('cobros.registrar')];
 
   const visibles = (ctx) => clientesVisibles(db, ctx);
@@ -106,7 +110,8 @@ export default async function rutasFacturacion(app, { db }) {
     const filas = await q.clone().orderBy('facturas.periodo', 'desc').orderBy('facturas.id', 'desc').limit(25).offset((f.pagina - 1) * 25)
       .select('facturas.*', 'cl.razon_social', 'cl.nombre_comercial');
     const ap = await aplicadoPor(filas.map((x) => x.id));
-    return { total: Number(total), pagina: f.pagina, items: filas.map((x) => ({
+    const conPdf = new Set((await db('factura_comprobantes').whereIn('factura_id', filas.length ? filas.map((x) => x.id) : [0]).select('factura_id')).map((x) => x.factura_id));
+    return { total: Number(total), pagina: f.pagina, items: filas.map((x) => ({ tiene_comprobante: conPdf.has(x.id),
       id: x.id, cliente_id: x.cliente_id, cliente: x.nombre_comercial || x.razon_social, periodo: x.periodo, estado: x.estado, clase: clase(x), numero: x.numero, moneda: x.moneda,
       neto: Number(x.neto), iva: Number(x.iva), total: Number(x.total), neto_usd: x.neto_usd == null ? null : Number(x.neto_usd), cobrado: redondear(ap.get(x.id) ?? 0),
       saldo: redondear(Number(x.total) - (ap.get(x.id) ?? 0)), fecha_emision: aDia(x.fecha_emision), emision_estimada: Boolean(x.fecha_emision_estimada) })) };
@@ -130,7 +135,8 @@ export default async function rutasFacturacion(app, { db }) {
       f.contrato_id ? db('contratos').where({ id: f.contrato_id }).select('nombre').first() : null,
     ]);
     const cobrado = redondear(cobros.reduce((s, c) => s + Number(c.importe), 0));
-    return { ...f, fecha_emision: aDia(f.fecha_emision), vencimiento: aDia(f.vencimiento), clase: clase(f), cliente, entidad, contrato: contrato?.nombre ?? null,
+    const pdf = await db('factura_comprobantes as p').leftJoin('usuarios as u', 'u.id', 'p.subido_por').where('p.factura_id', f.id).select('p.nombre_original', 'p.bytes', 'p.created_at', 'u.nombre as subido_por').first();
+    return { comprobante: pdf ? { nombre: pdf.nombre_original, bytes: pdf.bytes, subido_el: aDia(pdf.created_at), subido_por: pdf.subido_por } : null, ...f, fecha_emision: aDia(f.fecha_emision), vencimiento: aDia(f.vencimiento), clase: clase(f), cliente, entidad, contrato: contrato?.nombre ?? null,
       neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total), neto_usd: f.neto_usd == null ? null : Number(f.neto_usd), tipo_cambio: f.tipo_cambio == null ? null : Number(f.tipo_cambio),
       items: items.map((i) => ({ ...i, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), subtotal: Number(i.subtotal), alicuota_iva: Number(i.alicuota_iva) })),
       cobros: cobros.map((c) => ({ ...c, fecha_cobro: aDia(c.fecha_cobro), importe: Number(c.importe) })), cobrado, saldo: redondear(Number(f.total) - cobrado) };
@@ -219,6 +225,50 @@ export default async function rutasFacturacion(app, { db }) {
     await db.transaction(async (trx) => {
       await trx('facturas').where({ id: f.id }).update({ estado: 'anulada', updated_by: req.ctx.id, updated_at: trx.fn.now() });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'facturas', f.id, { estado: f.estado }, { estado: 'anulada', motivo: d.motivo });
+    });
+    return { ok: true };
+  });
+
+
+  // ---------- comprobante (PDF) de la factura ----------
+  app.post('/api/facturas/:id/comprobante', { preHandler: emitir, bodyLimit: MAX_PDF + 1024 }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    if (f.estado === 'anulada') return error(reply, 409, 'factura_anulada');
+    const pdf = req.body;
+    if (!Buffer.isBuffer(pdf) || pdf.length < 8) return error(reply, 400, 'archivo_invalido');
+    if (pdf.length > MAX_PDF) return error(reply, 413, 'archivo_muy_grande');
+    if (pdf.subarray(0, 5).toString('latin1') !== '%PDF-') return error(reply, 400, 'no_es_pdf');
+    let nombre = null;
+    try { nombre = req.headers['x-nombre-archivo'] ? decodeURIComponent(String(req.headers['x-nombre-archivo'])).slice(0, 255) : null; } catch { nombre = null; }
+    const sha = createHash('sha256').update(pdf).digest('hex');
+    const reemplaza = !!(await db('factura_comprobantes').where({ factura_id: f.id }).first());
+    await db.transaction(async (trx) => {
+      await trx('factura_comprobantes_contenido').where({ factura_id: f.id }).delete();
+      await trx('factura_comprobantes').where({ factura_id: f.id }).delete();
+      await trx('factura_comprobantes').insert({ factura_id: f.id, nombre_original: nombre, bytes: pdf.length, sha256: sha, subido_por: req.ctx.id });
+      await trx('factura_comprobantes_contenido').insert({ factura_id: f.id, contenido: pdf });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, reemplaza ? 'editar' : 'crear', 'factura_comprobantes', f.id, null, { bytes: pdf.length, nombre, reemplaza });
+    });
+    return reply.code(201).send({ ok: true, reemplaza });
+  });
+
+  app.get('/api/facturas/:id/comprobante', { preHandler: ver }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    const c = f ? await db('factura_comprobantes_contenido').where({ factura_id: f.id }).first() : null;
+    if (!f || !c) return error(reply, 404, 'no_encontrado');
+    const nombre = `Factura_${(f.numero ?? f.periodo).replace(/[^\w.-]/g, '_')}.pdf`;
+    return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `${req.query.descargar === '1' ? 'attachment' : 'inline'}; filename="${nombre}"`)
+      .header('Cache-Control', 'private, no-store').header('X-Content-Type-Options', 'nosniff').send(Buffer.from(c.contenido));
+  });
+
+  app.delete('/api/facturas/:id/comprobante', { preHandler: emitir }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f || !(await db('factura_comprobantes').where({ factura_id: f.id }).first())) return error(reply, 404, 'no_encontrado');
+    await db.transaction(async (trx) => {
+      await trx('factura_comprobantes_contenido').where({ factura_id: f.id }).delete();
+      await trx('factura_comprobantes').where({ factura_id: f.id }).delete();
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'eliminar', 'factura_comprobantes', f.id, { factura_id: f.id }, null);
     });
     return { ok: true };
   });

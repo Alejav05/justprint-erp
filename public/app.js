@@ -1334,7 +1334,7 @@ async function tabFacturas(dest) {
       h('thead', null, h('tr', null, ['Cliente', 'Período', 'Comprobante', 'Total', 'Saldo', 'Estado'].map((t, k) => h('th', { class: k === 3 || k === 4 ? 'num' : '' }, t)))),
       h('tbody', null, r.items.map((f) => h('tr', filaClic(() => verFactura(f.id)),
         h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, f.cliente)), h('td', { 'data-rotulo': 'Período' }, nombreMes(f.periodo)),
-        h('td', { 'data-rotulo': 'Comprobante' }, f.numero ?? (f.estado === 'borrador' ? '—' : 's/n'), f.fecha_emision && h('div', { class: 'apoyo' }, fecha(f.fecha_emision))),
+        h('td', { 'data-rotulo': 'Comprobante' }, f.numero ?? (f.estado === 'borrador' ? '—' : 's/n'), f.tiene_comprobante && [' ', chip('PDF', 'info')], f.fecha_emision && h('div', { class: 'apoyo' }, fecha(f.fecha_emision))),
         h('td', { class: 'num', 'data-rotulo': 'Total' }, monto(f.total, f.moneda)), h('td', { class: 'num', 'data-rotulo': 'Saldo' }, f.estado === 'borrador' || f.estado === 'anulada' ? '—' : monto(f.saldo, f.moneda)),
         h('td', { 'data-rotulo': 'Estado' }, chipFactura(f))))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay facturas con esos filtros')),
     paginas > 1 && h('div', { class: 'acciones', style: 'margin-top:12px;align-items:center' }, h('button', { class: 'btn', type: 'button', disabled: pagina <= 1, onclick: () => { pagina -= 1; cargar(); } }, '← Anterior'),
@@ -1389,6 +1389,29 @@ async function vistaFactura(destino, id) {
   if (porCobrar && edita && !f.cobros.length) {
     const mot = h('input', { required: true, minlength: 3, maxlength: 255, placeholder: 'Motivo de la anulación', 'aria-label': 'Motivo' });
     destino.append(h('div', { style: 'height:16px' }), formularioEnLinea({ titulo: 'Anular', campos: [mot], boton: 'Anular factura', enviar: () => api(`/api/facturas/${f.id}/anular`, { metodo: 'POST', cuerpo: { motivo: mot.value } }), alExito: recargar }));
+  }
+
+  if (f.estado !== 'anulada' && (f.comprobante || edita)) {
+    const archivo = h('input', { type: 'file', accept: 'application/pdf,.pdf', 'aria-label': 'Archivo PDF del comprobante' }); const err = h('div', { class: 'error oculto', role: 'alert' });
+    const MSG = { no_es_pdf: 'El archivo no es un PDF.', archivo_muy_grande: 'El PDF pesa más de 10 MB.', archivo_invalido: 'No se pudo leer el archivo.', factura_anulada: 'La factura está anulada.' };
+    const subir = h('button', { class: 'btn btn-principal', type: 'button' }, f.comprobante ? 'Reemplazar PDF' : 'Subir PDF');
+    subir.addEventListener('click', async () => {
+      err.classList.add('oculto'); const a = archivo.files[0];
+      if (!a) { err.textContent = 'Elegí el PDF de la factura.'; err.classList.remove('oculto'); return; }
+      subir.disabled = true;
+      try {
+        const r = await fetch(`/api/facturas/${f.id}/comprobante`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/pdf', 'X-Nombre-Archivo': encodeURIComponent(a.name) }, body: a });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(MSG[d.error] ?? 'No se pudo subir el archivo.'); }
+        toast(f.comprobante ? 'Comprobante reemplazado' : 'Comprobante subido'); recargar();
+      } catch (x) { err.textContent = x.message; err.classList.remove('oculto'); subir.disabled = false; }
+    });
+    destino.append(h('div', { class: 'tarjeta no-imprimir', style: 'margin-top:16px' }, h('h2', null, 'Factura en PDF'),
+      f.comprobante ? h('div', { style: 'display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px' },
+        h('div', null, h('b', null, f.comprobante.nombre ?? 'Factura.pdf'), h('div', { class: 'apoyo' }, `${Math.max(1, Math.round(f.comprobante.bytes / 1024))} KB · subido el ${fecha(f.comprobante.subido_el)}${f.comprobante.subido_por ? ` por ${f.comprobante.subido_por}` : ''}${f.estado !== 'borrador' ? ' · el cliente lo ve en su portal' : ' · el cliente lo verá cuando la factura esté emitida'}`)),
+        h('div', { class: 'acciones' }, h('a', { class: 'btn', href: `/api/facturas/${f.id}/comprobante`, target: '_blank', rel: 'noopener' }, 'Ver'), h('a', { class: 'btn', href: `/api/facturas/${f.id}/comprobante?descargar=1` }, 'Descargar'),
+          edita && h('button', { class: 'btn', type: 'button', onclick: async () => { if (!window.confirm('¿Quitar el PDF de esta factura? El cliente deja de verlo en su portal.')) return; await api(`/api/facturas/${f.id}/comprobante`, { metodo: 'DELETE' }); toast('Comprobante quitado'); recargar(); } }, 'Quitar')))
+        : h('p', { class: 'apoyo' }, 'Subí el PDF de la factura que emitiste. El cliente lo va a poder ver y descargar desde su portal.'),
+      edita && h('div', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, archivo, subir), err));
   }
   if (f.estado !== 'borrador') destino.append(h('div', { class: 'acciones no-imprimir', style: 'margin-top:16px' }, h('button', { class: 'btn', type: 'button', onclick: () => window.print() }, 'Imprimir')));
 }
