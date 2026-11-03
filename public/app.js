@@ -889,7 +889,6 @@ async function vistaCierre(destino, id) {
         r.sla_cumplido != null && h('p', null, chip(r.sla_cumplido ? 'Dentro del SLA' : 'Fuera de SLA', r.sla_cumplido ? 'ok' : 'malo'), ` ${num1(r.horas_resolucion)} h hábiles`),
         h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar remito'),
           h('a', { class: 'btn', href: `#/remitos/${r.remito_id}` }, 'Ver remito'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
-      remito && remito.estado === 'firmado' && rem.panelEncuesta(remito),
       remito && h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar el remito al cliente'), rem.panelEnvio(remito, null, { compacto: true })));
     } catch (e) {
       if (e.message === 'sesion') return; error.textContent = MENSAJES[e.datos?.error] ?? 'No se pudo cerrar el ticket. Revisá los datos.';

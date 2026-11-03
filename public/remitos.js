@@ -104,7 +104,7 @@ export function crearRemitos(U) {
     const vista = h('div', { class: 'apoyo' }); const error = err();
     const actualizar = () => { const n = telAR(tel.value); vista.textContent = tel.value.trim() ? (n ? `WhatsApp ${telBonito(n)}` : 'Falta el código de área') : ''; };
     tel.addEventListener('input', actualizar); actualizar();
-    const texto = `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo y descargarlo acá: ${r.url_publica}`;
+    const texto = `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo, descargarlo y contarnos cómo fue la atención (son 10 segundos) acá: ${r.url_publica}`;
     const registrar = (canal, destino) => api(`/api/remitos/${r.id}/enviar`, { metodo: 'POST', cuerpo: { canal, destino, manual: true } }).catch(() => {});
     async function enviar(canal) {
       error.classList.add('oculto');
@@ -129,48 +129,16 @@ export function crearRemitos(U) {
   }
 
 
-  // ---------- encuesta de satisfacción ----------
+  // ---------- opinión del cliente (solo lectura: la responde el cliente desde su enlace) ----------
   const ASPECTOS = [['puntualidad', 'Puntualidad'], ['trato', 'Trato'], ['resolucion', 'Que quedó resuelto'], ['claridad', 'Claridad en las explicaciones'], ['orden', 'Orden y limpieza']];
   const estrellasTexto = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
-  const FRASE = { 1: 'Lamentamos que no haya sido la mejor atención.', 2: 'Gracias por avisarnos, vamos a mejorar.', 3: 'Gracias, tomamos nota de lo que podemos mejorar.', 4: 'Gracias, nos alegra que haya ido bien.', 5: '¡Gracias! Nos alegra mucho.' };
-  /** Una pregunta de estrellas; al tocar una aparecen qué destacar o mejorar y un comentario opcional. Cuatro toques como mucho. */
   function panelEncuesta(r) {
-    const caja = h('div', { class: 'tarjeta encuesta' });
-    if (r.encuesta) {
-      const e = r.encuesta;
-      caja.append(h('h2', null, 'Opinión del cliente'), h('div', { class: 'estrellas-fijas', 'aria-label': `${e.puntaje} de 5 estrellas` }, estrellasTexto(e.puntaje)),
+    const e = r.encuesta;
+    return h('div', { class: 'tarjeta encuesta' }, h('h2', null, 'Opinión del cliente'),
+      e ? h('div', null, h('div', { class: 'estrellas-fijas', 'aria-label': `${e.puntaje} de 5 estrellas` }, estrellasTexto(e.puntaje)),
         e.aspectos.length > 0 && h('div', { class: 'rapidos', style: 'margin:8px 0 0' }, e.aspectos.map((a) => h('span', { class: 'rapido' }, ASPECTOS.find((x) => x[0] === a)?.[1] ?? a))),
-        e.comentario && h('p', { style: 'margin:10px 0 0' }, `“${e.comentario}”`));
-      return caja;
-    }
-    let puntaje = 0; const marcados = new Set();
-    const error = err(); const detalle = h('div', { class: 'oculto' }); const botones = [];
-    const pintar = (n) => botones.forEach((b, i) => { b.classList.toggle('on', i < n); b.setAttribute('aria-checked', String(i + 1 === n)); });
-    const preguntaAspectos = h('b', null, '');
-    const comentario = h('textarea', { maxlength: 1000, rows: 2, placeholder: '¿Algo más que quieras contarnos? (opcional)', 'aria-label': 'Comentario' });
-    const enviar = h('button', { class: 'btn btn-principal', type: 'button', onclick: async () => {
-      error.classList.add('oculto'); enviar.disabled = true; enviar.textContent = 'Enviando…';
-      try {
-        await api(`/api/remitos/${r.id}/encuesta`, { metodo: 'POST', cuerpo: { puntaje, aspectos: [...marcados], ...(comentario.value.trim() ? { comentario: comentario.value.trim() } : {}) } });
-        vaciar(caja).append(h('div', { class: 'gracias' }, h('div', { class: 'estrellas-fijas' }, estrellasTexto(puntaje)), h('b', null, '¡Gracias por tu opinión!'), h('p', { class: 'apoyo', style: 'margin:2px 0 0' }, 'La leemos para mejorar la atención.')));
-      } catch (e) { if (e.message === 'sesion') return; mostrar(error, e.datos?.error === 'ya_respondida' ? 'Esta encuesta ya fue respondida.' : msg(e)); enviar.disabled = false; enviar.textContent = 'Enviar opinión'; }
-    } }, 'Enviar opinión');
-    const chips = h('div', { class: 'rapidos', style: 'margin:8px 0 12px' }, ASPECTOS.map(([k, t]) => {
-      const b = h('button', { type: 'button', class: 'rapido', 'aria-pressed': 'false', onclick: () => { if (marcados.has(k)) marcados.delete(k); else marcados.add(k); b.classList.toggle('activo', marcados.has(k)); b.setAttribute('aria-pressed', String(marcados.has(k))); } }, t);
-      return b;
-    }));
-    const frase = h('p', { class: 'apoyo', style: 'text-align:center;margin:0 0 10px' }, '');
-    detalle.append(frase, preguntaAspectos, chips, comentario, error, h('div', { style: 'margin-top:10px' }, enviar));
-    const estrellas = h('div', { class: 'estrellas-tap', role: 'radiogroup', 'aria-label': 'Calificación de 1 a 5 estrellas' }, [1, 2, 3, 4, 5].map((n) => {
-      const b = h('button', { type: 'button', role: 'radio', 'aria-checked': 'false', 'aria-label': `${n} ${n === 1 ? 'estrella' : 'estrellas'}`, onclick: () => {
-        puntaje = n; pintar(n); frase.textContent = FRASE[n];
-        preguntaAspectos.textContent = n >= 4 ? '¿Qué querés destacar?' : '¿Qué podemos mejorar?';
-        detalle.classList.remove('oculto');
-      } }, '★');
-      botones.push(b); return b;
-    }));
-    caja.append(h('h2', null, 'Opinión del cliente'), h('p', { class: 'preg-enc' }, '¿Cómo fue la atención que recibiste?'), estrellas, h('p', { class: 'apoyo', style: 'text-align:center;margin:4px 0 10px' }, 'Tocá una estrella: 5 es excelente. Es opcional.'), detalle);
-    return caja;
+        e.comentario && h('p', { style: 'margin:10px 0 0' }, `“${e.comentario}”`))
+        : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no respondió. Le llega con el enlace del remito: lo califica él, desde su mail o WhatsApp.'));
   }
 
   // ---------- firma en el celular ----------
@@ -220,7 +188,6 @@ export function crearRemitos(U) {
     return h('div', null, h('div', { class: 'tarjeta listo' }, h('div', { class: 'tilde' }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M5 12.5l4.5 4.5L19 7.5' }))),
       h('h2', null, 'Remito firmado'), h('p', null, `Recibió ${nombre}. La conformidad quedó guardada junto al remito ${r.numero}.`), auto && h('p', { class: 'apoyo' }, `Ya se le envió ${auto}.`),
       h('div', { class: 'acciones', style: 'justify-content:center' }, h('a', { class: 'btn btn-principal', href: `/api/remitos/${r.id}/pdf?descargar=1` }, 'Descargar PDF'), h('a', { class: 'btn', href: `#/remitos/${r.id}` }, 'Ver remito'))),
-    panelEncuesta(r),
     h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar el remito firmado'), panelEnvio(r, null, { compacto: true })));
   }
 
@@ -275,7 +242,7 @@ export function crearRemitos(U) {
           : h('div', null, chip('Sin firmar', 'aviso'), h('p', { class: 'apoyo' }, 'Podés firmarlo en pantalla con el cliente, o imprimirlo, hacerlo firmar a mano y subir la foto o el escaneo.'),
             puede('remitos.crear') && h('button', { class: 'btn', type: 'button', onclick: () => subirPapel(r, pintar) }, 'Ya firmó en papel: subir archivo')),
           r.ticket && h('p', { class: 'apoyo', style: 'margin-bottom:0' }, `Servicio del ticket ${r.ticket.numero}.`)),
-        c && (r.encuesta || puede('remitos.crear')) && panelEncuesta(r),
+        c && panelEncuesta(r),
         puede('remitos.crear') && panelEnvio(r, pintar),
         r.envios.length > 0 && h('div', { class: 'tarjeta' }, h('h2', null, 'Envíos'), h('ul', { class: 'lista' }, r.envios.map((e) => h('li', null, h('div', null, h('b', null, e.canal === 'mail' ? 'Mail' : 'WhatsApp'), ` · ${e.destino}`, h('div', { class: 'apoyo' }, `${cuando(e.created_at)}${e.usuario ? ` · ${e.usuario}` : ''}${e.detalle ? ` · ${e.detalle}` : ''}`)),
           chip(e.resultado === 'enviado' ? 'Enviado' : e.resultado === 'manual' ? 'Abierto' : 'Error', e.resultado === 'enviado' ? 'ok' : e.resultado === 'manual' ? 'info' : 'malo'))))));

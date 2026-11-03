@@ -1,4 +1,4 @@
-// Encuesta de satisfacción: se toma al dar la conformidad (en el celular), o después desde el enlace del remito.
+// Encuesta de satisfacción: la responde solo el cliente, desde el enlace del remito (mail o WhatsApp). Nadie del equipo puede cargarla.
 // El resumen y el ranking los ven Dirección, las cabezas de Atención y Técnica; el técnico se ve a sí mismo.
 import { clientesVisibles, usuariosVisibles } from '../lib/contexto.js';
 import { ASPECTOS, encuestaSchema, guardarEncuesta, leerEncuesta, textoAspecto } from '../lib/encuestas.js';
@@ -18,17 +18,6 @@ export default async function rutasEncuestas(app, { db }) {
     const p = new URLSearchParams(body); const o = {};
     for (const k of new Set(p.keys())) o[k] = k === 'aspectos' ? p.getAll(k) : p.get(k);
     done(null, o);
-  });
-
-  /** El que está con el cliente (técnico o quien emitió el remito) registra la calificación en su celular. */
-  app.post('/api/remitos/:id/encuesta', { preHandler: [auth, requerirPermiso('remitos.crear')] }, async (req, reply) => {
-    const d = encuestaSchema.parse(req.body);
-    const r = await db('remitos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
-    const visibles = r ? await clientesVisibles(db, req.ctx) : null;
-    if (!r || (visibles && !visibles.includes(r.cliente_id))) return error(reply, 404, 'no_encontrado');
-    if (r.estado !== 'firmado') return error(reply, 409, 'sin_conformidad');
-    if (!(await guardarEncuesta(db, r, d, 'equipo'))) return error(reply, 409, 'ya_respondida');
-    return reply.code(201).send({ ok: true });
   });
 
   /** El cliente la completa desde el enlace del remito. Sin sesión: se entra con el enlace privado. */

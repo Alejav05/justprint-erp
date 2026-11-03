@@ -214,7 +214,7 @@ export default async function rutasRemitos(app, { db }) {
   });
 
   // ---------- envío al cliente ----------
-  const textoEnvio = (r, url) => `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo y descargarlo acá: ${url}`;
+  const textoEnvio = (r, url) => `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo, descargarlo y contarnos cómo fue la atención (son 10 segundos) acá: ${url}`;
   async function enviar(req, r, canal, destino) {
     const url = urlPublica(req, r.token);
     if (canal === 'mail') {

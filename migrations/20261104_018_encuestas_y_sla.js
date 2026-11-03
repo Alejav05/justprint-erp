@@ -11,7 +11,7 @@ export async function up(knex) {
     t.tinyint('puntaje').unsigned().notNullable(); // 1 a 5 estrellas
     t.text('aspectos').nullable(); // JSON: lo que destacó (4-5) o lo que hay que mejorar (1-3)
     t.string('comentario', 1000).nullable();
-    t.string('origen', 10).notNullable().defaultTo('equipo'); // equipo (en el celular del técnico) | enlace (desde el remito)
+    t.string('origen', 10).notNullable().defaultTo('enlace'); // siempre 'enlace': la responde el cliente desde su remito
     t.timestamp('created_at').notNullable().defaultTo(knex.fn.now());
     t.index(['tecnico_id', 'created_at']);
     t.index(['cliente_id']);

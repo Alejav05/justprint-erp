@@ -116,17 +116,13 @@ test('los remitos viejos se renumeran al formato nuevo sin perder el orden', asy
   assert.ok(filas.every((f) => /^0001-\d{8}$/.test(f.numero)));
 });
 
-test('encuesta: se toma después de la conformidad, una sola vez, y también desde el enlace público', async () => {
+test('encuesta: la responde solo el cliente desde su enlace, una sola vez; el equipo no puede cargarla', async () => {
   const head = await entrar('head.tecnico@demo.local');
   const nuevo = async () => (await head.llamar('POST', '/api/remitos/entrega', { cliente_id: cli.prueba, items: [{ insumo_id: insumo, cantidad: 1 }] })).json().id;
   const a = await nuevo();
-  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 5 })).json().error, 'sin_conformidad', 'primero la conformidad');
   await head.llamar('POST', `/api/remitos/${a}/conformidad`, { nombre: 'Ana Gómez', firma: PNG });
-  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 9 })).statusCode, 400);
-  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 5, aspectos: ['trato', 'puntualidad'], comentario: 'Todo muy bien' })).statusCode, 201);
-  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 1 })).json().error, 'ya_respondida');
-  const det = (await head.llamar('GET', `/api/remitos/${a}`)).json();
-  assert.equal(det.encuesta.puntaje, 5); assert.deepEqual(det.encuesta.aspectos, ['trato', 'puntualidad']);
+  assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 5 })).statusCode, 404, 'el equipo no puede cargar la opinión del cliente');
+  assert.equal((await head.llamar('GET', `/api/remitos/${a}`)).json().encuesta, null);
 
   // Desde el enlace del cliente, sin sesión y sin JavaScript (formulario común).
   const b = await nuevo(); const tokenB = (await ctx.db('remitos').where({ id: b }).first()).token;
@@ -146,8 +142,8 @@ test('encuesta: se toma después de la conformidad, una sola vez, y también des
 
   const dir = await entrar('direccion@demo.local');
   const r = (await dir.llamar('GET', '/api/encuestas')).json();
-  assert.equal(r.cantidad, 2); assert.equal(r.promedio, 3.5); assert.equal(r.satisfechos, 50); assert.equal(r.para_revisar.length, 1);
-  assert.equal(r.aspectos.find((x) => x.clave === 'trato').destacados, 1); assert.equal(r.aspectos.find((x) => x.clave === 'trato').a_mejorar, 1);
+  assert.equal(r.cantidad, 1); assert.equal(r.promedio, 2); assert.equal(r.satisfechos, 0); assert.equal(r.para_revisar.length, 1);
+  assert.equal(r.aspectos.find((x) => x.clave === 'trato').a_mejorar, 1); assert.equal((await dir.llamar('GET', `/api/remitos/${b}`)).json().encuesta.puntaje, 2);
   assert.ok(r.ranking.length >= 1);
   const com = await entrar('valentina@demo.local');
   assert.equal((await com.llamar('GET', '/api/encuestas')).statusCode, 403, 'el comercial no ve las encuestas');
