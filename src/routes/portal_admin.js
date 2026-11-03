@@ -40,7 +40,7 @@ export default async function rutasPortalAdmin(app, { db }) {
     const url = urlEnlace(req, await crearEnlace(db, a.id, { minutos: INVITACION_MIN, creadoPor: req.ctx.id }));
     const enviado = await enviarEnlace(a, url, { invitacion: true });
     await auditarPortal(db, ctx(req), 'portal_invitar', a.id, { cliente_id: id, email: d.email, enviado });
-    return reply.code(201).send({ ok: true, acceso: fila(a), enviado, url: enviado ? undefined : url });
+    return reply.code(201).send({ ok: true, acceso: fila(a), enviado, url });
   });
 
   /** Nuevo enlace (si el cliente lo perdió o venció). */
@@ -50,7 +50,7 @@ export default async function rutasPortalAdmin(app, { db }) {
     const url = urlEnlace(req, await crearEnlace(db, a.id, { minutos: INVITACION_MIN, creadoPor: req.ctx.id }));
     const enviado = await enviarEnlace(a, url, { invitacion: !a.password_hash });
     await auditarPortal(db, ctx(req), 'portal_reenviar', a.id, { enviado });
-    return { ok: true, enviado, url: enviado ? undefined : url };
+    return { ok: true, enviado, url };
   });
 
   app.post('/api/portal/accesos/:id/baja', { preHandler: pre }, async (req, reply) => {

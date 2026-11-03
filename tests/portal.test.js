@@ -24,7 +24,7 @@ test('invitar, entrar por el enlace, elegir contraseña y volver a entrar con ma
   const dir = await entrar(ctx.app, 'direccion@demo.local');
   const r = await dir.llamar('POST', `/api/clientes/${cli}/portal`, { nombre: 'Marcela Ferrari', email: 'Marcela@Cliente.com' });
   assert.equal(r.statusCode, 201, r.body);
-  assert.equal(r.json().enviado, true); assert.equal(r.json().url, undefined);
+  assert.equal(r.json().enviado, true); assert.match(r.json().url, /\/portal\/#\/entrar\//, 'también devuelve el enlace para copiarlo');
   const mail = enviados.at(-1); assert.equal(mail.to, 'marcela@cliente.com'); assert.match(mail.text, /\/portal\/#\/entrar\//);
   // repetir el mail: no se duplica
   assert.equal((await dir.llamar('POST', `/api/clientes/${cli}/portal`, { nombre: 'Otra', email: 'marcela@cliente.com' })).json().error, 'email_en_uso');

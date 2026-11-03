@@ -5,11 +5,15 @@ export function crearPortalAdmin(U) {
   const ESTADO = { invitado: ['Invitado', 'aviso'], activo: ['Activo', 'ok'], baja: ['De baja', 'mudo'] };
 
   function copiar(url) { navigator.clipboard?.writeText(url).then(() => aviso('Enlace copiado'), () => window.prompt('Copiá el enlace:', url)); }
-  function mostrarEnlace(r, que) {
-    if (r.enviado) { aviso(`Mail enviado desde soporte@justprint.com.ar`); return; }
-    cajon('Enlace de acceso', () => h('div', { style: 'display:grid;gap:12px' },
-      h('p', { class: 'apoyo' }, `El mail no está configurado o no salió, así que no se envió. Copiá este enlace y mandáselo vos (${que}). Sirve una sola vez y vence en 7 días.`),
-      h('input', { type: 'text', readonly: true, value: r.url, style: 'width:100%', onfocus: (e) => e.target.select() }), h('button', { class: 'btn btn-principal', type: 'button', onclick: () => copiar(r.url) }, 'Copiar enlace')));
+  /** Después de invitar o reenviar: confirma el mail y deja copiar el mismo enlace (p. ej. para mandarlo por WhatsApp). */
+  function mostrarEnlace(r, que, titulo = 'Enlace de acceso') {
+    cajon(titulo, () => h('div', { style: 'display:grid;gap:12px' },
+      h('p', { class: 'apoyo' }, r.enviado
+        ? `Ya le mandamos el mail ${que} desde soporte@justprint.com.ar. Si querés avisarle también por WhatsApp, copiá este enlace.`
+        : `El mail no está configurado o no salió, así que no se envió. Copiá este enlace y mandáselo vos ${que}.`),
+      h('input', { type: 'text', readonly: true, value: r.url, style: 'width:100%', onfocus: (e) => e.target.select() }),
+      h('button', { class: 'btn btn-principal', type: 'button', onclick: () => copiar(r.url) }, 'Copiar enlace'),
+      h('p', { class: 'apoyo' }, 'Es el mismo enlace que le llegó por mail: sirve una sola vez (el primero que lo abra lo usa) y vence en 7 días. Si ya se usó o venció, tocá “Reenviar invitación” para generar otro.')));
   }
 
   function formularioInvitar(clienteId, d, alListo) {
@@ -23,7 +27,7 @@ export function crearPortalAdmin(U) {
         try {
           const cid = contacto.value ? Number(contacto.value.split('|')[0]) : undefined;
           const r = await api(`/api/clientes/${clienteId}/portal`, { metodo: 'POST', cuerpo: { nombre: nombre.value, email: email.value, ...(cid ? { contacto_id: cid } : {}) } });
-          cerrar(); mostrarEnlace(r, `a ${email.value}`); alListo();
+          cerrar(); mostrarEnlace(r, `a ${email.value}`, 'Invitación enviada'); alListo();
         } catch (e) { error.textContent = ERR[e.codigo] || 'No pudimos guardarlo.'; error.classList.remove('oculto'); boton.disabled = false; }
       } },
       h('p', { class: 'apoyo' }, 'La persona recibe un enlace por mail, entra y elige su contraseña. Solo va a ver lo de este cliente.'),
