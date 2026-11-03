@@ -27,6 +27,9 @@ const itemSchema = z.object({
 
 const clase = (f) => (f.estado === 'borrador' ? 'borrador' : f.entidad_facturante_id ? 'fiscal' : 'interno');
 
+/** ¿Corresponde avisarle al cliente de esta factura? Las cuentas internas sin PDF no tienen nada que enviar. */
+const aplicaEnvio = (f, tienePdf) => f.estado !== 'borrador' && f.estado !== 'anulada' && (Boolean(f.entidad_facturante_id) || tienePdf);
+
 export default async function rutasFacturacion(app, { db }) {
   const auth = requerirSesion(db);
   const ver = [auth, requerirPermiso('importes.ver')];
@@ -101,11 +104,16 @@ export default async function rutasFacturacion(app, { db }) {
   // ---------- facturas ----------
   app.get('/api/facturas', { preHandler: ver }, async (req) => {
     const f = z.object({ estado: z.enum(['borrador', 'emitida', 'cobrada_parcial', 'cobrada', 'anulada', 'por_cobrar']).optional(), periodo: periodoSchema.optional(), cliente: z.coerce.number().int().positive().optional(),
-      q: z.string().trim().max(80).optional(), pagina: z.coerce.number().int().min(1).default(1) }).parse(req.query);
+      envio: z.enum(['pendiente']).optional(), q: z.string().trim().max(80).optional(), pagina: z.coerce.number().int().min(1).default(1) }).parse(req.query);
     const v = await visibles(req.ctx);
     const q = db('facturas').join('clientes as cl', 'cl.id', 'facturas.cliente_id').whereNull('facturas.deleted_at');
     if (v) q.whereIn('facturas.cliente_id', v.length ? v : [0]);
     if (f.estado === 'por_cobrar') q.whereIn('facturas.estado', ['emitida', 'cobrada_parcial']); else if (f.estado) q.where('facturas.estado', f.estado);
+    if (f.envio === 'pendiente') {
+      q.whereIn('facturas.estado', ['emitida', 'cobrada_parcial', 'cobrada'])
+        .where((w) => w.whereNotNull('facturas.entidad_facturante_id').orWhereExists(db('factura_comprobantes as pc').whereRaw('pc.factura_id = facturas.id')))
+        .whereNotExists(db('factura_avisos as av').whereRaw('av.factura_id = facturas.id').whereIn('av.estado', ['enviado', 'manual']));
+    }
     if (f.periodo) q.where('facturas.periodo', f.periodo);
     if (f.cliente) q.where('facturas.cliente_id', f.cliente);
     if (f.q) q.where((w) => w.where('cl.razon_social', 'like', `%${f.q}%`).orWhere('cl.nombre_comercial', 'like', `%${f.q}%`).orWhere('facturas.numero', 'like', `%${f.q}%`));
@@ -114,7 +122,8 @@ export default async function rutasFacturacion(app, { db }) {
       .select('facturas.*', 'cl.razon_social', 'cl.nombre_comercial');
     const ap = await aplicadoPor(filas.map((x) => x.id));
     const conPdf = new Set((await db('factura_comprobantes').whereIn('factura_id', filas.length ? filas.map((x) => x.id) : [0]).select('factura_id')).map((x) => x.factura_id));
-    return { total: Number(total), pagina: f.pagina, items: filas.map((x) => ({ tiene_comprobante: conPdf.has(x.id),
+    const enviadas = new Map((await db('factura_avisos').whereIn('factura_id', filas.length ? filas.map((x) => x.id) : [0]).whereIn('estado', ['enviado', 'manual']).orderBy('id').select('factura_id', 'estado')).map((a) => [a.factura_id, a.estado]));
+    return { total: Number(total), pagina: f.pagina, items: filas.map((x) => ({ tiene_comprobante: conPdf.has(x.id), envio: aplicaEnvio(x, conPdf.has(x.id)) ? (enviadas.get(x.id) ?? 'pendiente') : null,
       id: x.id, cliente_id: x.cliente_id, cliente: x.nombre_comercial || x.razon_social, periodo: x.periodo, estado: x.estado, clase: clase(x), numero: x.numero, moneda: x.moneda,
       neto: Number(x.neto), iva: Number(x.iva), total: Number(x.total), neto_usd: x.neto_usd == null ? null : Number(x.neto_usd), cobrado: redondear(ap.get(x.id) ?? 0),
       saldo: redondear(Number(x.total) - (ap.get(x.id) ?? 0)), fecha_emision: aDia(x.fecha_emision), emision_estimada: Boolean(x.fecha_emision_estimada) })) };
@@ -140,9 +149,11 @@ export default async function rutasFacturacion(app, { db }) {
     const cobrado = redondear(cobros.reduce((s, c) => s + Number(c.importe), 0));
     const pdf = await db('factura_comprobantes as p').leftJoin('usuarios as u', 'u.id', 'p.subido_por').where('p.factura_id', f.id).select('p.nombre_original', 'p.bytes', 'p.created_at', 'u.nombre as subido_por').first();
     const [avisos, destinatarios] = await Promise.all([
-      db('factura_avisos as a').leftJoin('usuarios as u', 'u.id', 'a.enviado_por').where('a.factura_id', f.id).orderBy('a.id', 'desc').limit(5).select('a.estado', 'a.destinatarios', 'a.created_at', 'u.nombre as por'),
+      db('factura_avisos as a').leftJoin('usuarios as u', 'u.id', 'a.enviado_por').where('a.factura_id', f.id).orderBy('a.id', 'desc').limit(8).select('a.id', 'a.estado', 'a.destinatarios', 'a.detalle', 'a.enviado_el', 'a.created_at', 'u.nombre as por'),
       destinatariosFactura(db, f.cliente_id)]);
-    return { avisos: avisos.map((a) => ({ estado: a.estado, destinatarios: json(a.destinatarios, []), el: aDia(a.created_at), por: a.por })), destinatarios_aviso: destinatarios.map((d) => d.email), comprobante: pdf ? { nombre: pdf.nombre_original, bytes: pdf.bytes, subido_el: aDia(pdf.created_at), subido_por: pdf.subido_por } : null, ...f, fecha_emision: aDia(f.fecha_emision), vencimiento: aDia(f.vencimiento), clase: clase(f), cliente, entidad, contrato: contrato?.nombre ?? null,
+    const ultimo = avisos.find((a) => a.estado === 'enviado' || a.estado === 'manual');
+    const envio = { aplica: aplicaEnvio(f, Boolean(pdf)), estado: ultimo ? ultimo.estado : 'pendiente', el: ultimo ? aDia(ultimo.enviado_el ?? ultimo.created_at) : null, por: ultimo?.por ?? null, nota: ultimo?.estado === 'manual' ? ultimo.detalle : null, destinatarios: ultimo ? json(ultimo.destinatarios, []) : [] };
+    return { envio, avisos: avisos.map((a) => ({ estado: a.estado, destinatarios: json(a.destinatarios, []), el: aDia(a.enviado_el ?? a.created_at), por: a.por })), destinatarios_aviso: destinatarios.map((d) => d.email), comprobante: pdf ? { nombre: pdf.nombre_original, bytes: pdf.bytes, subido_el: aDia(pdf.created_at), subido_por: pdf.subido_por } : null, ...f, fecha_emision: aDia(f.fecha_emision), vencimiento: aDia(f.vencimiento), clase: clase(f), cliente, entidad, contrato: contrato?.nombre ?? null,
       neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total), neto_usd: f.neto_usd == null ? null : Number(f.neto_usd), tipo_cambio: f.tipo_cambio == null ? null : Number(f.tipo_cambio),
       items: items.map((i) => ({ ...i, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), subtotal: Number(i.subtotal), alicuota_iva: Number(i.alicuota_iva) })),
       cobros: cobros.map((c) => ({ ...c, fecha_cobro: aDia(c.fecha_cobro), importe: Number(c.importe) })), cobrado, saldo: redondear(Number(f.total) - cobrado) };
@@ -301,6 +312,34 @@ export default async function rutasFacturacion(app, { db }) {
     const b = await anexoFactura(db, f);
     if (!b) return error(reply, 409, 'sin_detalle');
     return reply.header('Content-Type', XLSX).header('Content-Disposition', `attachment; filename="${nombreAnexo(f)}"`).header('Cache-Control', 'private, no-store').send(b);
+  });
+
+  /** Deja asentado que la factura se le mandó al cliente a mano (por fuera del ERP). */
+  app.post('/api/facturas/:id/envio-manual', { preHandler: emitir }, async (req, reply) => {
+    const d = z.object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), nota: z.string().trim().max(200).optional() }).parse(req.body ?? {});
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    if (f.estado === 'borrador' || f.estado === 'anulada') return error(reply, 409, 'estado_invalido');
+    const fecha = d.fecha ?? hoy();
+    if (fecha > hoy()) return error(reply, 400, 'fecha_futura');
+    await db.transaction(async (trx) => {
+      await trx('factura_avisos').insert({ factura_id: f.id, destinatarios: JSON.stringify([]), estado: 'manual', detalle: d.nota || null, enviado_el: fecha, enviado_por: req.ctx.id });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'factura_avisos', f.id, null, { envio_manual: fecha, nota: d.nota ?? null });
+    });
+    return reply.code(201).send({ ok: true });
+  });
+
+  /** Quita el último registro de envío manual (por si se asentó por error). */
+  app.delete('/api/facturas/:id/envio-manual', { preHandler: emitir }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    const a = await db('factura_avisos').where({ factura_id: f.id, estado: 'manual' }).orderBy('id', 'desc').first();
+    if (!a) return error(reply, 404, 'no_encontrado');
+    await db.transaction(async (trx) => {
+      await trx('factura_avisos').where({ id: a.id }).delete();
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'factura_avisos', f.id, { envio_manual: aDia(a.enviado_el ?? a.created_at) }, null);
+    });
+    return { ok: true };
   });
 
   app.post('/api/facturas/:id/avisar', { preHandler: emitir }, async (req, reply) => {

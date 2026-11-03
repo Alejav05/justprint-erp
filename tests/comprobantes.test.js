@@ -178,3 +178,37 @@ test('en el portal el cliente baja el anexo de su factura (solo la suya y solo s
   assert.equal((await ctx.app.inject({ method: 'GET', url: `/portal/api/facturas/${fOtro}/anexo`, cookies: ck })).statusCode, 404);
   assert.equal((await ctx.app.inject({ method: 'GET', url: `/portal/api/facturas/${fc}/anexo` })).statusCode, 401);
 });
+
+test('seguimiento del envío al cliente: pendiente, enviado por el ERP o asentado a mano', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const enviados = [];
+  reemplazarCanal('mail', { configurado: () => true, enviar: async (m) => { enviados.push(m); } });
+  const mk = async (numero) => { let [i] = await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-07', moneda: 'USD', neto: 10, iva: 2.1, total: 12.1, numero, estado: 'emitida', entidad_facturante_id: (await ctx.db('entidades_facturantes').first()).id }); return i.id ?? i; };
+  const a = await mk('SE-1'); const b = await mk('SE-2');
+  const envio = async (id) => (await dir.llamar('GET', `/api/facturas/${id}`)).json().envio;
+  assert.deepEqual([(await envio(a)).aplica, (await envio(a)).estado], [true, 'pendiente']);
+  const lista = async (q = '') => (await dir.llamar('GET', `/api/facturas?periodo=2026-07${q}`)).json().items;
+  assert.equal((await lista()).find((x) => x.id === a).envio, 'pendiente');
+  assert.deepEqual((await lista('&envio=pendiente')).map((x) => x.id).sort(), [a, b].sort());
+  // manual
+  assert.equal((await dir.llamar('POST', `/api/facturas/${a}/envio-manual`, { fecha: '2999-01-01' })).statusCode, 400);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fBorrador}/envio-manual`, {})).statusCode, 409);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${a}/envio-manual`, { fecha: '2026-11-02', nota: 'por WhatsApp' })).statusCode, 201);
+  const e = await envio(a); assert.equal(e.estado, 'manual'); assert.equal(e.el, '2026-11-02'); assert.equal(e.nota, 'por WhatsApp');
+  assert.equal((await lista()).find((x) => x.id === a).envio, 'manual');
+  assert.deepEqual((await lista('&envio=pendiente')).map((x) => x.id), [b]);
+  // por el ERP
+  assert.equal((await subir(b, PDF('seg'))).statusCode, 201);
+  assert.equal((await envio(b)).estado, 'pendiente'); // subir sin avisar no cuenta como enviado
+  await ctx.db('contactos').insert({ cliente_id: cli, nombre: 'Rosa', roles: JSON.stringify(['facturacion']), telefonos: '[]', emails: JSON.stringify([{ tipo: 'facturacion', direccion: 'rosa@cli.com' }]), estado: 'activo' });
+  assert.equal((await dir.llamar('POST', `/api/facturas/${b}/avisar`, { anexo: false })).json().estado, 'enviado');
+  const eb = await envio(b); assert.equal(eb.estado, 'enviado'); assert.ok(eb.destinatarios.includes('rosa@cli.com'));
+  assert.deepEqual((await lista('&envio=pendiente')).map((x) => x.id), []);
+  // quitar el registro manual
+  assert.equal((await dir.llamar('DELETE', `/api/facturas/${a}/envio-manual`)).statusCode, 200);
+  assert.equal((await envio(a)).estado, 'pendiente');
+  assert.equal((await dir.llamar('DELETE', `/api/facturas/${a}/envio-manual`)).statusCode, 404);
+  // una cuenta interna sin PDF no tiene nada que enviar
+  let [ci] = await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-07', moneda: 'USD', neto: 5, iva: 0, total: 5, estado: 'emitida' }); ci = ci.id ?? ci;
+  assert.equal((await envio(ci)).aplica, false); assert.equal((await lista()).find((x) => x.id === ci).envio, null);
+});

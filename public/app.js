@@ -1250,6 +1250,9 @@ Object.assign(ERRORES, {
 });
 const ESTADO_FACTURA = { borrador: ['Borrador', 'info'], emitida: ['Emitida', 'aviso'], cobrada_parcial: ['Cobro parcial', 'aviso'], cobrada: ['Cobrada', 'ok'], anulada: ['Anulada', 'mudo'] };
 const chipFactura = (f) => h('span', null, chip(...(ESTADO_FACTURA[f.estado] ?? [f.estado, 'mudo'])), f.clase === 'interno' && [' ', chip('Sin comprobante', 'mudo')]);
+const CHIP_ENVIO = { pendiente: ['Sin enviar al cliente', 'aviso'], enviado: ['Enviada al cliente', 'ok'], manual: ['Enviada a mano', 'ok'] };
+const chipEnvio = (envio) => (envio ? chip(...CHIP_ENVIO[envio]) : null);
+const hoyAR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
 const mesActual = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7);
 const mesAnterior = () => { const [a, m] = mesActual().split('-').map(Number); return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`; };
 const nombreMes = (p) => `${mesCorto(p)} ${p.slice(0, 4)}`;
@@ -1322,11 +1325,12 @@ async function tabLiquidacion(dest) {
 
 async function tabFacturas(dest) {
   const est = h('select', { 'aria-label': 'Estado' }, [['', 'Todas'], ['borrador', 'Borradores'], ['por_cobrar', 'Por cobrar'], ['cobrada', 'Cobradas'], ['anulada', 'Anuladas']].map(([v, t]) => h('option', { value: v }, t)));
+  const envf = h('select', { 'aria-label': 'Envío al cliente' }, [['', 'Envío: todas'], ['pendiente', 'Sin enviar al cliente']].map(([v, t]) => h('option', { value: v }, t)));
   const per = h('input', { type: 'month', 'aria-label': 'Período' }); const q = h('input', { type: 'search', placeholder: 'Cliente o número', 'aria-label': 'Buscar' });
   const zona = h('div'); let pagina = 1;
   const cargar = async () => {
     vaciar(zona).append(cargando());
-    const p = new URLSearchParams({ pagina }); if (est.value) p.set('estado', est.value); if (per.value) p.set('periodo', per.value); if (q.value.trim()) p.set('q', q.value.trim());
+    const p = new URLSearchParams({ pagina }); if (est.value) p.set('estado', est.value); if (envf.value) p.set('envio', envf.value); if (per.value) p.set('periodo', per.value); if (q.value.trim()) p.set('q', q.value.trim());
     const r = await api(`/api/facturas?${p}`).catch(() => null);
     if (!r) { vaciar(zona).append(falla()); return; }
     const paginas = Math.max(1, Math.ceil(r.total / 25));
@@ -1336,13 +1340,13 @@ async function tabFacturas(dest) {
         h('td', { 'data-rotulo': 'Cliente' }, h('div', { class: 'nombre-cliente' }, f.cliente)), h('td', { 'data-rotulo': 'Período' }, nombreMes(f.periodo)),
         h('td', { 'data-rotulo': 'Comprobante' }, f.numero ?? (f.estado === 'borrador' ? '—' : 's/n'), f.tiene_comprobante && [' ', chip('PDF', 'info')], f.fecha_emision && h('div', { class: 'apoyo' }, fecha(f.fecha_emision))),
         h('td', { class: 'num', 'data-rotulo': 'Total' }, monto(f.total, f.moneda)), h('td', { class: 'num', 'data-rotulo': 'Saldo' }, f.estado === 'borrador' || f.estado === 'anulada' ? '—' : monto(f.saldo, f.moneda)),
-        h('td', { 'data-rotulo': 'Estado' }, chipFactura(f))))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay facturas con esos filtros')),
+        h('td', { 'data-rotulo': 'Estado' }, chipFactura(f), f.envio && h('div', { style: 'margin-top:4px' }, chipEnvio(f.envio)))))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay facturas con esos filtros')),
     paginas > 1 && h('div', { class: 'acciones', style: 'margin-top:12px;align-items:center' }, h('button', { class: 'btn', type: 'button', disabled: pagina <= 1, onclick: () => { pagina -= 1; cargar(); } }, '← Anterior'),
       h('span', { class: 'apoyo' }, ` Página ${pagina} de ${paginas} `), h('button', { class: 'btn', type: 'button', disabled: pagina >= paginas, onclick: () => { pagina += 1; cargar(); } }, 'Siguiente →'))]);
   };
   const nuevoFiltro = () => { pagina = 1; cargar(); };
-  [est, per].forEach((el) => el.addEventListener('change', nuevoFiltro)); q.addEventListener('input', () => { clearTimeout(q._t); q._t = setTimeout(nuevoFiltro, 300); });
-  dest.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' }, est, per, q), zona);
+  [est, envf, per].forEach((el) => el.addEventListener('change', nuevoFiltro)); q.addEventListener('input', () => { clearTimeout(q._t); q._t = setTimeout(nuevoFiltro, 300); });
+  dest.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' }, est, envf, per, q), zona);
   await cargar();
 }
 
@@ -1394,6 +1398,21 @@ async function vistaFactura(destino, id) {
   if (porCobrar && edita && !f.cobros.length) {
     const mot = h('input', { required: true, minlength: 3, maxlength: 255, placeholder: 'Motivo de la anulación', 'aria-label': 'Motivo' });
     destino.append(h('div', { style: 'height:16px' }), formularioEnLinea({ titulo: 'Anular', campos: [mot], boton: 'Anular factura', enviar: () => api(`/api/facturas/${f.id}/anular`, { metodo: 'POST', cuerpo: { motivo: mot.value } }), alExito: recargar }));
+  }
+
+  if (f.envio.aplica) {
+    const e = f.envio; const MANUAL = (quitar) => cajonLateral('Registrar envío manual', (cerrar) => {
+      const fe = h('input', { type: 'date', id: 'env-fecha', value: hoyAR(), max: hoyAR(), required: true }); const nota = h('input', { id: 'env-nota', maxlength: 200, placeholder: 'Ej.: por WhatsApp a Marcela' });
+      return formularioEnLinea({ titulo: 'Envío a mano', campos: [campoF('Fecha en que se envió', fe, 'env-fecha'), campoF('Nota (opcional)', nota, 'env-nota')], boton: 'Registrar envío',
+        enviar: () => api(`/api/facturas/${f.id}/envio-manual`, { metodo: 'POST', cuerpo: { fecha: fe.value, ...(nota.value.trim() ? { nota: nota.value.trim() } : {}) } }), alExito: () => { cerrar(); toast('Envío registrado'); recargar(); } });
+    });
+    const texto = e.estado === 'enviado' ? `Se le envió por mail el ${fecha(e.el)}${e.destinatarios.length ? ` a ${e.destinatarios.join(', ')}` : ''}.`
+      : e.estado === 'manual' ? `Se le envió a mano el ${fecha(e.el)}${e.nota ? ` (${e.nota})` : ''}${e.por ? ` · lo asentó ${e.por}` : ''}.` : 'Todavía no se le envió esta factura al cliente.';
+    destino.append(h('div', { class: 'tarjeta no-imprimir', style: 'margin-top:16px' }, h('h2', null, 'Envío al cliente'),
+      h('div', { style: 'display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap' }, h('div', null, chipEnvio(e.estado), h('p', { class: 'apoyo', style: 'margin-top:8px' }, texto)),
+        edita && h('div', { class: 'acciones' },
+          e.estado === 'pendiente' && h('button', { class: 'btn', type: 'button', onclick: () => MANUAL() }, 'Registrar envío manual'),
+          e.estado === 'manual' && h('button', { class: 'btn', type: 'button', onclick: async () => { if (!window.confirm('¿Quitar el registro de envío manual?')) return; await api(`/api/facturas/${f.id}/envio-manual`, { metodo: 'DELETE' }); toast('Registro quitado'); recargar(); } }, 'Quitar registro')))));
   }
 
   if (f.estado !== 'anulada' && (f.comprobante || edita)) {
