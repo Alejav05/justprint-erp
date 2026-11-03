@@ -212,3 +212,17 @@ test('seguimiento del envío al cliente: pendiente, enviado por el ERP o asentad
   let [ci] = await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-07', moneda: 'USD', neto: 5, iva: 0, total: 5, estado: 'emitida' }); ci = ci.id ?? ci;
   assert.equal((await envio(ci)).aplica, false); assert.equal((await lista()).find((x) => x.id === ci).envio, null);
 });
+
+test('los avisos de facturación salen como "JustPrint Administración" desde su casilla, y el resto como siempre', async () => {
+  const { remitente } = await import('../src/lib/canales.js');
+  const guardado = { ...process.env };
+  try {
+    process.env.SMTP_USER = 'avisos@justprint.com.ar'; process.env.MAIL_FROM = 'JustPrint Soporte <avisos@justprint.com.ar>';
+    process.env.SMTP_FACTURACION_USER = 'administracion@justprint.com.ar'; process.env.SMTP_FACTURACION_PASS = 'x'; process.env.MAIL_FROM_FACTURACION = '"JustPrint <>"'; // valor mal armado: se ignora
+    assert.deepEqual(remitente('facturacion').from, { name: 'JustPrint Administración', address: 'administracion@justprint.com.ar' });
+    assert.equal(remitente('facturacion').user, 'administracion@justprint.com.ar');
+    assert.equal(remitente().from, 'JustPrint Soporte <avisos@justprint.com.ar>');
+    delete process.env.SMTP_FACTURACION_USER; // sin casilla propia sale por la general
+    assert.equal(remitente('facturacion').from, 'JustPrint Soporte <avisos@justprint.com.ar>');
+  } finally { for (const k of Object.keys(process.env)) if (!(k in guardado)) delete process.env[k]; Object.assign(process.env, guardado); }
+});

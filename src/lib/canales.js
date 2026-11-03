@@ -1,16 +1,22 @@
 // Canales de salida de las alertas. El del sistema (campana) no pasa por acá.
 const env = (k) => process.env[k]?.trim() || '';
 
+/** Remitente de cada casilla. Los avisos de facturación salen como "JustPrint Administración" desde su propia casilla; el nombre va aparte de la
+ *  dirección para que no dependa de cómo se escriba una variable con "<...>". */
+export function remitente(cuenta) {
+  const user = env('SMTP_FACTURACION_USER');
+  if (cuenta === 'facturacion' && user) return { user, pass: env('SMTP_FACTURACION_PASS'), from: { name: env('MAIL_NOMBRE_FACTURACION') || 'JustPrint Administración', address: user } };
+  return { user: env('SMTP_USER'), pass: env('SMTP_PASS'), from: env('MAIL_FROM') || env('SMTP_USER') };
+}
+
 const mail = {
   configurado: () => Boolean(env('SMTP_HOST')),
   async enviar({ to, subject, text, html, attachments, cuenta }) {
     const { default: nodemailer } = await import('nodemailer');
     const puerto = Number(env('SMTP_PORT') || 587);
-    // Los avisos de facturación pueden salir de su propia casilla (SMTP_FACTURACION_*); si no está definida, salen por la general.
-    const f = cuenta === 'facturacion' && env('SMTP_FACTURACION_USER');
-    const user = f ? env('SMTP_FACTURACION_USER') : env('SMTP_USER');
-    const t = nodemailer.createTransport({ host: env('SMTP_HOST'), port: puerto, secure: puerto === 465, auth: user ? { user, pass: f ? env('SMTP_FACTURACION_PASS') : env('SMTP_PASS') } : undefined });
-    await t.sendMail({ from: (f ? env('MAIL_FROM_FACTURACION') : '') || env('MAIL_FROM') || user, to, subject, text, ...(html ? { html } : {}), ...(attachments ? { attachments } : {}) });
+    const r = remitente(cuenta);
+    const t = nodemailer.createTransport({ host: env('SMTP_HOST'), port: puerto, secure: puerto === 465, auth: r.user ? { user: r.user, pass: r.pass } : undefined });
+    await t.sendMail({ from: r.from, to, subject, text, ...(html ? { html } : {}), ...(attachments ? { attachments } : {}) });
   },
 };
 
