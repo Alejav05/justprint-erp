@@ -1210,14 +1210,28 @@ async function vistaEquipo(destino, id) {
 }
 
 async function vistaInsumos(destino) {
-  const r = await api('/api/insumos'); const edita = puede('insumos.mover'); const NIVEL = { sin_stock: ['Sin stock', 'malo'], bajo: ['Bajo el mínimo', 'aviso'], ok: ['Normal', 'ok'] };
+  const r = await api('/api/insumos'); const edita = puede('insumos.mover');
+  const buscar = h('input', { type: 'search', placeholder: 'Buscar por nombre, código o modelo…', 'aria-label': 'Buscar insumo', autocomplete: 'off' });
+  const buscador = h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, buscar); const cuenta = h('span', { class: 'apoyo', role: 'status' }); buscador.append(cuenta); const zona = h('div'); const NIVEL = { sin_stock: ['Sin stock', 'malo'], bajo: ['Bajo el mínimo', 'aviso'], ok: ['Normal', 'ok'] };
   destino.append(encabezado('Insumos', 'Stock según los movimientos registrados', edita && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/insumos/nuevo' }, '+ Nuevo insumo'), puede('remitos.crear') && h('a', { class: 'btn btn-principal', href: '#/remitos/nuevo' }, 'Nueva entrega (remito)'))),
     h('div', { class: 'rejilla kpis' }, h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Insumos'), h('div', { class: 'valor' }, String(r.items.length))),
       h('div', { class: `tarjeta kpi ${r.sin_stock ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, 'Sin stock'), h('div', { class: 'valor' }, String(r.sin_stock))),
       h('div', { class: `tarjeta kpi ${r.bajo_minimo ? 'alerta' : ''}` }, h('div', { class: 'rotulo' }, 'Bajo el mínimo'), h('div', { class: 'valor' }, String(r.bajo_minimo)))),
-    r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' }, h('thead', null, h('tr', null, ['Insumo', 'Stock', 'Mínimo', 'Nivel'].map((t, k) => h('th', { class: k && k < 3 ? 'num' : '' }, t)))),
-      h('tbody', null, r.items.map((i) => h('tr', { class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/insumos/${i.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/insumos/${i.id}`; } },
-        h('td', { 'data-rotulo': 'Insumo' }, h('div', { class: 'nombre-cliente' }, i.descripcion), h('div', { class: 'apoyo' }, i.codigo)), h('td', { class: 'num', 'data-rotulo': 'Stock' }, i.stock), h('td', { class: 'num', 'data-rotulo': 'Mínimo' }, i.stock_minimo), h('td', { 'data-rotulo': 'Nivel' }, chip(...NIVEL[i.nivel]))))))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay insumos'), 'Cargá el primero para empezar a llevar stock.'));
+    buscador, zona);
+  const sinTildes = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const claves = r.items.map((i) => ({ i, texto: sinTildes([i.descripcion, i.codigo, i.tipo, ...(i.modelos_compatibles ?? [])].join(' ')) }));
+  const pintar = () => {
+    const palabras = sinTildes(buscar.value).split(/\s+/).filter(Boolean);
+    const lista = claves.filter((c) => palabras.every((w) => c.texto.includes(w))).map((c) => c.i);
+    cuenta.textContent = palabras.length ? `${lista.length} de ${r.items.length} insumos` : '';
+    vaciar(zona).append(
+lista.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'tarjetas' }, h('thead', null, h('tr', null, ['Insumo', 'Stock', 'Mínimo', 'Nivel'].map((t, k) => h('th', { class: k && k < 3 ? 'num' : '' }, t)))),
+      h('tbody', null, lista.map((i) => h('tr', { class: 'fila', tabindex: '0', onclick: () => { location.hash = `#/insumos/${i.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/insumos/${i.id}`; } },
+        h('td', { 'data-rotulo': 'Insumo' }, h('div', { class: 'nombre-cliente' }, i.descripcion), h('div', { class: 'apoyo' }, i.codigo)), h('td', { class: 'num', 'data-rotulo': 'Stock' }, i.stock), h('td', { class: 'num', 'data-rotulo': 'Mínimo' }, i.stock_minimo), h('td', { 'data-rotulo': 'Nivel' }, chip(...NIVEL[i.nivel]))))))) : palabras.length ? h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos insumos con esa búsqueda'), 'Probá con otra palabra o con el código.') : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay insumos'), 'Cargá el primero para empezar a llevar stock.'));
+  };
+  buscar.addEventListener('input', pintar);
+  buscar.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { buscar.value = ''; pintar(); } });
+  pintar();
 }
 
 async function vistaInsumo(destino, id) {
