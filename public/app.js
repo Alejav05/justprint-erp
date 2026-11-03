@@ -810,7 +810,11 @@ async function vistaNuevoTicket(destino) {
     if (sede.value) cuerpo.sede_id = Number(sede.value); if (equipo.value) cuerpo.equipo_id = Number(equipo.value);
     if (desc.value.trim()) cuerpo.descripcion = desc.value; if (tec.value) cuerpo.asignado_a = Number(tec.value);
     try { const r = await api('/api/tickets', { metodo: 'POST', cuerpo }); location.hash = `#/tickets/${r.id}`; } catch (e) {
-      if (e.message === 'sesion') return; error.textContent = 'No se pudo crear el ticket. Revisá los datos.'; error.classList.remove('oculto'); boton.disabled = false;
+      if (e.message === 'sesion') return;
+      const MSG = { equipo_invalido: 'Ese equipo no está instalado en este cliente.', sede_invalida: 'Esa sede no es de este cliente.', tecnico_invalido: 'Ese técnico no está disponible.', sin_permiso: 'No tenés permiso para asignar tickets.', no_encontrado: 'No encontramos ese cliente.' };
+      error.textContent = MSG[e.datos?.error] ?? (e.estado === undefined ? 'No pudimos conectar con el servidor. Esperá un momento y probá de nuevo; todavía no se creó ningún ticket.'
+        : e.estado >= 500 ? `El servidor no pudo guardar el ticket (error ${e.estado}). Esperá un momento y probá de nuevo; si sigue, avisanos.` : 'No se pudo crear el ticket. Revisá los datos.');
+      error.classList.remove('oculto'); boton.disabled = false;
     }
   } }, error, campo('Cliente', cliente, 'cli'), h('div', { class: 'dos-col' }, campo('Sede', sede, 'sede'), campo('Equipo', equipo, 'eq')),
   campo('Asunto', asunto, 'as'), campo('Detalle', desc, 'de'),
