@@ -10,7 +10,7 @@ export const contactoSchema = z.object({
   sede_id: z.number().int().positive().optional().nullable(),
   roles: z.array(z.enum(ROLES_CONTACTO)).max(9).default([]),
   telefonos: z.array(z.object({ tipo: z.enum(['celular', 'fijo', 'whatsapp', 'interno']).default('celular'), numero: z.string().trim().min(6).max(40) })).max(5).default([]),
-  emails: z.array(z.object({ tipo: z.enum(['laboral', 'personal', 'facturacion', 'cobranzas']).default('laboral'), direccion: z.string().trim().toLowerCase().email().max(160) })).max(5).default([]),
+  emails: z.array(z.object({ tipo: z.preprocess((v) => (v === 'trabajo' ? 'laboral' : v), z.enum(['laboral', 'personal', 'facturacion', 'cobranzas'])).default('laboral'), direccion: z.string().trim().toLowerCase().email().max(160) })).max(5).default([]),
   fecha_nacimiento: fechaISO.optional().nullable(),
   canal_preferido: z.enum(['whatsapp', 'llamada', 'mail', 'presencial']).optional().nullable(),
   horario_preferido: z.string().trim().max(60).optional().nullable(),

@@ -22,7 +22,7 @@ export default async function rutasCartera(app, { db }) {
     // El destino tiene que ser un comercial activo, y dentro de las personas que este líder puede ver.
     const destino = await db('usuarios').join('usuario_area', 'usuario_area.usuario_id', 'usuarios.id')
       .join('areas', 'areas.id', 'usuario_area.area_id')
-      .where({ 'usuarios.id': usuario_id, 'usuarios.activo': true, 'areas.nombre': AREA.COMERCIAL })
+      .where({ 'usuarios.id': usuario_id, 'usuarios.activo': true }).whereIn('areas.nombre', [AREA.COMERCIAL, AREA.DIRECCION])
       .whereNull('usuarios.deleted_at').select('usuarios.id').first();
     if (!destino) return reply.code(422).send({ error: 'destino_invalido' });
     const visibles = await usuariosVisibles(db, req.ctx);

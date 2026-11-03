@@ -105,6 +105,7 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasAlertas, { db });
   await asegurarReglas(db).catch(() => {});
   app.get('/api/cotizacion', { preHandler: requerirSesion(db) }, async () => (await ultimaCotizacion(db)) ?? { valor: null });
-  await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public/', import.meta.url)), maxAge: config.env === 'production' ? '1h' : 0 });
+  await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public/', import.meta.url)), maxAge: 0, // el código (js/css/html) se revalida siempre; solo las fuentes e imágenes se guardan una hora
+    setHeaders: (res, ruta) => { if (config.env === 'production' && /[\\/](fonts|img)[\\/]/.test(ruta)) res.setHeader('Cache-Control', 'public, max-age=3600'); } });
   return app;
 }

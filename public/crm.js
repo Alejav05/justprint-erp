@@ -45,7 +45,7 @@ export function crearCrm(U) {
       const filas = (inicial[clave]?.length ? inicial[clave] : [{}]).map((x) => ({ ...x })); const caja = h('div');
       const pintar = () => vaciar(caja).append(...filas.map((f, i) => {
         const tipo = h('select', { 'aria-label': 'Tipo' }, opciones(tipos, f.tipo ?? tipos[0][0])); const val = h('input', { type: tipoCampo, inputmode: modo, value: f[base] ?? '', placeholder: ph, 'aria-label': ph, maxlength: '160' });
-        tipo.addEventListener('change', () => { f.tipo = tipo.value; }); val.addEventListener('input', () => { f[base] = val.value; }); f.tipo ??= tipos[0][0];
+        tipo.addEventListener('change', () => { f.tipo = tipo.value; }); val.addEventListener('input', () => { f[base] = val.value; }); if (!tipos.some(([v]) => v === f.tipo)) f.tipo = tipos[0][0];
         return h('div', { class: 'fila-medio' }, tipo, val, filas.length > 1 && h('button', { type: 'button', class: 'btn-texto', 'aria-label': 'Quitar', onclick: () => { filas.splice(i, 1); pintar(); } }, 'Quitar'));
       }), filas.length < 5 && h('button', { type: 'button', class: 'btn-texto', onclick: () => { filas.push({}); pintar(); } }, `+ Agregar ${clave === 'telefonos' ? 'otro teléfono' : 'otro mail'}`));
       pintar(); return { el: caja, valor: () => filas.filter((f) => String(f[base] ?? '').trim()).map((f) => ({ tipo: f.tipo, [base]: String(f[base]).trim() })) };

@@ -137,7 +137,7 @@ export async function importarPlanilla(db, datos, { aplicar = false, incluirPrue
           cliente_id: cliente.get(k.ID_Cliente), nombre: texto(k.Nombre),
           roles: JSON.stringify(ROLES_CONTACTO[clave(k.Rol)] ?? []),
           telefonos: JSON.stringify(tel ? [{ tipo: 'celular', numero: tel }] : []),
-          emails: JSON.stringify(k.Mail ? [{ tipo: 'trabajo', direccion: String(k.Mail).trim().toLowerCase() }] : []),
+          emails: JSON.stringify(k.Mail ? [{ tipo: 'laboral', direccion: String(k.Mail).trim().toLowerCase() }] : []),
           autorizado_toner: clave(k.Autorizado_Toner) === 'si', origen: 'planilla', estado: 'activo',
         });
         cuenta('contactos');

@@ -51,7 +51,7 @@ export default async function rutasLeads(app, { db }) {
   app.get('/api/equipo-comercial', { preHandler: auth }, async (req, reply) => {
     if (!['leads.ver', 'clientes.editar', 'cartera.asignar'].some((p) => req.ctx.permisos.has(p))) return reply.code(403).send({ error: 'sin_permiso' });
     const items = await db('usuarios').join('usuario_area', 'usuario_area.usuario_id', 'usuarios.id').join('areas', 'areas.id', 'usuario_area.area_id')
-      .where({ 'areas.nombre': 'Comercial', 'usuarios.activo': true }).whereNull('usuarios.deleted_at').distinct('usuarios.id', 'usuarios.nombre').orderBy('usuarios.nombre');
+      .whereIn('areas.nombre', ['Comercial', 'Dirección']).where({ 'usuarios.activo': true }).whereNull('usuarios.deleted_at').distinct('usuarios.id', 'usuarios.nombre').orderBy('usuarios.nombre');
     return { items, puede_elegir: req.ctx.permisos.has('cartera.asignar') || req.ctx.permisos.has('leads.todos') };
   });
 

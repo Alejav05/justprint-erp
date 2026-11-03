@@ -84,3 +84,20 @@ test('cada reasignación queda en auditoría con quién y cuándo', async () => 
   assert.ok(filas.length >= 3);
   assert.ok(filas.every((f) => f.usuario_id && f.created_at));
 });
+
+test('Dirección también puede asignar cuenta, y a sí misma si es del área Dirección', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const cliente = await idCliente('Farmacia Central');
+  const lista = (await dir.llamar('GET', '/api/equipo-comercial')).json();
+  assert.ok(lista.puede_elegir);
+  const r = await dir.llamar('POST', '/api/cartera/asignar', { cliente_id: cliente, usuario_id: await idUsuario('nicolas@demo.local'), motivo: 'Prueba' });
+  assert.equal(r.statusCode, 201);
+});
+
+test('editar un contacto importado con mail de tipo "trabajo" no falla', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const c = await ctx.db('contactos').whereNull('deleted_at').first();
+  const r = await dir.llamar('PATCH', `/api/contactos/${c.id}`, { nombre: 'Mauricio', apellido: 'Lobo', roles: ['it'], telefonos: [{ tipo: 'celular', numero: '1127682154' }], emails: [{ tipo: 'trabajo', direccion: 'mauricio.lobo@untold.email' }] });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.json().emails[0].tipo, 'laboral');
+});

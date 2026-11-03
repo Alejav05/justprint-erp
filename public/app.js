@@ -83,6 +83,7 @@ const ICONOS = {
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   costos: 'M3 6h18M3 12h18M3 18h12M19 15v6M16 18h6',
   cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
+  conformidades: 'M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.3 6.8 19.1l1-5.8L3.5 9.2l5.9-.9zM9.5 12.2l1.7 1.7 3.3-3.4',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   configuracion: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
   auditoria: 'M9 12l2 2 4-4M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
@@ -652,8 +653,24 @@ async function vistaCliente(destino, id) {
     if (clave === 'costos') vaciar(panel).append(await cst.pestanaCostos(id));
     if (clave === 'seguimiento') vaciar(panel).append(await crm.pestanaSeguimiento(d));
     if (clave === 'cartera') {
-      const r = await api(`/api/cartera/${id}/historial`).catch(() => null);
-      vaciar(panel).append(h('div', { class: 'tarjeta' }, h('h2', null, 'Historial de responsables'),
+      const [r, eq] = await Promise.all([api(`/api/cartera/${id}/historial`).catch(() => null), puede('cartera.asignar') ? api('/api/equipo-comercial').catch(() => ({ items: [] })) : { items: [] }]);
+      const actual = r?.historial?.find((x) => !x.hasta);
+      const asignar = puede('cartera.asignar') && (() => {
+        const sel = h('select', { id: 'cart-resp', 'aria-label': 'Responsable' }, h('option', { value: '' }, 'Elegí una persona'), ...eq.items.filter((u) => u.id !== actual?.usuario_id).map((u) => h('option', { value: u.id }, u.nombre)));
+        const motivo = h('input', { id: 'cart-mot', type: 'text', maxlength: '255', placeholder: 'Opcional', 'aria-label': 'Motivo' });
+        const msg = h('div', { class: 'error oculto', role: 'alert' }); const ok = h('button', { class: 'btn btn-principal', type: 'button' }, actual ? 'Reasignar' : 'Asignar');
+        ok.addEventListener('click', async () => {
+          msg.classList.add('oculto'); if (!sel.value) { msg.textContent = 'Elegí a quién asignar la cuenta.'; msg.classList.remove('oculto'); return; }
+          ok.disabled = true;
+          try { await api('/api/cartera/asignar', { metodo: 'POST', cuerpo: { cliente_id: Number(id), usuario_id: Number(sel.value), motivo: motivo.value.trim() || undefined } }); toast('Responsable actualizado'); navegar(); }
+          catch (e) { if (e.message === 'sesion') return; msg.textContent = { destino_invalido: 'Esa persona no puede tener cuentas a cargo.', sin_permiso: 'No podés asignar a esa persona.', ya_asignada: 'Esa persona ya es la responsable.' }[e.datos?.error] ?? 'No se pudo asignar.'; msg.classList.remove('oculto'); ok.disabled = false; }
+        });
+        return h('div', { class: 'tarjeta' }, h('h2', null, actual ? 'Cambiar responsable' : 'Asignar responsable'),
+          h('p', { class: 'apoyo' }, actual ? `Hoy la lleva ${actual.usuario}. El cambio queda en el historial.` : 'Esta cuenta no tiene responsable. Elegí quién la lleva.'),
+          eq.items.length ? h('div', { class: 'dos-col' }, h('div', { class: 'campo' }, h('label', { for: 'cart-resp' }, 'Responsable'), sel), h('div', { class: 'campo' }, h('label', { for: 'cart-mot' }, 'Motivo'), motivo)) : h('p', { class: 'apoyo' }, 'Todavía no hay personas del área Comercial cargadas. Creá el usuario en Usuarios y asignale el área Comercial.'),
+          msg, eq.items.length ? h('div', { class: 'acciones' }, ok) : null);
+      })();
+      vaciar(panel).append(...(asignar ? [asignar] : []), h('div', { class: 'tarjeta' }, h('h2', null, 'Historial de responsables'),
         r?.historial?.length ? r.historial.map((x) => h('div', { class: `linea ${x.hasta ? '' : 'vigente'}` }, h('b', null, x.usuario),
           h('div', { class: 'apoyo' }, `${fecha(x.desde)} → ${x.hasta ? fecha(x.hasta) : 'hoy'}`), x.motivo && h('div', { class: 'apoyo' }, x.motivo)))
           : h('p', { class: 'apoyo' }, 'Esta cuenta todavía no tuvo responsable asignado.')));
