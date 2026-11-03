@@ -132,8 +132,8 @@ test('encuesta: la responde solo el cliente desde su enlace, una sola vez; el eq
   await head.llamar('POST', `/api/remitos/${b}/conformidad`, { nombre: 'Luis Paz', firma: PNG });
   pagina = (await ctx.app.inject({ method: 'GET', url: `/r/${tokenB}` })).body;
   assert.match(pagina, /¿Cómo fue la atención que recibiste\?/);
-  const envio = await ctx.app.inject({ method: 'POST', url: `/r/${tokenB}/encuesta`, payload: 'puntaje=2&aspectos=puntualidad&aspectos=trato&comentario=Llegaron+tarde', headers: { 'content-type': 'application/x-www-form-urlencoded' } });
-  assert.equal(envio.statusCode, 303);
+  const envio = await ctx.app.inject({ method: 'POST', url: `/r/${tokenB}/encuesta`, payload: 'puntaje=2&aspectos=puntualidad&aspectos=trato&comentario=Llegaron+tarde', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'null' } });
+  assert.equal(envio.statusCode, 303, 'el navegador manda Origin: null desde la página pública');
   const e = await ctx.db('encuestas').where({ remito_id: b }).first();
   assert.equal(e.puntaje, 2); assert.equal(e.origen, 'enlace'); assert.equal(e.comentario, 'Llegaron tarde'); assert.deepEqual(JSON.parse(e.aspectos), ['puntualidad', 'trato']);
   await ctx.app.inject({ method: 'POST', url: `/r/${tokenB}/encuesta`, payload: 'puntaje=5', headers: { 'content-type': 'application/x-www-form-urlencoded' } });
@@ -146,6 +146,9 @@ test('encuesta: la responde solo el cliente desde su enlace, una sola vez; el eq
   assert.equal(r.cantidad, 1); assert.equal(r.promedio, 2); assert.equal(r.satisfechos, 0); assert.equal(r.para_revisar.length, 1);
   assert.equal(r.aspectos.find((x) => x.clave === 'trato').a_mejorar, 1); assert.equal((await dir.llamar('GET', `/api/remitos/${b}`)).json().encuesta.puntaje, 2);
   assert.ok(r.ranking.length >= 1);
+  const firmadasDb = Number((await ctx.db('remitos').where({ tipo: 'servicio', estado: 'firmado' }).count({ n: '*' }).first()).n);
+  assert.equal(r.conformidades_firmadas, firmadasDb); assert.equal(r.tasa_respuesta, Math.round(100 / firmadasDb)); assert.equal(r.conformidades.length, firmadasDb);
+  assert.equal(r.conformidades.find((x) => x.remito_id === b).puntaje, 2); assert.ok(r.conformidades.filter((x) => x.remito_id !== b).every((x) => x.puntaje === null));
   const com = await entrar('valentina@demo.local');
   assert.equal((await com.llamar('GET', '/api/encuestas')).statusCode, 403, 'el comercial no ve las encuestas');
 });

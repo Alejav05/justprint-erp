@@ -46,7 +46,8 @@ export async function crearApp({ db, logger = false } = {}) {
     if (config.env === 'production') reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 
     // Defensa contra pedidos de otros sitios: si el navegador envía Origin en una escritura, tiene que ser el nuestro.
-    if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
+    // Con Referrer-Policy no-referrer el navegador manda "Origin: null" en los formularios; la opinión del cliente (/r/…) no usa sesión, así que no hay nada que proteger.
+    if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin && !req.url.startsWith('/r/')) {
       const esperado = config.origenPermitido ?? `${req.protocol}://${req.headers.host}`;
       if (req.headers.origin !== esperado) return reply.code(403).send({ error: 'origen_no_permitido' });
     }

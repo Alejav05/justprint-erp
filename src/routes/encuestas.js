@@ -54,17 +54,27 @@ export default async function rutasEncuestas(app, { db }) {
       destacados: items.filter((x) => x.puntaje >= 4 && x.aspectos.includes(a.clave)).length,
       a_mejorar: items.filter((x) => x.puntaje <= 3 && x.aspectos.includes(a.clave)).length }));
     // Tasa de respuesta: remitos firmados del período contra las encuestas que llegaron.
-    const firmados = await db('remitos').where({ estado: 'firmado' }).whereNull('deleted_at')
-      .modify((q) => { if (f.desde) q.where('fecha', '>=', f.desde); if (f.hasta) q.where('fecha', '<=', f.hasta); if (visibles) q.whereIn('created_by', visibles); }).count({ n: '*' }).first();
+    const firmadas = () => db('remitos as r').leftJoin('tickets as t', 't.id', 'r.ticket_id').where({ 'r.estado': 'firmado', 'r.tipo': 'servicio' }).whereNull('r.deleted_at')
+      .modify((q) => { if (f.desde) q.where('r.fecha', '>=', f.desde); if (f.hasta) q.where('r.fecha', '<=', f.hasta);
+        if (visibles) q.whereIn(db.raw('coalesce(t.asignado_a, r.created_by)'), visibles); if (f.tecnico) q.where(db.raw('coalesce(t.asignado_a, r.created_by)'), f.tecnico); });
+    const firmados = await firmadas().count({ n: '*' }).first();
+    // Conformidades de servicio firmadas, con su opinión si el cliente la dejó (más recientes primero).
+    const lista = await firmadas().join('clientes as c', 'c.id', 'r.cliente_id').leftJoin('usuarios as u', 'u.id', db.raw('coalesce(t.asignado_a, r.created_by)'))
+      .leftJoin('encuestas as e', 'e.remito_id', 'r.id').leftJoin('conformidades as cf', function () { this.on('cf.documento_id', 'r.id').andOn('cf.documento_tipo', db.raw("'remito'")); })
+      .orderBy('r.id', 'desc').limit(60)
+      .select('r.id as remito_id', 'r.numero', 'r.fecha', 't.tipo as tipo_ticket', 't.asunto', 'c.id as cliente_id', 'c.razon_social', 'c.nombre_comercial', 'u.nombre as tecnico', 'cf.firmante_nombre as firmante', 'e.puntaje', 'e.comentario', 'e.aspectos');
+    const conformidades = lista.map((x) => ({ remito_id: x.remito_id, numero: x.numero, fecha: String(x.fecha).slice(0, 10), tipo_ticket: x.tipo_ticket, asunto: x.asunto, cliente: x.nombre_comercial || x.razon_social, tecnico: x.tecnico, firmante: x.firmante, puntaje: x.puntaje ?? null, comentario: x.comentario ?? null, aspectos: json(x.aspectos) }));
     return {
       cantidad: n, promedio: n ? redondear(suma / n) : null,
       satisfechos: n ? Math.round((items.filter((x) => x.puntaje >= 4).length / n) * 100) : null,
+      conformidades_firmadas: Number(firmados.n),
       tasa_respuesta: Number(firmados.n) ? Math.round((n / Number(firmados.n)) * 100) : null,
       distribucion, aspectos,
       ranking: [...porTecnico.values()].map((t) => ({ id: t.id, nombre: t.nombre, cantidad: t.cantidad, promedio: redondear(t.suma / t.cantidad), bajas: t.bajas }))
         .sort((a, b) => b.promedio - a.promedio || b.cantidad - a.cantidad),
       para_revisar: items.filter((x) => x.puntaje <= 2).slice(0, 10),
       ultimas: items.slice(0, 30),
+      conformidades,
     };
   });
 }

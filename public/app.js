@@ -99,12 +99,12 @@ const MENU = [
   { ruta: 'contratos', texto: 'Contratos', permiso: 'contratos.ver' },
   { grupo: 'Servicio' },
   { ruta: 'tickets', texto: 'Tickets', permiso: 'tickets.ver' },
+  { ruta: 'conformidades', texto: 'Conformidades', permiso: 'encuestas.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
-  { ruta: 'encuestas', texto: 'Opiniones de clientes', permiso: 'encuestas.ver' },
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'contadores', texto: 'Contadores', permiso: 'contadores.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
-  { ruta: 'remitos', texto: 'Remitos y conformidades', permiso: 'insumos.ver' },
+  { ruta: 'remitos', texto: 'Remitos', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
   { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
@@ -844,7 +844,7 @@ async function vistaTicket(destino, id) {
           h('p', { style: 'margin:0 0 4px;white-space:pre-line' }, p.trabajo_realizado), h('div', { class: 'apoyo' }, `${p.tecnico} · ${cuando(p.fin)}`),
           (p.contador_negro != null) && h('div', { class: 'apoyo' }, `Contadores: ${p.contador_negro} negro${p.contador_color ? ` / ${p.contador_color} color` : ''}`),
           p.repuestos.length > 0 && h('div', { class: 'apoyo' }, `Insumos usados: ${p.repuestos.reduce((s, r) => s + r.cantidad, 0)}`))),
-          t.remitos.map((r) => h('div', { style: 'margin-top:10px' }, h('a', { href: `#/remitos/${r.id}` }, chip(`Conformidad ${r.numero}`, 'info')), ' ', r.conformidad ? chip(`Conforme: ${r.conformidad.firmante_nombre}`, 'ok') : chip('Sin conformidad', 'aviso')))),
+          t.remitos.map((r) => h('div', { style: 'margin-top:10px' }, h('a', { href: `#/conformidades/${r.id}` }, chip(`Conformidad ${r.numero}`, 'info')), ' ', r.conformidad ? chip(`Conforme: ${r.conformidad.firmante_nombre}`, 'ok') : chip('Sin conformidad', 'aviso'), r.puntaje ? h('span', { class: 'estrellas-fijas', style: 'font-size:16px;margin-left:8px', 'aria-label': `${r.puntaje} de 5 estrellas` }, '★'.repeat(r.puntaje) + '☆'.repeat(5 - r.puntaje)) : null))),
         asignar),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Historial'), t.eventos.map(linea),
         h('div', { style: 'margin-top:12px' }, comentario, h('div', { style: 'margin-top:8px' },
@@ -887,8 +887,8 @@ async function vistaCierre(destino, id) {
         h('h2', null, r.estado === 'cerrado' ? 'Ticket cerrado' : 'Ticket resuelto'), h('p', null, 'Conformidad de servicio generada.'),
         r.estado === 'resuelto' && h('p', { class: 'apoyo' }, 'Quedó pendiente la conformidad del cliente: podés tomarla ahora o dejarla para después.'),
         r.sla_cumplido != null && h('p', null, chip(r.sla_cumplido ? 'Dentro del SLA' : 'Fuera de SLA', r.sla_cumplido ? 'ok' : 'malo'), ` ${num1(r.horas_resolucion)} h hábiles`),
-        h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar conformidad'),
-          h('a', { class: 'btn', href: `#/remitos/${r.remito_id}` }, 'Ver conformidad'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
+        h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/conformidades/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar conformidad'),
+          h('a', { class: 'btn', href: `#/conformidades/${r.remito_id}` }, 'Ver conformidad'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
       remito && h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar la conformidad al cliente'), rem.panelEnvio(remito, null, { compacto: true })));
     } catch (e) {
       if (e.message === 'sesion') return; error.textContent = MENSAJES[e.datos?.error] ?? 'No se pudo cerrar el ticket. Revisá los datos.';
@@ -907,42 +907,48 @@ async function vistaCierre(destino, id) {
 }
 
 const ASPECTOS_ENC = { puntualidad: 'Puntualidad', trato: 'Trato', resolucion: 'Que quedó resuelto', claridad: 'Claridad en las explicaciones', orden: 'Orden y limpieza' };
-async function vistaEncuestas(destino) {
+const TIPO_SERV = { soporte: 'Soporte técnico', instalacion: 'Instalación', retiro: 'Retiro de equipo', insumos: 'Insumos', otro: 'Servicio' };
+/** Conformidades de servicio y cómo las calificó el cliente: el control de calidad de la atención. */
+async function vistaConformidades(destino) {
   const desdeIni = new Date(Date.now() - 90 * 864e5 - 3 * 36e5).toISOString().slice(0, 10);
   const desde = h('input', { type: 'date', value: desdeIni, 'aria-label': 'Desde' }); const hasta = h('input', { type: 'date', 'aria-label': 'Hasta' });
-  const cuerpo = h('div');
+  const cuerpo = h('div'); let ver = 'todas';
   const estrellas = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
   const kpi = (rotulo, valor, nota, clase) => h('div', { class: `tarjeta kpi ${clase ?? ''}` }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor), h('div', { class: 'nota' }, nota));
+  const propio = !puede('tickets.asignar');
   async function pintar() {
     vaciar(cuerpo).append(cargando());
     const q = new URLSearchParams(); if (desde.value) q.set('desde', desde.value); if (hasta.value) q.set('hasta', hasta.value);
     const d = await api(`/api/encuestas?${q}`);
-    if (!d.cantidad) { vaciar(cuerpo).append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay opiniones en este período'), 'Aparecen cuando el cliente califica la atención al firmar el remito o desde el enlace que recibe.')); return; }
+    if (!d.conformidades.length) { vaciar(cuerpo).append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'Todavía no hay conformidades en este período'), 'Aparecen cuando un técnico cierra un ticket con la firma del cliente.')); return; }
     const max = Math.max(...d.distribucion.map((x) => x.cantidad), 1);
-    const propio = !puede('tickets.asignar');
+    const filtradas = d.conformidades.filter((x) => ver === 'todas' || (ver === 'con' ? x.puntaje != null : x.puntaje == null));
+    const pills = h('div', { class: 'seg', role: 'group', 'aria-label': 'Filtro' }, [['todas', 'Todas'], ['con', 'Con opinión'], ['sin', 'Sin opinión']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(ver === k), onclick: () => { ver = k; pintar().catch(() => {}); } }, t)));
     vaciar(cuerpo).append(...[
       h('div', { class: 'rejilla kpis' },
-        kpi('Calificación media', `${String(d.promedio).replace('.', ',')} ★`, `${d.cantidad} ${d.cantidad === 1 ? 'opinión' : 'opiniones'}`),
-        kpi('Clientes satisfechos', `${d.satisfechos}%`, 'Dieron 4 o 5 estrellas'),
-        kpi('Respuesta', d.tasa_respuesta == null ? '—' : `${d.tasa_respuesta}%`, 'De los remitos firmados'),
+        kpi('Calificación media', d.cantidad ? `${String(d.promedio).replace('.', ',')} ★` : '—', d.cantidad ? `${d.cantidad} ${d.cantidad === 1 ? 'opinión' : 'opiniones'}` : 'Todavía sin opiniones'),
+        kpi('Clientes satisfechos', d.satisfechos == null ? '—' : `${d.satisfechos}%`, 'Dieron 4 o 5 estrellas'),
+        kpi('Participación', d.tasa_respuesta == null ? '—' : `${d.tasa_respuesta}%`, `${d.cantidad} de ${d.conformidades_firmadas} conformidades`),
         kpi('Para revisar', String(d.para_revisar.length), '1 o 2 estrellas', d.para_revisar.length ? 'alerta' : '')),
-      h('div', { class: 'rejilla dos-iguales' },
+      d.cantidad > 0 && h('div', { class: 'rejilla dos-iguales' },
         h('div', { class: 'tarjeta' }, h('h2', null, 'Cómo se reparten'), d.distribucion.map((x) => h('div', { class: 'barra-dist' }, h('span', null, `${x.puntaje} ★`), h('div', { class: 'pista' }, h('i', { style: `width:${(x.cantidad / max) * 100}%` })), h('span', { class: 'num' }, String(x.cantidad))))),
         h('div', { class: 'tarjeta' }, h('h2', null, 'Qué destacan y qué piden mejorar'), h('p', { class: 'apoyo', style: 'margin:0 0 6px' }, 'Destacan: 4 y 5 estrellas. A mejorar: 1 a 3.'), h('table', null, h('thead', null, h('tr', null, h('th', null, 'Aspecto'), h('th', { class: 'num' }, 'Destacan'), h('th', { class: 'num' }, 'A mejorar'))),
           h('tbody', null, d.aspectos.map((a) => h('tr', null, h('td', null, a.texto), h('td', { class: 'num' }, String(a.destacados)), h('td', { class: 'num' }, a.a_mejorar ? chip(String(a.a_mejorar), 'aviso') : '0'))))))),
-      !propio && h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('p', { class: 'etiqueta', style: 'padding:14px 14px 0' }, 'Ranking de atención'), h('table', { class: 'tarjetas' },
+      !propio && d.cantidad > 0 && h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('p', { class: 'etiqueta', style: 'padding:14px 14px 0' }, 'Ranking de atención'), h('table', { class: 'tarjetas' },
         h('thead', null, h('tr', null, ['Técnico', 'Calificación', 'Opiniones', '1-2 estrellas'].map((t) => h('th', { class: t === 'Técnico' ? '' : 'num' }, t)))),
         h('tbody', null, d.ranking.map((t, i) => h('tr', null, h('td', { 'data-rotulo': 'Técnico' }, h('span', { class: 'nombre-cliente' }, `${i + 1}. ${t.nombre}`)),
           h('td', { class: 'num', 'data-rotulo': 'Calificación' }, `${String(t.promedio).replace('.', ',')} ★`, t.cantidad < 5 && h('span', { class: 'apoyo' }, ' · pocas')), h('td', { class: 'num', 'data-rotulo': 'Opiniones' }, String(t.cantidad)),
           h('td', { class: 'num', 'data-rotulo': '1-2 estrellas' }, t.bajas ? chip(String(t.bajas), 'malo') : '0')))))),
-      h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('p', { class: 'etiqueta', style: 'padding:14px 14px 0' }, 'Últimas opiniones'),
-        h('ul', { class: 'lista' }, d.ultimas.map((x) => h('li', null, h('div', null, h('span', { class: 'estrellas-fijas', style: 'font-size:18px' }, estrellas(x.puntaje)), ' ', h('a', { href: `#/remitos/${x.remito_id}` }, x.cliente),
-          h('div', { class: 'apoyo' }, `${x.tecnico ?? 'Sin técnico'} · remito ${x.remito} · ${cuando(x.created_at)}`),
-          x.aspectos.length > 0 && h('div', { class: 'apoyo' }, x.aspectos.map((a) => ASPECTOS_ENC[a] ?? a).join(' · ')),
-          x.comentario && h('p', { style: 'margin:4px 0 0' }, `“${x.comentario}”`)), x.puntaje <= 2 && chip('Revisar', 'malo')))))].filter(Boolean));
+      h('div', { class: 'tarjeta', style: 'padding:6px 8px;margin-top:16px' }, h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;padding:14px 14px 4px' }, h('p', { class: 'etiqueta', style: 'margin:0' }, 'Conformidades de servicio'), pills),
+        filtradas.length ? h('ul', { class: 'lista' }, filtradas.map((x) => h('li', { class: 'fila', tabindex: '0', style: 'cursor:pointer', onclick: () => { location.hash = `#/conformidades/${x.remito_id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/conformidades/${x.remito_id}`; } },
+          h('div', { style: 'min-width:0;flex:1' },
+            h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, h('b', null, x.cliente), chip(TIPO_SERV[x.tipo_ticket] ?? 'Servicio', 'mudo'), x.puntaje != null && x.puntaje <= 2 && chip('Revisar', 'malo')),
+            h('div', { class: 'apoyo' }, [x.numero, x.asunto, x.tecnico, x.firmante && `Firmó ${x.firmante}`].filter(Boolean).join(' · ')),
+            x.aspectos.length > 0 && h('div', { class: 'apoyo' }, x.aspectos.map((a) => ASPECTOS_ENC[a] ?? a).join(' · ')),
+            x.comentario && h('p', { style: 'margin:4px 0 0' }, `“${x.comentario}”`)),
+          h('div', { style: 'text-align:right' }, x.puntaje != null ? h('span', { class: 'estrellas-fijas', style: 'font-size:18px', 'aria-label': `${x.puntaje} de 5 estrellas` }, estrellas(x.puntaje)) : h('span', { class: 'apoyo' }, 'Sin calificar'), h('div', { class: 'apoyo' }, fecha(x.fecha)))))) : h('p', { class: 'apoyo', style: 'padding:6px 14px 14px;margin:0' }, 'No hay conformidades con ese filtro.'))].filter(Boolean));
   }
-  destino.append(encabezado('Opiniones de clientes', propio_texto()), h('div', { class: 'filtros-cobro' }, h('label', { class: 'apoyo' }, 'Desde ', desde), h('label', { class: 'apoyo' }, 'Hasta ', hasta), h('button', { class: 'btn', type: 'button', onclick: () => pintar().catch(() => {}) }, 'Aplicar')), cuerpo);
-  function propio_texto() { return 'Cómo califican la atención al firmar el remito'; }
+  destino.append(encabezado('Conformidades', propio ? 'Cómo calificaron los clientes tus servicios' : 'Cómo califican los clientes la atención de cada servicio'), h('div', { class: 'filtros-cobro' }, h('label', { class: 'apoyo' }, 'Desde ', desde), h('label', { class: 'apoyo' }, 'Hasta ', hasta), h('button', { class: 'btn', type: 'button', onclick: () => pintar().catch(() => {}) }, 'Aplicar')), cuerpo);
   await pintar();
 }
 
@@ -1416,7 +1422,12 @@ async function navegar() {
       else if (param) await rem.vistaRemito(nuevo, param);
       else await rem.vistaRemitos(nuevo);
     } else if (ruta === 'servicio' && puede('tableros.servicio')) await vistaServicio(nuevo);
-    else if (ruta === 'encuestas' && puede('encuestas.ver')) await vistaEncuestas(nuevo);
+    else if (ruta === 'encuestas') { location.replace('#/conformidades'); return; }
+    else if (ruta === 'conformidades' && puede('encuestas.ver')) {
+      if (param && sub === 'firmar' && puede('remitos.crear')) await rem.vistaFirma(nuevo, param);
+      else if (param) await rem.vistaRemito(nuevo, param);
+      else await vistaConformidades(nuevo);
+    }
     else if (ruta === 'facturacion' && puede('importes.ver')) {
       if (param === 'nueva' && puede('facturas.emitir')) await vistaVentaDirecta(nuevo);
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);

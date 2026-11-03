@@ -16,42 +16,46 @@ export function crearRemitos(U) {
   const telBonito = (n) => (n ? `+54 9 ${n.slice(3, 5)} ${n.slice(5, 9)}-${n.slice(9)}` : '');
   const ESTADO = { emitido: ['Sin firmar', 'aviso'], firmado: ['Firmado', 'ok'], anulado: ['Anulado', 'malo'] };
   const TIPO = { entrega: 'Entrega de insumos', mixto: 'Instalación de equipo', servicio: 'Conformidad de servicio' };
+  /** Los remitos viven en #/remitos y las conformidades de servicio en #/conformidades. */
+  const rutaDoc = (r, sufijo = '') => `#/${r.tipo === 'servicio' ? 'conformidades' : 'remitos'}/${r.id}${sufijo}`;
   const abrir = (url) => window.open(url, '_blank', 'noopener');
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); aviso('Enlace copiado'); } catch { window.prompt('Copiá el enlace:', t); } };
 
   // ---------- lista ----------
-  const filaRemito = (r, conCliente = true) => h('li', { class: 'fila', tabindex: '0', style: 'cursor:pointer', onclick: () => { location.hash = `#/remitos/${r.id}`; }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = `#/remitos/${r.id}`; } },
+  const filaRemito = (r, conCliente = true) => h('li', { class: 'fila', tabindex: '0', style: 'cursor:pointer', onclick: () => { location.hash = rutaDoc(r); }, onkeydown: (ev) => { if (ev.key === 'Enter') location.hash = rutaDoc(r); } },
     h('div', { style: 'min-width:0;flex:1' },
       h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, h('b', { class: 'num-t' }, r.numero), chip(...(ESTADO[r.estado] ?? [r.estado, 'mudo']))),
-      h('div', { class: 'apoyo' }, [conCliente && r.cliente, TIPO[r.tipo] ?? r.tipo, `${r.unidades} u.`, r.ticket].filter(Boolean).join(' · '))),
+      h('div', { class: 'apoyo' }, [conCliente && r.cliente, TIPO[r.tipo] ?? r.tipo, r.tipo !== 'servicio' && `${r.unidades} u.`, r.tipo !== 'servicio' && r.ticket].filter(Boolean).join(' · '))),
     h('div', { style: 'text-align:right' }, h('div', null, fecha(r.fecha)), r.conformidad && h('div', { class: 'apoyo' }, `${r.tipo === 'servicio' ? 'Conformó' : 'Recibió'} ${r.conformidad.nombre}`)));
 
   async function vistaRemitos(destino) {
-    let estado = ''; let q = ''; let tipo = '';
+    let estado = ''; let q = '';
     const lista = h('div'); const buscar = h('input', { type: 'search', placeholder: 'Buscar por número o cliente', 'aria-label': 'Buscar remitos' });
-    const pills = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado' }); const tipos = h('div', { class: 'seg', role: 'group', 'aria-label': 'Tipo' });
+    const pills = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado' });
     async function cargar() {
-      const p = new URLSearchParams({ limite: '50' }); if (estado) p.set('estado', estado); if (tipo) p.set('tipo', tipo); if (q) p.set('q', q);
+      const p = new URLSearchParams({ limite: '50', tipo: 'entrega' }); if (estado) p.set('estado', estado); if (q) p.set('q', q);
       const r = await api(`/api/remitos?${p}`);
       vaciar(pills).append(...[['', 'Todos', (r.por_estado.emitido ?? 0) + (r.por_estado.firmado ?? 0)], ['emitido', 'Sin firmar', r.por_estado.emitido ?? 0], ['firmado', 'Firmados', r.por_estado.firmado ?? 0]]
         .map(([k, t, n]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(estado === k), onclick: () => { estado = k; cargar(); } }, `${t} (${n})`)));
-      vaciar(tipos).append(...[['', 'Todo'], ['entrega', 'Remitos de entrega'], ['servicio', 'Conformidades de servicio']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(tipo === k), onclick: () => { tipo = k; cargar(); } }, t)));
-      vaciar(lista).append(r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x)))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay nada para mostrar'), 'Los remitos se generan al entregar insumos o equipos. Las conformidades de servicio, al cerrar un ticket.'));
+      vaciar(lista).append(r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x)))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay remitos para mostrar'), 'Los remitos se generan al entregar insumos o equipos.'));
     }
     let espera; buscar.addEventListener('input', () => { clearTimeout(espera); espera = setTimeout(() => { q = buscar.value.trim(); cargar(); }, 250); });
-    destino.append(encabezado('Remitos y conformidades', 'Remitos de entrega de equipos e insumos, y conformidades de los servicios', puede('remitos.crear') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/remitos/nuevo' }, '+ Nuevo remito'))),
-      h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px' }, tipos, pills, h('div', { style: 'flex:1;min-width:200px' }, buscar)), lista);
+    destino.append(encabezado('Remitos', 'Entregas de equipos e insumos', puede('remitos.crear') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/remitos/nuevo' }, '+ Nuevo remito'))),
+      h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px' }, pills, h('div', { style: 'flex:1;min-width:200px' }, buscar)), lista);
     await cargar();
   }
 
-  /** Remitos de un cliente (solapa Documentos de la ficha del cliente). */
+  /** Remitos y conformidades de servicio de un cliente (solapa Documentos de la ficha del cliente), en dos listas separadas. */
   function panelCliente(clienteId) {
-    const caja = h('div', { class: 'tarjeta', style: 'margin-top:16px' }, cargando());
-    api(`/api/remitos?cliente=${clienteId}&limite=50`).then((r) => {
-      vaciar(caja).append(h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px' }, h('h2', { style: 'margin:0' }, `Remitos y conformidades (${r.total})`),
-        puede('remitos.crear') && h('a', { class: 'btn', href: `#/remitos/nuevo/${clienteId}` }, '+ Nuevo remito')),
-      r.items.length ? h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x, false))) : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no hay remitos ni conformidades para este cliente.'));
-    }).catch((e) => { if (e.message !== 'sesion') vaciar(caja).append(h('p', { class: 'apoyo' }, 'No se pudieron cargar los remitos.')); });
+    const caja = h('div', { style: 'margin-top:16px' }, h('div', { class: 'tarjeta' }, cargando()));
+    Promise.all([api(`/api/remitos?cliente=${clienteId}&tipo=entrega&limite=50`), api(`/api/remitos?cliente=${clienteId}&tipo=servicio&limite=50`)]).then(([ent, srv]) => {
+      vaciar(caja).append(
+        h('div', { class: 'tarjeta' }, h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px' }, h('h2', { style: 'margin:0' }, `Remitos (${ent.total})`),
+          puede('remitos.crear') && h('a', { class: 'btn', href: `#/remitos/nuevo/${clienteId}` }, '+ Nuevo remito')),
+          ent.items.length ? h('ul', { class: 'lista' }, ent.items.map((x) => filaRemito(x, false))) : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no hay remitos de entrega para este cliente.')),
+        h('div', { class: 'tarjeta' }, h('h2', { style: 'margin:0 0 8px' }, `Conformidades de servicio (${srv.total})`),
+          srv.items.length ? h('ul', { class: 'lista' }, srv.items.map((x) => filaRemito(x, false))) : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no hay conformidades de servicio para este cliente.')));
+    }).catch((e) => { if (e.message !== 'sesion') vaciar(caja).append(h('div', { class: 'tarjeta' }, h('p', { class: 'apoyo', style: 'margin:0' }, 'No se pudieron cargar los documentos.'))); });
     return caja;
   }
 
@@ -84,7 +88,7 @@ export function crearRemitos(U) {
       try {
         const r = await api('/api/remitos/entrega', { metodo: 'POST', cuerpo: { cliente_id: Number(cli.value), ...(sede.value ? { sede_id: Number(sede.value) } : {}), ...(obs.value.trim() ? { observaciones: obs.value.trim() } : {}), items: items.map((x) => ({ insumo_id: x.id, cantidad: x.cant })), equipos: equipos.map((x) => x.id) } });
         if (r.costo_usd > 0) aviso(`Remito generado. Se sumaron ${usd(r.costo_usd)} al costo del cliente.${r.insumos_sin_costo?.length ? ` Sin costo cargado: ${r.insumos_sin_costo.join(', ')}.` : ''}`); else aviso('Remito generado');
-        location.hash = `#/remitos/${r.id}`;
+        location.hash = rutaDoc(r);
       } catch (e) { if (e.message === 'sesion') return; mostrar(error, msg(e)); boton.disabled = false; }
     } }, error,
     h('div', { class: 'tarjeta' }, h('h2', null, '¿A quién se le entrega?'), campo('Cliente', cli), campo('Sede de entrega', sede)),
@@ -167,7 +171,7 @@ export function crearRemitos(U) {
   async function vistaFirma(destino, id) {
     const r = await api(`/api/remitos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
     if (!r) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese remito'))); return; }
-    if (!r.puede_firmar) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, r.estado === 'firmado' ? 'Este remito ya está firmado' : 'No se puede firmar este remito'), h('a', { class: 'btn', href: `#/remitos/${id}` }, 'Ver remito'))); return; }
+    if (!r.puede_firmar) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, r.estado === 'firmado' ? (r.tipo === 'servicio' ? 'Esta conformidad ya está firmada' : 'Este remito ya está firmado') : (r.tipo === 'servicio' ? 'No se puede firmar esta conformidad' : 'No se puede firmar este remito')), h('a', { class: 'btn', href: rutaDoc(r) }, r.tipo === 'servicio' ? 'Ver conformidad' : 'Ver remito'))); return; }
     const nombre = h('input', { id: 'f-nombre', maxlength: 120, autocomplete: 'off', placeholder: 'Nombre y apellido', required: true }); const cargo = h('input', { maxlength: 80, placeholder: 'Cargo (opcional)', autocomplete: 'off' });
     const dni = h('input', { maxlength: 20, inputmode: 'numeric', placeholder: 'DNI (opcional)', autocomplete: 'off' });
     const mail = h('input', { type: 'email', maxlength: 160, placeholder: 'Mail (opcional)', autocomplete: 'off', value: r.contactos.flatMap((c) => c.emails)[0] ?? '' });
@@ -191,14 +195,14 @@ export function crearRemitos(U) {
     h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad'), h('p', { style: 'margin:0 0 4px' }, srv ? 'Doy conformidad al servicio realizado, según el detalle de este comprobante.' : 'Recibo conforme lo detallado en este remito.'), pad.el,
       h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center' }, h('span', { class: 'apoyo' }, 'Firmá con el dedo dentro del recuadro'), h('button', { type: 'button', class: 'rapido', onclick: () => pad.limpiar() }, 'Borrar'))), boton);
     cuerpo.append(form);
-    destino.append(h('a', { href: `#/remitos/${id}`, class: 'apoyo' }, `← ${r.documento} ${r.numero}`), encabezado(srv ? 'Conformidad de servicio' : 'Conformidad de recepción', `${r.cliente.nombre_comercial || r.cliente.razon_social} · ${srv ? '' : 'remito '}${r.numero}`), cuerpo);
+    destino.append(h('a', { href: rutaDoc(r), class: 'apoyo' }, `← ${r.documento} ${r.numero}`), encabezado(srv ? 'Conformidad de servicio' : 'Conformidad de recepción', `${r.cliente.nombre_comercial || r.cliente.razon_social} · ${srv ? '' : 'remito '}${r.numero}`), cuerpo);
   }
 
   function pantallaListo(r, out, nombre) {
     const srv = r.tipo === 'servicio'; const auto = out.enviado?.mail ? 'por mail' : '';
     return h('div', null, h('div', { class: 'tarjeta listo' }, h('div', { class: 'tilde' }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M5 12.5l4.5 4.5L19 7.5' }))),
       h('h2', null, srv ? 'Servicio conformado' : 'Remito firmado'), h('p', null, srv ? `${nombre} dio su conformidad. Quedó guardada junto al ticket ${r.servicio?.ticket?.numero ?? r.numero}.` : `Recibió ${nombre}. La conformidad quedó guardada junto al remito ${r.numero}.`), auto && h('p', { class: 'apoyo' }, `Ya se le envió ${auto}.`),
-      h('div', { class: 'acciones', style: 'justify-content:center' }, h('a', { class: 'btn btn-principal', href: `/api/remitos/${r.id}/pdf?descargar=1` }, 'Descargar PDF'), h('a', { class: 'btn', href: `#/remitos/${r.id}` }, srv ? 'Ver conformidad' : 'Ver remito'))),
+      h('div', { class: 'acciones', style: 'justify-content:center' }, h('a', { class: 'btn btn-principal', href: `/api/remitos/${r.id}/pdf?descargar=1` }, 'Descargar PDF'), h('a', { class: 'btn', href: rutaDoc(r) }, srv ? 'Ver conformidad' : 'Ver remito'))),
     h('div', { class: 'tarjeta' }, h('h2', null, srv ? 'Enviar la conformidad al cliente' : 'Enviar el remito firmado'), panelEnvio(r, null, { compacto: true })));
   }
 
@@ -246,7 +250,7 @@ export function crearRemitos(U) {
               h('div', { class: 'apoyo' }, `${c.metodo === 'papel' ? `Firmó el ${r.documento.toLowerCase()} en papel` : 'Firmó en pantalla'} · ${cuando(c.firmado_en)}`))
               : h('p', { class: 'apoyo', style: 'margin:6px 0 0' }, 'Todavía sin firmar.'))));
       const acciones = h('div', { class: 'acciones no-imprimir' },
-        r.puede_firmar && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.id}/firmar` }, 'Tomar conformidad en el celular'),
+        r.puede_firmar && h('a', { class: 'btn btn-principal', href: rutaDoc(r, '/firmar') }, 'Tomar conformidad en el celular'),
         h('a', { class: 'btn', href: `/api/remitos/${r.id}/pdf?descargar=1` }, 'Descargar PDF'), h('button', { class: 'btn', type: 'button', onclick: () => abrir(`/api/remitos/${r.id}/pdf`) }, 'Ver / imprimir'));
       const lateral = h('div', null,
         h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad'),
@@ -259,7 +263,7 @@ export function crearRemitos(U) {
         puede('remitos.crear') && panelEnvio(r, pintar),
         r.envios.length > 0 && h('div', { class: 'tarjeta' }, h('h2', null, 'Envíos'), h('ul', { class: 'lista' }, r.envios.map((e) => h('li', null, h('div', null, h('b', null, e.canal === 'mail' ? 'Mail' : 'WhatsApp'), ` · ${e.destino}`, h('div', { class: 'apoyo' }, `${cuando(e.created_at)}${e.usuario ? ` · ${e.usuario}` : ''}${e.detalle ? ` · ${e.detalle}` : ''}`)),
           chip(e.resultado === 'enviado' ? 'Enviado' : e.resultado === 'manual' ? 'Abierto' : 'Error', e.resultado === 'enviado' ? 'ok' : e.resultado === 'manual' ? 'info' : 'malo'))))));
-      vaciar(cuerpo).append(h('a', { href: '#/remitos', class: 'apoyo no-imprimir' }, '← Remitos y conformidades'),
+      vaciar(cuerpo).append(h('a', { href: srv ? '#/conformidades' : '#/remitos', class: 'apoyo no-imprimir' }, srv ? '← Conformidades' : '← Remitos'),
         encabezado(`${r.documento} ${r.numero}`, `${cliente} · ${fecha(r.fecha)}`, acciones), h('div', { class: 'rejilla dos-remito' }, hoja, lateral));
     }
     await pintar();

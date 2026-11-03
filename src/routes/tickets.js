@@ -194,6 +194,7 @@ export default async function rutasTickets(app, { db }) {
     ]);
     for (const r of remitos) {
       r.conformidad = await db('conformidades').where({ documento_tipo: 'remito', documento_id: r.id }).select('firmante_nombre', 'firmante_cargo', 'firmado_en', 'aceptado').first() ?? null;
+      r.puntaje = (await db('encuestas').where({ remito_id: r.id }).first())?.puntaje ?? null;
     }
     return {
       ...t, cliente, sede, equipo, tecnico, eventos,
