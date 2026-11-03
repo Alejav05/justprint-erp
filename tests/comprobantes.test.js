@@ -113,3 +113,20 @@ test('el saludo del aviso depende de la hora de Buenos Aires', async () => {
   assert.equal(saludoSegunHora(new Date('2026-11-04T02:59:00Z')), 'buenas tardes!'); // 23:59 ART
   assert.equal(saludoSegunHora(new Date('2026-11-03T03:00:00Z')), 'buenos días!'); // 00:00 ART
 });
+
+test('el aviso de prueba va solo al mail elegido, con [PRUEBA] y el PDF, y no queda como aviso al cliente', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const enviados = [];
+  reemplazarCanal('mail', { configurado: () => true, enviar: async (m) => { enviados.push(m); } });
+  let [fp] = await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-10', moneda: 'USD', neto: 85, iva: 17.85, total: 102.85, numero: 'PR-1', estado: 'emitida' }); fp = fp.id ?? fp;
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fp}/aviso/prueba`, { email: 'yo@mio.com' })).json().error, 'sin_comprobante');
+  assert.equal((await subir(fp, PDF('prueba'))).statusCode, 201);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fp}/aviso/prueba`, { email: 'no-es-mail' })).statusCode, 400);
+  const r = await dir.llamar('POST', `/api/facturas/${fp}/aviso/prueba`, { email: 'Yo@Mio.com' });
+  assert.equal(r.statusCode, 200);
+  assert.equal(enviados.length, 1); assert.equal(enviados[0].to, 'yo@mio.com'); assert.equal(enviados[0].subject, '[PRUEBA] FAC Servicio de Impresión Octubre <> JustPrint'); assert.equal(enviados[0].attachments.length, 1);
+  assert.equal((await dir.llamar('GET', `/api/facturas/${fp}`)).json().avisos.length, 0);
+  reemplazarCanal('mail', { configurado: () => true, enviar: async () => { throw Object.assign(new Error('x'), { code: 'EAUTH' }); } });
+  const e = await dir.llamar('POST', `/api/facturas/${fp}/aviso/prueba`, { email: 'yo@mio.com' });
+  assert.equal(e.statusCode, 502); assert.equal(e.json().detalle, 'EAUTH');
+});

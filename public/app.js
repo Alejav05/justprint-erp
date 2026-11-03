@@ -1408,7 +1408,19 @@ async function vistaFactura(destino, id) {
         h('dl', { class: 'datos' }, h('div', null, h('dt', null, 'Para'), h('dd', null, v.para.length ? v.para.join(', ') : 'Nadie: el cliente no tiene un contacto con rol Facturación y mail')),
           h('div', null, h('dt', null, 'Asunto'), h('dd', null, v.asunto)), h('div', null, h('dt', null, 'Adjunto'), h('dd', null, v.adjunto ?? 'Todavía no subiste el PDF'))),
         h('iframe', { title: 'Vista previa del mail', sandbox: '', srcdoc: `<body style="margin:16px;background:#fff">${v.html}</body>`, style: 'width:100%;height:520px;border:1px solid #ddd;border-radius:8px;background:#fff;margin-top:12px' }),
-        !v.mail_configurado && h('p', { class: 'apoyo' }, 'Ojo: el envío de mails todavía no está configurado en el servidor.')));
+        !v.mail_configurado && h('p', { class: 'apoyo' }, 'Ojo: el envío de mails todavía no está configurado en el servidor.'),
+        v.adjunto && v.mail_configurado && (() => {
+          const mail = h('input', { type: 'email', placeholder: 'tu@mail.com', 'aria-label': 'Mail para la prueba', maxlength: 160, style: 'flex:1;min-width:200px' });
+          const msg = h('div', { class: 'apoyo', role: 'status' }); const b = h('button', { class: 'btn btn-principal', type: 'button' }, 'Enviarme una prueba');
+          b.addEventListener('click', async () => {
+            if (!mail.value.trim()) { msg.textContent = 'Escribí el mail donde querés recibirla.'; return; }
+            b.disabled = true; msg.textContent = 'Enviando…';
+            try { await api(`/api/facturas/${f.id}/aviso/prueba`, { metodo: 'POST', cuerpo: { email: mail.value.trim() } }); msg.textContent = `Listo: te la mandamos a ${mail.value.trim()} con "[PRUEBA]" en el asunto. Al cliente no le llegó nada.`; }
+            catch (x) { msg.textContent = x.datos?.detalle ? `No se pudo enviar (${x.datos.detalle}). Revisá las variables SMTP de la casilla.` : 'No se pudo enviar. Revisá el mail y las variables SMTP de la casilla.'; }
+            b.disabled = false;
+          });
+          return h('div', { style: 'margin-top:16px' }, h('b', null, 'Probalo con tu mail'), h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px' }, mail, b), msg);
+        })()));
     } }, 'Ver vista previa del mail');
     const reenviar = h('button', { class: 'btn', type: 'button', onclick: async () => {
       if (!window.confirm(`¿Mandar la factura a ${f.destinatarios_aviso.join(', ')}?`)) return;

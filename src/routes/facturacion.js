@@ -268,6 +268,25 @@ export default async function rutasFacturacion(app, { db }) {
     return { asunto: m.subject, html: m.html, para: dest.map((d) => d.email), adjunto: meta ? (meta.nombre_original || 'Factura.pdf') : null, mail_configurado: canales.mail.configurado() };
   });
 
+  /** Manda el aviso a un mail a elección (con "[PRUEBA]" en el asunto) para ver cómo llega, sin avisarle al cliente ni dejar registro de aviso. */
+  app.post('/api/facturas/:id/aviso/prueba', { preHandler: emitir }, async (req, reply) => {
+    const d = z.object({ email: z.string().trim().toLowerCase().email().max(160) }).parse(req.body);
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    if (f.estado === 'borrador' || f.estado === 'anulada') return error(reply, 409, 'estado_invalido');
+    const c = await db('factura_comprobantes_contenido').where({ factura_id: f.id }).first();
+    if (!c) return error(reply, 409, 'sin_comprobante');
+    if (!canales.mail.configurado()) return error(reply, 409, 'mail_sin_configurar');
+    const meta = await db('factura_comprobantes').where({ factura_id: f.id }).first();
+    const m = armarMensaje({ factura: f });
+    try {
+      await canales.mail.enviar({ to: d.email, subject: `[PRUEBA] ${m.subject}`, text: m.text, html: m.html, cuenta: 'facturacion',
+        attachments: [{ filename: meta?.nombre_original || 'Factura.pdf', content: Buffer.from(c.contenido), contentType: 'application/pdf' }] });
+    } catch (e) { return error(reply, 502, 'no_se_pudo_enviar', { detalle: String(e.code ?? e.message ?? '').slice(0, 160) }); }
+    await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'factura_avisos', f.id, null, { prueba: true, a: d.email });
+    return { ok: true, a: d.email };
+  });
+
   app.post('/api/facturas/:id/avisar', { preHandler: emitir }, async (req, reply) => {
     const f = await cargarFactura(req.ctx, Number(req.params.id));
     if (!f) return error(reply, 404, 'no_encontrado');
