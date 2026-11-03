@@ -17,7 +17,7 @@ export default async function rutasAjustes(app, { db }) {
   const ver = [auth, requerirPermiso('importes.ver')];
   const editar = [auth, requerirPermiso('importes.ver'), requerirPermiso('contratos.editar')];
 
-  app.get('/api/ipc', { preHandler: ver }, async () => ({ items: (await db('indices_ipc').orderBy('periodo', 'desc').limit(48)).map(salidaIndice) }));
+  app.get('/api/ipc', { preHandler: ver }, async () => ({ items: (await db('indices_ipc').orderBy('periodo', 'desc').limit(120)).map(salidaIndice) }));
 
   /** Carga o corrige un índice a mano. Lo cargado a mano queda revisado y el importador no lo pisa. */
   app.put('/api/ipc/:periodo', { preHandler: editar }, async (req, reply) => {
@@ -40,7 +40,7 @@ export default async function rutasAjustes(app, { db }) {
 
   /** Trae el IPC publicado (datos.gob.ar / INDEC). Agrega lo que falta y actualiza lo importado que nadie revisó; lo revisado o cargado a mano no se toca. */
   async function importar(usuarioId, ip) {
-    const desde = sumarPeriodo(hoy().slice(0, 7), -14);
+    const desde = sumarPeriodo(hoy().slice(0, 7), -38); // 3 años de historia
     const nuevos = await traerIpc({ desde }); let agregados = 0; let actualizados = 0;
     await db.transaction(async (trx) => {
       for (const x of nuevos) {
@@ -100,12 +100,14 @@ export default async function rutasAjustes(app, { db }) {
       const r = await calcular(c, null);
       const cliente = c.nombre_comercial || c.razon_social;
       const mesHoy = hoy().slice(0, 7);
-      const comun = { contrato_id: c.id, cliente, contrato: c.nombre, cada: c.ajuste_ipc_meses, desde: r.desde ?? null };
+      const dias = r.desde ? Math.round((Date.parse(`${r.desde}-01`) - Date.parse(hoy())) / 86400000) : null;
+      const comun = { contrato_id: c.id, cliente, contrato: c.nombre, cada: c.ajuste_ipc_meses, desde: r.desde ?? null, dias, aviso: dias != null && dias <= 15 };
       if (r.error && r.error !== 'faltan_ipc') { items.push({ ...comun, estado: r.error }); continue; }
       const estado = r.error === 'faltan_ipc' ? (r.desde > mesHoy ? 'futuro' : 'faltan_ipc') : (r.desde > mesHoy ? 'futuro' : (r.sin_revisar.length ? 'revisar' : 'listo'));
       items.push({ ...comun, estado, meses: r.meses, faltan: r.faltan ?? [], ipc: r.ipc ?? null, pct: r.pct ?? null, actual: r.actual, nuevo: r.nuevo ?? null, vigente_desde: r.vigente_desde });
     }
-    const indices = (await db('indices_ipc').orderBy('periodo', 'desc').limit(18)).map(salidaIndice);
+    for (const it of items) it.aviso = it.aviso && ['futuro', 'faltan_ipc', 'revisar', 'listo'].includes(it.estado);
+    const indices = (await db('indices_ipc').orderBy('periodo', 'desc').limit(120)).map(salidaIndice);
     return { items, indices };
   });
 

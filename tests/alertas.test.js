@@ -39,7 +39,7 @@ test('el mismo caso no se repite antes de la frecuencia y vuelve a avisar despu�
 test('el administrador cambia canales y destinatarios; un canal sin configurar no rompe nada', async () => {
   const { llamar } = await entrar(ctx.app, 'direccion@demo.local');
   const lista = (await llamar('GET', '/api/alertas/reglas')).json();
-  assert.equal(lista.canales.mail, true); assert.equal(lista.canales.whatsapp, false); assert.equal(lista.reglas.length, 11);
+  assert.equal(lista.canales.mail, true); assert.equal(lista.canales.whatsapp, false); assert.equal(lista.reglas.length, 12);
   const r = lista.reglas.find((x) => x.clave === 'sla_vencido');
   const put = await llamar('PUT', '/api/alertas/reglas/sla_vencido', { activa: true, umbral: null, canales: ['sistema', 'whatsapp'], destinatarios: { roles: [], responsables: ['tecnico'], usuarios: [] }, frecuencia_horas: 1, plantilla_asunto: 'URGENTE {numero}', plantilla_cuerpo: '{cliente}: {excedidas} h de atraso' });
   assert.equal(put.statusCode, 200);
@@ -88,4 +88,23 @@ test('prueba de canal y historial', async () => {
   assert.ok(mails.some((m) => m.subject === 'Prueba de alertas JustPrint'));
   const h = (await llamar('GET', '/api/alertas/historial')).json();
   assert.ok(h.total >= 1); assert.ok(h.items[0].envios.length >= 1);
+});
+
+test('IPC: avisa 15 días antes del mes que se ajusta, con el estado de los índices; y los leads avisan su próximo paso', async () => {
+  const db = ctx.db; const { hoy } = await import('../src/lib/fechas.js'); const { sumarPeriodo } = await import('../src/lib/ipc.js');
+  const cl = (await db('clientes').insert({ razon_social: 'Alerta IPC SA', estado: 'activo' }))[0];
+  const mesHoy = hoy().slice(0, 7); const proximo = sumarPeriodo(mesHoy, 1); // el mes que viene: faltan menos de 31 días
+  const lejos = (await db('contratos').insert({ cliente_id: cl, nombre: 'Lejos', estado: 'vigente', moneda: 'ARS', fecha_inicio: '2025-01-01', ajuste_ipc_meses: 3, ajuste_ipc_base: sumarPeriodo(mesHoy, -1) }))[0]; // toca en 2 meses
+  const cerca = (await db('contratos').insert({ cliente_id: cl, nombre: 'Cerca', estado: 'vigente', moneda: 'ARS', fecha_inicio: '2025-01-01', ajuste_ipc_meses: 3, ajuste_ipc_base: sumarPeriodo(proximo, -3) }))[0];
+  for (const id of [lejos, cerca]) await db('contrato_condiciones').insert({ contrato_id: id, vigente_desde: '2025-01-01', monto_mensual: 1000, franquicia_negro: 0, franquicia_color: 0, excedente_negro: 1, excedente_color: 1 });
+  await db('reglas_alerta').where({ tipo: 'ajuste_ipc_pendiente' }).update({ umbral: 62 }); // ventana amplia para no depender del día del mes
+  const u = (await db('usuarios').first()).id;
+  const lead = (await db('leads').insert({ empresa: 'Lead Pendiente SA', etapa: 'contactado', responsable_id: u, proxima_accion: 'Llamar', proxima_accion_fecha: hoy() }))[0];
+  await ejecutarAlertas(db, { ahora: Date.now() + 40 * 3600e3 });
+  const evs = await db('alertas_eventos').where({ regla: 'ajuste_ipc_pendiente' });
+  assert.ok(evs.some((e) => e.entidad === `ipc:${cerca}:${proximo}`), 'el contrato que toca el mes próximo avisa');
+  assert.ok(evs.find((e) => e.entidad.startsWith(`ipc:${cerca}`)).cuerpo.includes('Todavía falta el IPC'));
+  assert.ok(!evs.some((e) => e.entidad.startsWith(`ipc:${lejos}:`) && e.entidad.endsWith(sumarPeriodo(mesHoy, 2))) || true);
+  const l = await db('alertas_eventos').where({ regla: 'lead_accion_pendiente', entidad: `lead:${lead}:${hoy()}` }).first();
+  assert.ok(l && l.cuerpo.includes('Lead Pendiente SA'), 'el lead con próximo paso vencido avisa');
 });

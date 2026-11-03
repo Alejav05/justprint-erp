@@ -587,6 +587,7 @@ function proximoAjuste(c) {
     h('div', { class: 'apoyo' }, 'Se calcula con el IPC de los meses anteriores. El sistema propone y vos confirmás.'));
 }
 
+const sumarMesP = (p, n) => { const t = Number(p.slice(0, 4)) * 12 + Number(p.slice(5, 7)) - 1 + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
 const chipFuenteIpc = (x) => (x.revisado ? chip(x.fuente === 'indec' ? 'INDEC · revisado' : 'Cargado a mano', 'ok') : chip('INDEC · sin revisar', 'aviso'));
 
 /** Propuesta de ajuste de un contrato: IPC de los meses que cuentan, acumulado compuesto, precios hoy/nuevo. `recargar` vuelve a calcular. */
@@ -652,11 +653,12 @@ async function vistaAjustesIpc(destino) {
         if (['listo', 'revisar'].includes(x.estado)) det.open = true;
         return h('div', { class: 'tarjeta' }, det);
       }) : [h('div', { class: 'tarjeta vacio' }, h('b', null, 'Ningún contrato en pesos tiene acuerdo de ajuste'), h('div', { class: 'apoyo' }, 'Se carga en cada contrato, en "Editar datos": cada cuántos meses y desde qué mes.'))]),
-      h('h2', { style: 'margin:20px 0 8px' }, 'Índices de IPC'),
-      d.indices.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Mes'), h('th', { class: 'num' }, 'Variación'), h('th', null, 'Estado'), puede('contratos.editar') && h('th', null, ''))),
-        h('tbody', null, d.indices.map((i) => {
+      h('h2', { style: 'margin:20px 0 8px' }, 'Histórico de IPC (INDEC, nivel general)'),
+      d.indices.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Mes'), h('th', { class: 'num' }, 'Variación'), h('th', { class: 'num' }, 'Últimos 3 meses'), h('th', { class: 'num' }, 'Últimos 12 meses'), h('th', null, 'Estado'), puede('contratos.editar') && h('th', null, ''))),
+        h('tbody', null, d.indices.map((i, k) => {
+          const acum = (n) => (d.indices.length - k >= n && d.indices.slice(k, k + n).every((_, j) => j === 0 || d.indices[k + j].periodo === sumarMesP(d.indices[k + j - 1].periodo, -1)) ? `${(d.indices.slice(k, k + n).reduce((f, x) => f * (1 + x.variacion / 100), 1) * 100 - 100).toFixed(1)}%` : '—');
           const inp = h('input', { type: 'number', step: '0.1', value: i.variacion, 'aria-label': `IPC ${i.periodo}`, style: 'width:90px' });
-          return h('tr', null, h('td', null, nombreMes(i.periodo)), h('td', { class: 'num' }, `${i.variacion}%`), h('td', null, chipFuenteIpc(i)),
+          return h('tr', null, h('td', null, nombreMes(i.periodo)), h('td', { class: 'num' }, `${i.variacion}%`), h('td', { class: 'num' }, acum(3)), h('td', { class: 'num' }, acum(12)), h('td', null, chipFuenteIpc(i)),
             puede('contratos.editar') && h('td', null, i.revisado ? null : h('button', { class: 'btn', type: 'button', onclick: async () => { await api(`/api/ipc/${i.periodo}/revisar`, { metodo: 'POST' }); cargar(); } }, 'Marcar revisado'), ' ',
               h('details', { style: 'display:inline-block' }, h('summary', null, 'Corregir'), inp, h('button', { class: 'btn', type: 'button', onclick: async () => { await api(`/api/ipc/${i.periodo}`, { metodo: 'PUT', cuerpo: { variacion: Number(inp.value) } }); cargar(); } }, 'Guardar'))));
         })))) : h('div', { class: 'tarjeta vacio' }, 'Todavía no hay índices cargados. Tocá "Traer del INDEC".'));
@@ -1355,6 +1357,11 @@ async function vistaFacturacion(destino, tab) {
   if (!tabs.includes(tab) || (tab === 'liquidacion' && !puede('facturas.emitir'))) tab = puede('facturas.emitir') ? 'liquidacion' : 'facturas';
   destino.append(encabezado('Facturación', 'Todo en USD neto de IVA; el IVA se suma al facturar.',
     puede('facturas.emitir') && h('div', { class: 'acciones' }, h('a', { class: 'btn', href: '#/facturacion/nueva' }, '+ Venta directa'))), pestanasFact(tab));
+  const avisoIpc = h('div'); destino.append(avisoIpc);
+  api('/api/ajustes-ipc').then((d) => {
+    const n = d.items.filter((x) => x.aviso).length; if (!n) return;
+    avisoIpc.append(h('div', { class: 'alerta-item aviso', style: 'margin-bottom:16px' }, h('b', null, `${n} contrato${n === 1 ? '' : 's'} para ajustar por IPC. `), 'Antes de facturar, fijate si cambian los precios del mes. ', h('a', { href: '#/ajustes-ipc' }, 'Ver ajustes')));
+  }).catch(() => {});
   const cuerpo = h('div'); destino.append(cuerpo);
   if (tab === 'liquidacion') await tabLiquidacion(cuerpo); else await tabFacturas(cuerpo);
 }

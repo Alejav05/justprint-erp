@@ -1,7 +1,7 @@
 // Motor de alertas: cada regla mira el estado actual del negocio, y por cada caso que cumple arma el aviso con los datos de ese momento.
 import { canales } from './canales.js';
 import { aDia, hoy } from './fechas.js';
-import { proximoAjusteMes } from './ipc.js';
+import { mesesAntes, proximoAjusteMes } from './ipc.js';
 import { semaforo } from './cobranzas.js';
 import { valor } from './ajustes_sistema.js';
 import { estadoSla } from './servicio.js';
@@ -169,23 +169,37 @@ export const REGLAS = [
     },
   },
   {
-    clave: 'ajuste_ipc_pendiente', nombre: 'Ajuste por IPC pendiente', descripcion: 'Un contrato en pesos cumplió el intervalo de ajuste sin actualizar sus precios (el intervalo se define en Configuración).', unidad: null, umbral: null,
+    clave: 'ajuste_ipc_pendiente', nombre: 'Ajuste por IPC próximo', descripcion: 'Se acerca el mes en que un contrato en pesos debe ajustarse por IPC, según su acuerdo. Avisa con anticipación y sigue avisando hasta que se aplique.', unidad: 'días antes', umbral: 15,
     canales: ['sistema', 'mail'], destinatarios: { roles: ['direccion', 'head_comercial'], responsables: ['comercial'], usuarios: [] }, frecuencia_horas: 168,
-    asunto: 'Ajuste por IPC pendiente: {cliente}', cuerpo: 'El contrato "{contrato}" de {cliente} tiene los mismos precios desde {desde}. Toca revisar el ajuste con el cliente. Lo valida y lo carga una persona; el sistema solo calcula y avisa.', variables: ['cliente', 'contrato', 'desde'],
-    async evaluar(db) {
-      const h = hoy(); const out = []; const cartera = await carteraDe(db); const umbral = valor('ipc.meses_ajuste') ?? 3;
+    asunto: 'Ajuste por IPC: {cliente} desde {mes}', cuerpo: 'El contrato "{contrato}" de {cliente} se ajusta por IPC desde el servicio de {mes}. {estado_ipc} Se revisa y confirma en Ajustes por IPC; lo valida una persona.', variables: ['cliente', 'contrato', 'mes', 'estado_ipc', 'desde'],
+    async evaluar(db, { umbral }) {
+      const h = hoy(); const out = []; const cartera = await carteraDe(db); const dias = umbral ?? 15; const meses = valor('ipc.meses_ajuste') ?? 3;
       const cs = await db('contratos as c').join('clientes', 'clientes.id', 'c.cliente_id').where({ 'c.estado': 'vigente', 'c.moneda': 'ARS' }).whereNull('c.deleted_at').select('c.id', 'c.nombre', 'c.cliente_id', 'c.ajuste_ipc_meses', 'c.ajuste_ipc_base', 'clientes.razon_social', 'clientes.nombre_comercial');
       for (const c of cs) {
         const cond = await db('contrato_condiciones').where({ contrato_id: c.id }).whereNull('vigente_hasta').orderBy('vigente_desde', 'desc').first(); if (!cond) continue;
-        const desde = aDia(cond.vigente_desde);
-        if (c.ajuste_ipc_meses) { // con acuerdo propio: toca desde el primer día del mes de servicio que se ajusta
+        const desde = aDia(cond.vigente_desde); const fdesde = desde.split('-').reverse().join('/');
+        if (c.ajuste_ipc_meses) { // con acuerdo propio: avisa `dias` antes del primer día del mes de servicio que se ajusta
           const ult = await db('contrato_condiciones').where({ contrato_id: c.id, motivo: 'ajuste_ipc' }).max({ d: 'vigente_desde' }).first();
           const e = proximoAjusteMes({ meses: c.ajuste_ipc_meses, base: c.ajuste_ipc_base, ultimoAjuste: ult?.d ? aDia(ult.d).slice(0, 7) : null });
-          if (e && `${e}-01` <= h && desde < `${e}-01`) out.push({ entidad: `ipc:${c.id}:${e}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: '#/ajustes-ipc', responsables: { comercial: cartera.get(c.cliente_id) } });
+          if (!e || desde >= `${e}-01` || Date.parse(`${e}-01`) - Date.parse(h) > dias * 86400000) continue;
+          const ventana = mesesAntes(e, c.ajuste_ipc_meses); const hay = new Set((await db('indices_ipc').whereIn('periodo', ventana).select('periodo')).map((x) => x.periodo));
+          const faltan = ventana.filter((m) => !hay.has(m)).map((m) => `${m.slice(5)}/${m.slice(0, 4)}`);
+          out.push({ entidad: `ipc:${c.id}:${e}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, mes: `${e.slice(5)}/${e.slice(0, 4)}`, desde: fdesde, estado_ipc: faltan.length ? `Todavía falta el IPC de ${faltan.join(', ')} (el INDEC lo publica a mitad de mes).` : 'El IPC de los meses que cuentan ya está cargado.' }, destino: '#/ajustes-ipc', responsables: { comercial: cartera.get(c.cliente_id) } });
           continue;
         }
-        if (sumarMeses(desde, umbral) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: `#/clientes/${c.cliente_id}`, responsables: { comercial: cartera.get(c.cliente_id) } });
+        if (sumarMeses(desde, meses) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, mes: fdesde, desde: fdesde, estado_ipc: 'Este contrato no tiene acuerdo de ajuste cargado: definilo en Editar datos.' }, destino: `#/contratos/${c.id}`, responsables: { comercial: cartera.get(c.cliente_id) } });
       }
+      return out;
+    },
+  },
+  {
+    clave: 'lead_accion_pendiente', nombre: 'Próximo paso de un lead', descripcion: 'Llegó (o pasó) la fecha del próximo paso de un lead abierto en Hunting.', unidad: null, umbral: null,
+    canales: ['sistema'], destinatarios: { roles: [], responsables: ['comercial'], usuarios: [] }, frecuencia_horas: 24,
+    asunto: 'Próximo paso: {empresa}', cuerpo: '{empresa}: {accion} (para el {fecha}).', variables: ['empresa', 'accion', 'fecha'],
+    async evaluar(db) {
+      const h = hoy(); const out = [];
+      const ls = await db('leads').whereNotIn('etapa', ['ganado', 'perdido']).whereNull('deleted_at').whereNotNull('proxima_accion_fecha').whereNotNull('responsable_id').where('proxima_accion_fecha', '<=', h).select('id', 'empresa', 'proxima_accion', 'proxima_accion_fecha', 'responsable_id');
+      for (const l of ls) { const f = aDia(l.proxima_accion_fecha); out.push({ entidad: `lead:${l.id}:${f}`, vars: { empresa: l.empresa, accion: l.proxima_accion || 'Retomar contacto', fecha: f.split('-').reverse().join('/') }, destino: '#/hunting', responsables: { comercial: l.responsable_id } }); }
       return out;
     },
   },
