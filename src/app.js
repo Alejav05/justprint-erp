@@ -23,6 +23,8 @@ import rutasEncuestas from './routes/encuestas.js';
 import rutasDocumentos from './routes/documentos.js';
 import rutasRubros from './routes/rubros.js';
 import rutasLeads from './routes/leads.js';
+import rutasPortal from './routes/portal.js';
+import rutasPortalAdmin from './routes/portal_admin.js';
 import rutasContratos from './routes/contratos.js';
 import { cargarAjustes, moduloDeUrl, modulosOcultos } from './lib/ajustes_sistema.js';
 import rutasAjustes from './routes/ajustes.js';
@@ -93,6 +95,9 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasRemitos, { db });
   await app.register(rutasEncuestas, { db });
   await app.register(rutasContratos, { db });
+  await app.register(rutasPortal, { db });
+  await app.register(rutasPortalAdmin, { db });
+  app.get('/portal', async (req, reply) => reply.redirect('/portal/'));
   await app.register(rutasRubros, { db });
   await app.register(rutasLeads, { db });
   await app.register(rutasAjustes, { db });

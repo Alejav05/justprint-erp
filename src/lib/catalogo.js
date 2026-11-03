@@ -47,6 +47,7 @@ export const PERMISOS = [
   ['reportes.equipo', 'analitica', 'Ver indicadores de las personas de su equipo'],
   ['alertas.configurar', 'sistema', 'Configurar reglas de alerta'],
   ['sistema.configurar', 'sistema', 'Configurar el sistema: valores, módulos y permisos por rol'],
+  ['portal.gestionar', 'clientes', 'Dar acceso al portal a los clientes, darlo de baja y ver el portal como lo ve cada cliente'],
   ['usuarios.administrar', 'sistema', 'Administrar usuarios, roles y áreas'],
   ['auditoria.ver', 'sistema', 'Ver el registro de auditoría'],
 ];
@@ -59,7 +60,7 @@ export const ROLES = {
     descripcion: 'Líder del área comercial',
     permisos: ['clientes.ver', 'clientes.editar', 'contactos.ver', 'contactos.editar', 'crm.gestionar', 'cartera.asignar',
       'contratos.ver', 'contratos.editar', 'contratos.documentos', 'importes.ver', 'tickets.ver', 'equipos.ver', 'reportes.equipo', 'cobranzas.escaladas',
-      'leads.ver', 'leads.editar', 'leads.todos', 'contadores.ver'],
+      'leads.ver', 'leads.editar', 'leads.todos', 'contadores.ver', 'portal.gestionar'],
   },
   comercial: {
     descripcion: 'Comercial con cartera propia',

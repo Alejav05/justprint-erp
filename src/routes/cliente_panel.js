@@ -7,7 +7,7 @@ import { consumoPeriodo, periodoDeLectura } from '../lib/contadores.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const redondear = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const ultimosPeriodos = (hasta, n) => {
+export const ultimosPeriodos = (hasta, n) => {
   let [a, m] = hasta.slice(0, 7).split('-').map(Number); const l = [];
   for (let i = 0; i < n; i += 1) { l.unshift(`${a}-${String(m).padStart(2, '0')}`); m -= 1; if (m === 0) { m = 12; a -= 1; } }
   return l;
@@ -15,7 +15,7 @@ const ultimosPeriodos = (hasta, n) => {
 const dia = (s) => (s ? String(s).slice(0, 10) : null);
 
 /** Lecturas de los equipos del cliente (agrupadas) y sus asignaciones. */
-async function datosContadores(db, clienteId) {
+export async function datosContadores(db, clienteId) {
   const asigs = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('equipos as e', 'e.id', 'a.equipo_id').join('modelos_equipo as m', 'm.id', 'e.modelo_id')
     .leftJoin('sedes as s', 's.id', 'a.sede_id').where('c.cliente_id', clienteId).whereNull('c.deleted_at')
     .select('a.id', 'a.equipo_id', 'a.contrato_id', 'a.desde', 'a.hasta', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'e.numero_serie', 'm.marca', 'm.modelo', 'm.tipo', 's.nombre as sede', 'c.nombre as contrato');
@@ -27,7 +27,7 @@ async function datosContadores(db, clienteId) {
 }
 
 /** Consumo de páginas por período: suma de los equipos con lectura en ese período. */
-function consumoPorPeriodo(asigs, porEquipo, periodos) {
+export function consumoPorPeriodo(asigs, porEquipo, periodos) {
   const mapa = Object.fromEntries(periodos.map((p) => [p, { periodo: p, negro: 0, color: 0, equipos: 0 }]));
   for (const a of asigs) {
     const ls = porEquipo.get(a.equipo_id) ?? [];

@@ -8,6 +8,7 @@ import { crearPanelCliente } from './cliente_panel.js';
 import { crearCostos } from './costos.js';
 import { crearDocumentos } from './documentos.js';
 import { crearRemitos } from './remitos.js';
+import { crearPortalAdmin } from './portal_admin.js';
 const raiz = document.getElementById('app');
 const estado = { me: null };
 
@@ -615,6 +616,7 @@ async function vistaCliente(destino, id) {
   pestanas.push(['sedes', `Locales (${d.sedes.length})`]);
   if (d.contratos) pestanas.push(['contratos', `Contratos (${d.contratos.length})`]);
   if (d.contratos) pestanas.push(['documentos', 'Documentos']);
+  if (puede('portal.gestionar')) pestanas.push(['portal', 'Portal']);
   if (puede('crm.gestionar')) pestanas.push(['seguimiento', 'Seguimiento']);
   if (puede('cartera.asignar') || puede('crm.gestionar')) pestanas.push(['cartera', 'Cartera']);
   const barra = h('div', { class: 'pestanas', role: 'tablist' });
@@ -632,6 +634,7 @@ async function vistaCliente(destino, id) {
       c.notas && h('div', { class: 'tarjeta' }, h('h2', null, 'Notas'), h('p', { style: 'white-space:pre-line;margin:0' }, c.notas))),
     contactos: () => crm.pestanaContactos(d, () => navegar()),
     sedes: () => crm.pestanaSedes(d, () => navegar()),
+    portal: () => portalAdm.panel(id),
     seguimiento: () => h('div', { class: 'tarjeta' }, cargando()),
     negocio: () => cargando(),
     costos: () => cargando(),
@@ -1378,6 +1381,7 @@ async function vistaVentaDirecta(destino) {
 const conf = crearConfiguracion({ h, agregar, vaciar, api, chip, cargando, encabezado, estado });
 const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargando, encabezado, estado, cajon: cajonLateral, aviso: toast, kpiTarjeta });
 const docs = crearDocumentos({ h, vaciar, api, fecha, chip, puede, cargando, cajon: cajonLateral, aviso: toast });
+const portalAdm = crearPortalAdmin({ h, api, fecha, chip, cargando, cajon: cajonLateral, aviso: toast });
 const rem = crearRemitos({ h, vaciar, api, fecha, cuando, chip, puede, cargando, encabezado, usd, cajon: cajonLateral, aviso: toast });
 const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes, puede, cajon: cajonLateral, aviso: toast });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
