@@ -125,3 +125,16 @@ test('sin mail configurado, la invitación devuelve el enlace para mandarlo a ma
   assert.equal(r.statusCode, 201); assert.equal(r.json().enviado, false); assert.match(r.json().url, /\/portal\/#\/entrar\/[\w-]+$/);
   assert.equal((await portal().post('/portal/api/entrar', { token: r.json().url.split('/').pop() })).statusCode, 200);
 });
+
+test('eliminar un acceso: solo si no está activo; borra enlaces y sesiones', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const act = await ctx.db('portal_accesos').where({ estado: 'activo' }).first();
+  assert.equal((await dir.llamar('DELETE', `/api/portal/accesos/${act.id}`)).json().error, 'dar_de_baja_primero');
+  const sm = await ctx.db('portal_accesos').where({ email: 'sinmail@cliente.com' }).first();
+  assert.equal((await dir.llamar('DELETE', `/api/portal/accesos/${sm.id}`)).statusCode, 200);
+  assert.equal(await ctx.db('portal_accesos').where({ id: sm.id }).first(), undefined);
+  assert.equal((await ctx.db('portal_enlaces').where({ acceso_id: sm.id })).length, 0);
+  await dir.llamar('POST', `/api/portal/accesos/${act.id}/baja`);
+  assert.equal((await dir.llamar('DELETE', `/api/portal/accesos/${act.id}`)).statusCode, 200);
+  assert.equal((await (await entrar(ctx.app, 'matias@demo.local')).llamar('DELETE', `/api/portal/accesos/${act.id}`)).statusCode, 403);
+});

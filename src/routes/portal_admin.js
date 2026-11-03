@@ -69,6 +69,19 @@ export default async function rutasPortalAdmin(app, { db }) {
     return { ok: true, estado };
   });
 
+  /** Borra un acceso que no se usa (invitación equivocada o prueba). Uno activo primero se da de baja. */
+  app.delete('/api/portal/accesos/:id', { preHandler: pre }, async (req, reply) => {
+    const a = await acceso(req, reply); if (!a) return;
+    if (a.estado === 'activo') return reply.code(409).send({ error: 'dar_de_baja_primero' });
+    await db.transaction(async (trx) => {
+      await trx('portal_sesiones').where({ acceso_id: a.id }).delete();
+      await trx('portal_enlaces').where({ acceso_id: a.id }).delete();
+      await trx('portal_accesos').where({ id: a.id }).delete();
+    });
+    await auditarPortal(db, ctx(req), 'portal_eliminar', a.id, { email: a.email, estado: a.estado });
+    return { ok: true };
+  });
+
   /** Enlace de un uso (3 minutos) para abrir el portal tal como lo ve esa persona, en solo lectura. */
   app.post('/api/portal/accesos/:id/ver-como', { preHandler: pre }, async (req, reply) => {
     const a = await acceso(req, reply); if (!a) return;

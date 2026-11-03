@@ -55,7 +55,7 @@ export const mesesEntre = (desde, hasta) => {
   return (b - a) * 12 + (n - m);
 };
 
-const ACCION = { portal_invitar: 'crear', portal_baja: 'editar', portal_alta: 'editar', portal_reenviar: 'editar', portal_clave: 'editar', portal_ingreso_enlace: 'login', portal_login: 'login', portal_ver_como: 'otro' };
+const ACCION = { portal_invitar: 'crear', portal_baja: 'editar', portal_alta: 'editar', portal_reenviar: 'editar', portal_clave: 'editar', portal_ingreso_enlace: 'login', portal_login: 'login', portal_ver_como: 'otro', portal_eliminar: 'eliminar' };
 /** Registra un hecho del portal en la auditoría (audit_log solo admite acciones fijas: el evento queda en el detalle). */
 export const auditarPortal = (db, ctx, evento, accesoId, extra = {}) => auditar(db, ctx, ACCION[evento] ?? 'otro', 'portal_accesos', accesoId, null, { evento, ...extra });
 
