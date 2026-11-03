@@ -50,7 +50,7 @@ export function crearPortalAdmin(U) {
             a.estado !== 'baja' && accion('Ver como cliente', async () => { const r = await api(`/api/portal/accesos/${a.id}/ver-como`, { metodo: 'POST' }); window.open(r.url, '_blank', 'noopener'); }),
             a.estado !== 'baja' && accion(a.tiene_clave ? 'Mandar enlace' : 'Reenviar invitación', async () => mostrarEnlace(await api(`/api/portal/accesos/${a.id}/enlace`, { metodo: 'POST' }), `a ${a.email}`)),
             a.estado === 'baja' ? accion('Dar de alta', async () => { await api(`/api/portal/accesos/${a.id}/alta`, { metodo: 'POST' }); aviso('Acceso reactivado'); })
-              : accion('Dar de baja', async () => { if (!window.confirm(`¿Dar de baja el acceso de ${a.nombre}? Deja de poder entrar ahora mismo.`)) return; await api(`/api/portal/accesos/${a.id}/baja`, { metodo: 'POST' }); aviso('Acceso dado de baja'); })))))
+              : accion('Dar de baja', async () => { if (!window.confirm(`¿Dar de baja el acceso de ${a.nombre}? Deja de poder entrar ahora mismo.`)) return; await api(`/api/portal/accesos/${a.id}/baja`, { metodo: 'POST' }); aviso('Acceso dado de baja'); }))))
           : h('p', { class: 'apoyo', style: 'margin:16px 0 0' }, 'Todavía nadie de este cliente tiene acceso.'));
     }
     pintar(); return caja;
