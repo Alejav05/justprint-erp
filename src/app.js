@@ -44,7 +44,7 @@ export async function crearApp({ db, logger = false } = {}) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Referrer-Policy', 'no-referrer');
-    reply.header('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:");
+    reply.header('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://justprint.com.ar");
     if (config.env === 'production') reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 
     // Defensa contra pedidos de otros sitios: si el navegador envía Origin en una escritura, tiene que ser el nuestro.

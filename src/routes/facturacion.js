@@ -6,8 +6,8 @@ import { aDia, hoy, json } from '../lib/fechas.js';
 import { IVA, liquidar, redondear } from '../lib/liquidacion.js';
 import { ultimaCotizacion } from '../lib/cotizacion.js';
 import { plazoDefecto, sumarDias } from '../lib/cobranzas.js';
-import { avisarFactura, destinatariosFactura } from '../lib/aviso_factura.js';
-import { baseUrl } from '../lib/portal.js';
+import { armarMensaje, avisarFactura, destinatariosFactura } from '../lib/aviso_factura.js';
+import { canales } from '../lib/canales.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const MAX_PDF = 10 * 1024 * 1024;
@@ -254,12 +254,19 @@ export default async function rutasFacturacion(app, { db }) {
   async function avisar(req, f) {
     const c = await db('factura_comprobantes_contenido').where({ factura_id: f.id }).first();
     const meta = await db('factura_comprobantes').where({ factura_id: f.id }).first();
-    const cli = await db('clientes').where({ id: f.cliente_id }).select('razon_social', 'nombre_comercial').first();
-    const conPortal = await db('portal_accesos').where({ cliente_id: f.cliente_id }).whereNot({ estado: 'baja' }).first();
-    const nombrePdf = `Factura_${String(f.numero ?? f.periodo).replace(/[^\w.-]/g, '_')}.pdf`;
-    return avisarFactura(db, { factura: f, pdf: Buffer.from(c.contenido), nombrePdf: meta?.nombre_original || nombrePdf, cliente: cli?.nombre_comercial || cli?.razon_social,
-      urlPortal: conPortal ? `${baseUrl(req)}/portal/` : null, usuarioId: req.ctx.id });
+    const nombrePdf = meta?.nombre_original || `Factura_${String(f.numero ?? f.periodo).replace(/[^\w.-]/g, '_')}.pdf`;
+    return avisarFactura(db, { factura: f, pdf: Buffer.from(c.contenido), nombrePdf, usuarioId: req.ctx.id });
   }
+
+  /** Vista previa exacta del mail (sin enviar nada). */
+  app.get('/api/facturas/:id/aviso', { preHandler: emitir }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    const meta = await db('factura_comprobantes').where({ factura_id: f.id }).first();
+    const m = armarMensaje({ factura: f });
+    const dest = await destinatariosFactura(db, f.cliente_id);
+    return { asunto: m.subject, html: m.html, para: dest.map((d) => d.email), adjunto: meta ? (meta.nombre_original || 'Factura.pdf') : null, mail_configurado: canales.mail.configurado() };
+  });
 
   app.post('/api/facturas/:id/avisar', { preHandler: emitir }, async (req, reply) => {
     const f = await cargarFactura(req.ctx, Number(req.params.id));

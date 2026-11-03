@@ -92,7 +92,11 @@ test('al subir el PDF con aviso, sale un mail con el adjunto a los contactos de 
   assert.equal(r.json().aviso.estado, 'enviado');
   assert.deepEqual(r.json().aviso.destinatarios, ['pagos@cli.com']); // sin duplicados, solo rol facturación
   assert.equal(enviados.length, 1); assert.equal(enviados[0].cuenta, 'facturacion'); assert.equal(enviados[0].attachments[0].contentType, 'application/pdf');
-  assert.match(enviados[0].text, /^Hola Marta!/); assert.match(enviados[0].subject, /septiembre de 2026/);
+  assert.equal(enviados[0].subject, 'FAC Servicio de Impresión Septiembre <> JustPrint');
+  assert.match(enviados[0].text, /^Hola, (buenos días|buenas tardes)!\n\nAdjuntamos factura por el servicio de septiembre\n\nDejamos los datos para la transferencia:\nBANCO FRANCES\nCBU 0170043520000004629483\nCC 043-046294\/8\nEUROPA HAUS SAS\nCUIT 30716461730\n\nQuedamos atentos cualquier consulta,\nSaludos!/);
+  assert.match(enviados[0].html, /JustPrint_logo\.png/); assert.match(enviados[0].html, /Agustina Fabregas/);
+  const vp = (await dir.llamar('GET', `/api/facturas/${fx}/aviso`)).json();
+  assert.equal(vp.asunto, enviados[0].subject); assert.deepEqual(vp.para, ['pagos@cli.com']); assert.equal(enviados.length, 1);
   const det = (await dir.llamar('GET', `/api/facturas/${fx}`)).json();
   assert.equal(det.avisos[0].estado, 'enviado'); assert.deepEqual(det.destinatarios_aviso, ['pagos@cli.com']);
   assert.equal((await dir.llamar('POST', `/api/facturas/${fx}/avisar`)).json().estado, 'enviado'); assert.equal(enviados.length, 2);
@@ -100,4 +104,12 @@ test('al subir el PDF con aviso, sale un mail con el adjunto a los contactos de 
   // sin mail configurado no rompe la carga
   reemplazarCanal('mail', { configurado: () => false, enviar: async () => {} });
   assert.equal((await subirA(fx, '1')).json().aviso.estado, 'sin_mail');
+});
+
+test('el saludo del aviso depende de la hora de Buenos Aires', async () => {
+  const { saludoSegunHora } = await import('../src/lib/aviso_factura.js');
+  assert.equal(saludoSegunHora(new Date('2026-11-03T12:00:00Z')), 'buenos días!'); // 09:00 ART
+  assert.equal(saludoSegunHora(new Date('2026-11-03T15:00:00Z')), 'buenas tardes!'); // 12:00 ART
+  assert.equal(saludoSegunHora(new Date('2026-11-04T02:59:00Z')), 'buenas tardes!'); // 23:59 ART
+  assert.equal(saludoSegunHora(new Date('2026-11-03T03:00:00Z')), 'buenos días!'); // 00:00 ART
 });

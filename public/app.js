@@ -1402,6 +1402,14 @@ async function vistaFactura(destino, id) {
     const subir = h('button', { class: 'btn btn-principal', type: 'button' }, f.comprobante ? 'Reemplazar PDF' : 'Subir PDF');
     const avisarChk = h('input', { type: 'checkbox', id: 'avisar-cli', checked: !f.comprobante && f.destinatarios_aviso.length > 0, disabled: !f.destinatarios_aviso.length, style: 'width:auto;min-height:0' });
     const ESTADOS_AVISO = { enviado: 'Enviado', error: 'No salió', sin_destinatarios: 'Sin destinatarios', sin_mail: 'Mail sin configurar' };
+    const vista = h('button', { class: 'btn', type: 'button', onclick: async () => {
+      const v = await api(`/api/facturas/${f.id}/aviso`);
+      cajonLateral('Vista previa del mail', () => h('div', null,
+        h('dl', { class: 'datos' }, h('div', null, h('dt', null, 'Para'), h('dd', null, v.para.length ? v.para.join(', ') : 'Nadie: el cliente no tiene un contacto con rol Facturación y mail')),
+          h('div', null, h('dt', null, 'Asunto'), h('dd', null, v.asunto)), h('div', null, h('dt', null, 'Adjunto'), h('dd', null, v.adjunto ?? 'Todavía no subiste el PDF'))),
+        h('iframe', { title: 'Vista previa del mail', sandbox: '', srcdoc: `<body style="margin:16px;background:#fff">${v.html}</body>`, style: 'width:100%;height:520px;border:1px solid #ddd;border-radius:8px;background:#fff;margin-top:12px' }),
+        !v.mail_configurado && h('p', { class: 'apoyo' }, 'Ojo: el envío de mails todavía no está configurado en el servidor.')));
+    } }, 'Ver vista previa del mail');
     const reenviar = h('button', { class: 'btn', type: 'button', onclick: async () => {
       if (!window.confirm(`¿Mandar la factura a ${f.destinatarios_aviso.join(', ')}?`)) return;
       try { const r = await api(`/api/facturas/${f.id}/avisar`, { metodo: 'POST' }); toast(r.estado === 'enviado' ? 'Aviso enviado' : `Aviso: ${ESTADOS_AVISO[r.estado]}`); recargar(); } catch (x) { toast('No se pudo enviar el aviso'); }
@@ -1425,7 +1433,7 @@ async function vistaFactura(destino, id) {
         : h('p', { class: 'apoyo' }, 'Subí el PDF de la factura que emitiste. El cliente lo va a poder ver y descargar desde su portal.'),
       edita && h('div', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, archivo, subir),
       edita && h('label', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px' }, avisarChk, f.destinatarios_aviso.length ? `Avisar por mail a ${f.destinatarios_aviso.join(', ')}` : 'Avisar por mail (el cliente no tiene un contacto con rol Facturación y mail)'),
-      edita && f.comprobante && f.destinatarios_aviso.length > 0 && h('div', { style: 'margin-top:8px' }, reenviar),
+      edita && h('div', { class: 'acciones', style: 'margin-top:8px' }, vista, f.comprobante && f.destinatarios_aviso.length > 0 && reenviar),
       f.avisos.length > 0 && h('p', { class: 'apoyo', style: 'margin-top:12px' }, `Último aviso: ${ESTADOS_AVISO[f.avisos[0].estado] ?? f.avisos[0].estado} el ${fecha(f.avisos[0].el)}${f.avisos[0].destinatarios.length ? ` a ${f.avisos[0].destinatarios.join(', ')}` : ''}`),
       err));
   }
