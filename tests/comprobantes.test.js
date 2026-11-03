@@ -130,3 +130,29 @@ test('el aviso de prueba va solo al mail elegido, con [PRUEBA] y el PDF, y no qu
   const e = await dir.llamar('POST', `/api/facturas/${fp}/aviso/prueba`, { email: 'yo@mio.com' });
   assert.equal(e.statusCode, 502); assert.equal(e.json().detalle, 'EAUTH');
 });
+
+test('el anexo en Excel respalda la factura y viaja adjunto en el aviso (si se elige)', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const enviados = [];
+  reemplazarCanal('mail', { configurado: () => true, enviar: async (m) => { enviados.push(m); } });
+  const ct = await ctx.db('contratos').where({ estado: 'vigente', cliente_id: cli }).first();
+  const periodo = '2026-09';
+  let [fa] = await ctx.db('facturas').insert({ cliente_id: cli, contrato_id: ct.id, periodo, moneda: ct.moneda, neto: 85, iva: 17.85, total: 102.85, numero: 'AN-1', estado: 'emitida' }); fa = fa.id ?? fa;
+  const r = await dir.llamar('GET', `/api/facturas/${fa}/anexo`);
+  assert.equal(r.statusCode, 200); assert.match(r.headers['content-type'], /spreadsheetml/); assert.match(r.headers['content-disposition'], /Anexo_Factura_Septiembre_2026\.xlsx/);
+  const { default: ExcelJS } = await import('exceljs');
+  const libro = new ExcelJS.Workbook(); await libro.xlsx.load(r.rawPayload);
+  assert.deepEqual(libro.worksheets.map((w) => w.name), ['Resumen', 'Equipos y contadores']);
+  const txt = libro.getWorksheet('Resumen').getSheetValues().flat().filter(Boolean).join('|');
+  assert.match(txt, /Anexo a la factura de Septiembre 2026/); assert.match(txt, /Páginas excedentes/); assert.match(txt, /Total/);
+  assert.equal(libro.getWorksheet('Equipos y contadores').getRow(1).getCell(2).value, 'N° de serie');
+  // adjunto en el aviso
+  assert.equal((await subir(fa, PDF('anexo'))).statusCode, 201);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fa}/avisar`, { anexo: true })).json().estado, 'enviado');
+  assert.deepEqual(enviados.at(-1).attachments.map((a) => a.filename.split('.').pop()), ['pdf', 'xlsx']);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fa}/avisar`, { anexo: false })).json().estado, 'enviado');
+  assert.equal(enviados.at(-1).attachments.length, 1);
+  assert.equal((await dir.llamar('GET', `/api/facturas/${fa}/aviso`)).json().anexo, 'Anexo_Factura_Septiembre_2026.xlsx');
+  // sin contrato no hay anexo
+  assert.equal((await dir.llamar('GET', `/api/facturas/${fEmitida}/anexo`)).statusCode, 409);
+});

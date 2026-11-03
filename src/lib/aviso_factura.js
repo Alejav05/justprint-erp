@@ -72,7 +72,7 @@ ${FIRMA_HTML}`;
 }
 
 /** Manda el aviso y deja registro. Devuelve { estado, destinatarios }. Nunca tira: un fallo de mail no debe frenar la carga del PDF. */
-export async function avisarFactura(db, { factura, pdf, nombrePdf, usuarioId }) {
+export async function avisarFactura(db, { factura, pdf, nombrePdf, usuarioId, extras = [] }) {
   const dest = await destinatariosFactura(db, factura.cliente_id);
   let estado; let detalle = null;
   if (!dest.length) estado = 'sin_destinatarios';
@@ -80,7 +80,7 @@ export async function avisarFactura(db, { factura, pdf, nombrePdf, usuarioId }) 
   else {
     estado = 'enviado';
     const { subject, text, html } = armarMensaje({ factura });
-    try { await canales.mail.enviar({ to: dest.map((d) => d.email).join(', '), subject, text, html, cuenta: 'facturacion', attachments: [{ filename: nombrePdf, content: pdf, contentType: 'application/pdf' }] }); }
+    try { await canales.mail.enviar({ to: dest.map((d) => d.email).join(', '), subject, text, html, cuenta: 'facturacion', attachments: [{ filename: nombrePdf, content: pdf, contentType: 'application/pdf' }, ...extras] }); }
     catch (e) { estado = 'error'; detalle = String(e.code ?? e.message ?? 'fallo').slice(0, 200); }
   }
   await db('factura_avisos').insert({ factura_id: factura.id, destinatarios: JSON.stringify(dest.map((d) => d.email)), estado, detalle, enviado_por: usuarioId ?? null });

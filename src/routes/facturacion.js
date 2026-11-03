@@ -8,6 +8,7 @@ import { ultimaCotizacion } from '../lib/cotizacion.js';
 import { plazoDefecto, sumarDias } from '../lib/cobranzas.js';
 import { armarMensaje, avisarFactura, destinatariosFactura } from '../lib/aviso_factura.js';
 import { canales } from '../lib/canales.js';
+import { anexoFactura, nombreAnexo } from '../lib/anexo_factura.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const MAX_PDF = 10 * 1024 * 1024;
@@ -251,11 +252,17 @@ export default async function rutasFacturacion(app, { db }) {
 
   // ---------- comprobante (PDF) de la factura ----------
   /** Arma y manda el aviso al cliente con el PDF guardado de la factura. */
-  async function avisar(req, f) {
+  const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  /** Adjuntos opcionales del aviso: el anexo Excel con el respaldo de la factura (si tiene contrato del que sacarlo). */
+  async function adjuntosExtra(f, anexo) {
+    if (!anexo) return [];
+    try { const b = await anexoFactura(db, f); return b ? [{ filename: nombreAnexo(f), content: b, contentType: XLSX }] : []; } catch { return []; }
+  }
+  async function avisar(req, f, { anexo = false } = {}) {
     const c = await db('factura_comprobantes_contenido').where({ factura_id: f.id }).first();
     const meta = await db('factura_comprobantes').where({ factura_id: f.id }).first();
     const nombrePdf = meta?.nombre_original || `Factura_${String(f.numero ?? f.periodo).replace(/[^\w.-]/g, '_')}.pdf`;
-    return avisarFactura(db, { factura: f, pdf: Buffer.from(c.contenido), nombrePdf, usuarioId: req.ctx.id });
+    return avisarFactura(db, { factura: f, pdf: Buffer.from(c.contenido), nombrePdf, usuarioId: req.ctx.id, extras: await adjuntosExtra(f, anexo) });
   }
 
   /** Vista previa exacta del mail (sin enviar nada). */
@@ -265,12 +272,13 @@ export default async function rutasFacturacion(app, { db }) {
     const meta = await db('factura_comprobantes').where({ factura_id: f.id }).first();
     const m = armarMensaje({ factura: f });
     const dest = await destinatariosFactura(db, f.cliente_id);
-    return { asunto: m.subject, html: m.html, para: dest.map((d) => d.email), adjunto: meta ? (meta.nombre_original || 'Factura.pdf') : null, mail_configurado: canales.mail.configurado() };
+    const anexo = f.contrato_id ? await adjuntosExtra(f, true) : [];
+    return { asunto: m.subject, html: m.html, para: dest.map((d) => d.email), adjunto: meta ? (meta.nombre_original || 'Factura.pdf') : null, anexo: anexo[0]?.filename ?? null, mail_configurado: canales.mail.configurado() };
   });
 
   /** Manda el aviso a un mail a elección (con "[PRUEBA]" en el asunto) para ver cómo llega, sin avisarle al cliente ni dejar registro de aviso. */
   app.post('/api/facturas/:id/aviso/prueba', { preHandler: emitir }, async (req, reply) => {
-    const d = z.object({ email: z.string().trim().toLowerCase().email().max(160) }).parse(req.body);
+    const d = z.object({ email: z.string().trim().toLowerCase().email().max(160), anexo: z.boolean().default(true) }).parse(req.body);
     const f = await cargarFactura(req.ctx, Number(req.params.id));
     if (!f) return error(reply, 404, 'no_encontrado');
     if (f.estado === 'borrador' || f.estado === 'anulada') return error(reply, 409, 'estado_invalido');
@@ -281,17 +289,26 @@ export default async function rutasFacturacion(app, { db }) {
     const m = armarMensaje({ factura: f });
     try {
       await canales.mail.enviar({ to: d.email, subject: `[PRUEBA] ${m.subject}`, text: m.text, html: m.html, cuenta: 'facturacion',
-        attachments: [{ filename: meta?.nombre_original || 'Factura.pdf', content: Buffer.from(c.contenido), contentType: 'application/pdf' }] });
+        attachments: [{ filename: meta?.nombre_original || 'Factura.pdf', content: Buffer.from(c.contenido), contentType: 'application/pdf' }, ...(await adjuntosExtra(f, d.anexo))] });
     } catch (e) { return error(reply, 502, 'no_se_pudo_enviar', { detalle: String(e.code ?? e.message ?? '').slice(0, 160) }); }
     await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'factura_avisos', f.id, null, { prueba: true, a: d.email });
     return { ok: true, a: d.email };
+  });
+
+  app.get('/api/facturas/:id/anexo', { preHandler: ver }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f || f.estado === 'borrador') return error(reply, 404, 'no_encontrado');
+    const b = await anexoFactura(db, f);
+    if (!b) return error(reply, 409, 'sin_detalle');
+    return reply.header('Content-Type', XLSX).header('Content-Disposition', `attachment; filename="${nombreAnexo(f)}"`).header('Cache-Control', 'private, no-store').send(b);
   });
 
   app.post('/api/facturas/:id/avisar', { preHandler: emitir }, async (req, reply) => {
     const f = await cargarFactura(req.ctx, Number(req.params.id));
     if (!f) return error(reply, 404, 'no_encontrado');
     if (f.estado === 'anulada' || f.estado === 'borrador' || !(await db('factura_comprobantes').where({ factura_id: f.id }).first())) return error(reply, 409, 'sin_comprobante');
-    const r = await avisar(req, f);
+    const { anexo } = z.object({ anexo: z.boolean().default(true) }).parse(req.body ?? {});
+    const r = await avisar(req, f, { anexo });
     await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'factura_avisos', f.id, null, { estado: r.estado, destinatarios: r.destinatarios });
     return r;
   });
@@ -315,7 +332,7 @@ export default async function rutasFacturacion(app, { db }) {
       await trx('factura_comprobantes_contenido').insert({ factura_id: f.id, contenido: pdf });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, reemplaza ? 'editar' : 'crear', 'factura_comprobantes', f.id, null, { bytes: pdf.length, nombre, reemplaza });
     });
-    const aviso = req.headers['x-avisar'] === '1' ? await avisar(req, f).catch(() => ({ estado: 'error', destinatarios: [] })) : null;
+    const aviso = req.headers['x-avisar'] === '1' ? await avisar(req, f, { anexo: req.headers['x-anexo'] === '1' }).catch(() => ({ estado: 'error', destinatarios: [] })) : null;
     return reply.code(201).send({ ok: true, reemplaza, aviso });
   });
 

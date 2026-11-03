@@ -45,7 +45,8 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
     .where((w) => w.whereNull('vigente_hasta').orWhere('vigente_hasta', '>=', inicio)).orderBy('vigente_desde', 'desc').orderBy('id', 'desc');
   const asigs = await db('asignaciones_equipo as a').join('equipos as e', 'e.id', 'a.equipo_id').join('modelos_equipo as m', 'm.id', 'e.modelo_id')
     .whereIn('a.contrato_id', ids).where('a.desde', '<=', fin).where((w) => w.whereNull('a.hasta').orWhere('a.hasta', '>=', inicio))
-    .select('a.contrato_id', 'a.equipo_id', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'a.desde', 'e.numero_serie', 'm.tipo');
+    .leftJoin('sedes as sd', 'sd.id', 'a.sede_id')
+    .select('a.contrato_id', 'a.equipo_id', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'a.desde', 'e.numero_serie', 'm.tipo', 'm.marca', 'm.modelo', 'sd.nombre as sede', 'sd.domicilio as sede_domicilio');
   const equipoIds = [...new Set(asigs.map((a) => a.equipo_id))];
   const lecturas = equipoIds.length ? await db('lecturas_contador').whereIn('equipo_id', equipoIds)
     .where((w) => w.where('fecha', '<=', fin).orWhere('periodo', '<=', periodo)).orderBy('fecha').orderBy('id') : [];
@@ -58,7 +59,7 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
   }
   const yaFacturadas = await db('facturas').whereIn('contrato_id', ids).where({ periodo }).whereNull('deleted_at').where('estado', '!=', 'anulada').select('id', 'contrato_id', 'estado');
 
-  const consumo = (asig) => { const k = consumoPeriodo(porEquipo.get(asig.equipo_id) ?? [], periodo, asig); return k && { negro: k.negro, color: k.color, meses: k.meses }; };
+  const consumo = (asig) => { const k = consumoPeriodo(porEquipo.get(asig.equipo_id) ?? [], periodo, asig); return k && { negro: k.negro, color: k.color, meses: k.meses, k }; };
 
   const filas = [];
   for (const c of contratos) {
@@ -71,9 +72,17 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
 
     const abono = Number(cond.monto_mensual) * factor;
     let cn = 0; let cc = 0; let meses = 1; const faltan = []; const equiposC = asigs.filter((x) => x.contrato_id === c.id);
+    const detalleEquipos = [];
     for (const a of equiposC) {
       const k = consumo(a);
-      if (!k) faltan.push(a.numero_serie); else { cn += k.negro; cc += k.color; meses = Math.max(meses, k.meses); }
+      const e = { serie: a.numero_serie, marca: a.marca, modelo: a.modelo, tipo: a.tipo, sede: a.sede ?? null, domicilio: a.sede_domicilio ?? null, desde: aDia(a.desde), con_lectura: Boolean(k) };
+      if (!k) faltan.push(a.numero_serie);
+      else {
+        cn += k.negro; cc += k.color; meses = Math.max(meses, k.meses);
+        Object.assign(e, { anterior: k.k.base ? { fecha: k.k.base.fecha, negro: k.k.base_negro, color: k.k.base_color } : { fecha: aDia(a.desde), negro: k.k.base_negro, color: k.k.base_color, inicial: true },
+          actual: { fecha: k.k.actual.fecha, negro: k.k.actual.contador_negro, color: k.k.actual.contador_color }, consumo_negro: k.negro, consumo_color: k.color });
+      }
+      detalleEquipos.push(e);
     }
     const soloAbono = faltan.length > 0 && sinContadores;
     if (soloAbono) { cn = 0; cc = 0; }
@@ -91,7 +100,8 @@ export async function liquidar(db, periodo, { contratoIds = null, clienteId = nu
       ...base, estado: faltan.length && !sinContadores ? 'incompleto' : 'completo', faltan, solo_abono: soloAbono, interno: !cond.facturable,
       contadores: { total: equiposC.length, cargados: equiposC.length - faltan.length },
       meses_consumo: mesesFranq, consumo_negro: cn, consumo_color: cc, franquicia_negro: franqN, franquicia_color: franqC, excedente_negro: excN, excedente_color: excC,
-      abono: redondear(abono), neto, neto_usd: netoUsd, items,
+      abono: redondear(abono), neto, neto_usd: netoUsd, items, equipos: detalleEquipos,
+      franquicia_mensual_negro: cond.franquicia_negro, franquicia_mensual_color: cond.franquicia_color, precio_excedente_negro: pN, precio_excedente_color: pC,
     });
   }
   return { periodo, cotizacion: cot, filas };

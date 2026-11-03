@@ -1401,12 +1401,13 @@ async function vistaFactura(destino, id) {
     const MSG = { no_es_pdf: 'El archivo no es un PDF.', archivo_muy_grande: 'El PDF pesa más de 10 MB.', archivo_invalido: 'No se pudo leer el archivo.', factura_anulada: 'La factura está anulada.' };
     const subir = h('button', { class: 'btn btn-principal', type: 'button' }, f.comprobante ? 'Reemplazar PDF' : 'Subir PDF');
     const avisarChk = h('input', { type: 'checkbox', id: 'avisar-cli', checked: !f.comprobante && f.destinatarios_aviso.length > 0, disabled: !f.destinatarios_aviso.length, style: 'width:auto;min-height:0' });
+    const anexoChk = h('input', { type: 'checkbox', id: 'anexo-cli', checked: Boolean(f.contrato), disabled: !f.contrato, style: 'width:auto;min-height:0' });
     const ESTADOS_AVISO = { enviado: 'Enviado', error: 'No salió', sin_destinatarios: 'Sin destinatarios', sin_mail: 'Mail sin configurar' };
     const vista = h('button', { class: 'btn', type: 'button', onclick: async () => {
       const v = await api(`/api/facturas/${f.id}/aviso`);
       cajonLateral('Vista previa del mail', () => h('div', null,
         h('dl', { class: 'datos' }, h('div', null, h('dt', null, 'Para'), h('dd', null, v.para.length ? v.para.join(', ') : 'Nadie: el cliente no tiene un contacto con rol Facturación y mail')),
-          h('div', null, h('dt', null, 'Asunto'), h('dd', null, v.asunto)), h('div', null, h('dt', null, 'Adjunto'), h('dd', null, v.adjunto ?? 'Todavía no subiste el PDF'))),
+          h('div', null, h('dt', null, 'Asunto'), h('dd', null, v.asunto)), h('div', null, h('dt', null, 'Adjuntos'), h('dd', null, v.adjunto ? [v.adjunto, anexoChk.checked && v.anexo ? v.anexo : null].filter(Boolean).join(' · ') : 'Todavía no subiste el PDF'))),
         h('iframe', { title: 'Vista previa del mail', sandbox: '', srcdoc: `<body style="margin:16px;background:#fff">${v.html}</body>`, style: 'width:100%;height:520px;border:1px solid #ddd;border-radius:8px;background:#fff;margin-top:12px' }),
         !v.mail_configurado && h('p', { class: 'apoyo' }, 'Ojo: el envío de mails todavía no está configurado en el servidor.'),
         v.adjunto && v.mail_configurado && (() => {
@@ -1415,7 +1416,7 @@ async function vistaFactura(destino, id) {
           b.addEventListener('click', async () => {
             if (!mail.value.trim()) { msg.textContent = 'Escribí el mail donde querés recibirla.'; return; }
             b.disabled = true; msg.textContent = 'Enviando…';
-            try { await api(`/api/facturas/${f.id}/aviso/prueba`, { metodo: 'POST', cuerpo: { email: mail.value.trim() } }); msg.textContent = `Listo: te la mandamos a ${mail.value.trim()} con "[PRUEBA]" en el asunto. Al cliente no le llegó nada.`; }
+            try { await api(`/api/facturas/${f.id}/aviso/prueba`, { metodo: 'POST', cuerpo: { email: mail.value.trim(), anexo: anexoChk.checked } }); msg.textContent = `Listo: te la mandamos a ${mail.value.trim()} con "[PRUEBA]" en el asunto. Al cliente no le llegó nada.`; }
             catch (x) { msg.textContent = x.datos?.detalle ? `No se pudo enviar (${x.datos.detalle}). Revisá las variables SMTP de la casilla.` : 'No se pudo enviar. Revisá el mail y las variables SMTP de la casilla.'; }
             b.disabled = false;
           });
@@ -1424,14 +1425,14 @@ async function vistaFactura(destino, id) {
     } }, 'Ver vista previa del mail');
     const reenviar = h('button', { class: 'btn', type: 'button', onclick: async () => {
       if (!window.confirm(`¿Mandar la factura a ${f.destinatarios_aviso.join(', ')}?`)) return;
-      try { const r = await api(`/api/facturas/${f.id}/avisar`, { metodo: 'POST' }); toast(r.estado === 'enviado' ? 'Aviso enviado' : `Aviso: ${ESTADOS_AVISO[r.estado]}`); recargar(); } catch (x) { toast('No se pudo enviar el aviso'); }
+      try { const r = await api(`/api/facturas/${f.id}/avisar`, { metodo: 'POST', cuerpo: { anexo: anexoChk.checked } }); toast(r.estado === 'enviado' ? 'Aviso enviado' : `Aviso: ${ESTADOS_AVISO[r.estado]}`); recargar(); } catch (x) { toast('No se pudo enviar el aviso'); }
     } }, 'Enviar aviso por mail');
     subir.addEventListener('click', async () => {
       err.classList.add('oculto'); const a = archivo.files[0];
       if (!a) { err.textContent = 'Elegí el PDF de la factura.'; err.classList.remove('oculto'); return; }
       subir.disabled = true;
       try {
-        const r = await fetch(`/api/facturas/${f.id}/comprobante`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/pdf', 'X-Nombre-Archivo': encodeURIComponent(a.name), 'X-Avisar': avisarChk.checked ? '1' : '0' }, body: a });
+        const r = await fetch(`/api/facturas/${f.id}/comprobante`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/pdf', 'X-Nombre-Archivo': encodeURIComponent(a.name), 'X-Avisar': avisarChk.checked ? '1' : '0', 'X-Anexo': anexoChk.checked ? '1' : '0' }, body: a });
         if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(MSG[d.error] ?? 'No se pudo subir el archivo.'); }
         const d = await r.json().catch(() => ({}));
         toast(`${f.comprobante ? 'Comprobante reemplazado' : 'Comprobante subido'}${d.aviso ? (d.aviso.estado === 'enviado' ? ' · aviso enviado al cliente' : ` · aviso: ${ESTADOS_AVISO[d.aviso.estado]}`) : ''}`); recargar();
@@ -1445,7 +1446,8 @@ async function vistaFactura(destino, id) {
         : h('p', { class: 'apoyo' }, 'Subí el PDF de la factura que emitiste. El cliente lo va a poder ver y descargar desde su portal.'),
       edita && h('div', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap' }, archivo, subir),
       edita && h('label', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px' }, avisarChk, f.destinatarios_aviso.length ? `Avisar por mail a ${f.destinatarios_aviso.join(', ')}` : 'Avisar por mail (el cliente no tiene un contacto con rol Facturación y mail)'),
-      edita && h('div', { class: 'acciones', style: 'margin-top:8px' }, vista, f.comprobante && f.destinatarios_aviso.length > 0 && reenviar),
+      edita && h('label', { style: 'display:flex;gap:8px;align-items:center;margin-top:8px' }, anexoChk, f.contrato ? 'Adjuntar el anexo en Excel con equipos, contadores y excedente' : 'Sin anexo: la factura no tiene un contrato del que sacar el detalle'),
+      edita && h('div', { class: 'acciones', style: 'margin-top:8px' }, vista, f.contrato && h('a', { class: 'btn', href: `/api/facturas/${f.id}/anexo` }, 'Descargar anexo (Excel)'), f.comprobante && f.destinatarios_aviso.length > 0 && reenviar),
       f.avisos.length > 0 && h('p', { class: 'apoyo', style: 'margin-top:12px' }, `Último aviso: ${ESTADOS_AVISO[f.avisos[0].estado] ?? f.avisos[0].estado} el ${fecha(f.avisos[0].el)}${f.avisos[0].destinatarios.length ? ` a ${f.avisos[0].destinatarios.join(', ')}` : ''}`),
       err));
   }
