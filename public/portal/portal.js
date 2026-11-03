@@ -254,7 +254,7 @@ function vistaEquipos() {
 
 function vistaDocumentos() {
   const tabs = [['conf', 'Conformidades'], ['rem', 'Remitos'], ['fact', 'Facturas'], ['con', 'Contrato']];
-  const pdf = (href, etiqueta) => h('a', { class: 'btn ghost', href, download: '', 'aria-label': etiqueta }, icono(I.down), 'PDF');
+  const pdf = (href, etiqueta, texto = 'PDF') => h('a', { class: 'btn ghost', href, download: '', 'aria-label': etiqueta }, icono(I.down), texto);
   const fila = (t1, l1, l2, medio, descarga) => h('div', { class: 'row' }, h('span', { class: 'ic' }, icono(I.doc)), h('div', { class: 'grow' }, h('p', { class: 't1' }, t1), h('p', { class: 't2' }, l1), l2 && h('p', { class: 't2' }, l2)), medio, descarga);
   const vacio = (t) => h('p', { class: 't2', style: 'padding:20px 0;font-size:16px' }, t);
   let filas;
@@ -263,7 +263,7 @@ function vistaDocumentos() {
       : !D.usuario.vista && h('button', { class: 'btn cy', type: 'button', onclick: () => sheet('Tu opinión', `${c.asunto} · ${fecha(c.fecha)}`, (cerrar) => formularioOpinion(c, () => { cerrar(); mostrar(); })) }, icono(I.star), 'Calificar'),
     pdf(`/r/${c.token}/pdf`, `Descargar conformidad ${c.numero}`)));
   else if (E.doc === 'rem') filas = D.remitos.map((r) => fila(`Remito ${r.numero}`, `${fecha(r.fecha)}${r.detalle ? ` · ${r.detalle}` : ''}`, null, null, pdf(`/r/${r.token}/pdf`, `Descargar remito ${r.numero}`)));
-  else if (E.doc === 'fact') filas = D.facturas.map((f) => fila(f.numero ? `${f.tipo ? `Factura ${f.tipo} ` : ''}${f.numero}` : `Factura ${mesLargo(f.periodo)}`, `${mesLargo(f.periodo)} · ${neto(f)}`, f.estado === 'cobrada' ? null : (f.vencimiento ? `Vence el ${fecha(f.vencimiento)}` : null), chipFactura(f), f.comprobante ? pdf(`/portal/api/facturas/${f.id}/comprobante`, `Descargar factura ${f.numero || mesLargo(f.periodo)}`) : null));
+  else if (E.doc === 'fact') filas = D.facturas.map((f) => fila(f.numero ? `${f.tipo ? `Factura ${f.tipo} ` : ''}${f.numero}` : `Factura ${mesLargo(f.periodo)}`, `${mesLargo(f.periodo)} · ${neto(f)}`, f.estado === 'cobrada' ? null : (f.vencimiento ? `Vence el ${fecha(f.vencimiento)}` : null), chipFactura(f), f.comprobante ? h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' }, pdf(`/portal/api/facturas/${f.id}/comprobante`, `Descargar factura ${f.numero || mesLargo(f.periodo)}`), f.anexo && pdf(`/portal/api/facturas/${f.id}/anexo`, `Descargar el anexo de la factura ${f.numero || mesLargo(f.periodo)}`, 'Anexo Excel')) : null));
   else filas = D.documentos.map((d) => fila(d.titulo, `${{ contrato: 'Contrato firmado', anexo: 'Anexo', adenda: 'Adenda', otro: 'Documento' }[d.tipo] || 'Documento'}${d.fecha ? ` · ${fecha(d.fecha)}` : ''}`, null, null, pdf(`/portal/api/documentos/${d.id}/archivo`, `Descargar ${d.titulo}`)));
   const VACIO = { conf: 'Todavía no tenés conformidades. Aparecen cuando cerramos un soporte, una instalación o un retiro.', rem: 'Todavía no tenés remitos de entrega.', fact: 'Todavía no hay facturas para mostrar.', con: 'Todavía no hay documentos del contrato cargados.' };
   return h('section', { class: 'view', 'aria-labelledby': 'h-doc' }, h('h1', { class: 'h1', id: 'h-doc' }, 'Tus documentos'),

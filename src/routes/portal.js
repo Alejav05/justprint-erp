@@ -7,6 +7,7 @@ import { hashear, validarPoliticaPortal, verificar } from '../lib/passwords.js';
 import { encuestaSchema, guardarEncuesta } from '../lib/encuestas.js';
 import { ASPECTOS } from '../lib/encuestas.js';
 import { ahora, auditarPortal, COOKIE, crearEnlace, crearSesionPortal, dentroDe, enviarEnlace, hashToken, diaAnterior, mesesEntre, sumarMeses, urlEnlace } from '../lib/portal.js';
+import { anexoFactura, nombreAnexo } from '../lib/anexo_factura.js';
 import { datosContadores, consumoPorPeriodo, ultimosPeriodos } from './cliente_panel.js';
 
 const MAX_FALLOS = 5;
@@ -155,8 +156,8 @@ export default async function rutasPortal(app, { db }) {
 
     const conPdf = new Set((await db('factura_comprobantes as p').join('facturas as f', 'f.id', 'p.factura_id').where('f.cliente_id', clienteId).select('p.factura_id')).map((x) => x.factura_id));
     const facturas = (await db('facturas').where({ cliente_id: clienteId }).whereNull('deleted_at').whereNotIn('estado', ['borrador', 'anulada']).orderBy('periodo', 'desc').limit(24)
-      .select('id', 'numero', 'tipo_comprobante', 'periodo', 'fecha_emision', 'vencimiento', 'moneda', 'neto', 'iva', 'total', 'estado')).map((f) => ({
-      id: f.id, comprobante: conPdf.has(f.id), numero: f.numero, tipo: f.tipo_comprobante, periodo: f.periodo, emision: dia(f.fecha_emision), vencimiento: dia(f.vencimiento), moneda: f.moneda, neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total), estado: f.estado,
+      .select('id', 'contrato_id', 'numero', 'tipo_comprobante', 'periodo', 'fecha_emision', 'vencimiento', 'moneda', 'neto', 'iva', 'total', 'estado')).map((f) => ({
+      id: f.id, comprobante: conPdf.has(f.id), anexo: conPdf.has(f.id) && Boolean(f.contrato_id), numero: f.numero, tipo: f.tipo_comprobante, periodo: f.periodo, emision: dia(f.fecha_emision), vencimiento: dia(f.vencimiento), moneda: f.moneda, neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total), estado: f.estado,
       vencida: f.estado !== 'cobrada' && !!f.vencimiento && dia(f.vencimiento) < h,
     }));
 
@@ -236,6 +237,15 @@ export default async function rutasPortal(app, { db }) {
     if (!f || !c) return reply.code(404).send({ error: 'no_encontrado' });
     const nombre = `Factura_${String(f.numero ?? f.periodo).replace(/[^\w.-]/g, '_')}.pdf`;
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${nombre}"`).header('Cache-Control', 'private, no-store').header('X-Content-Type-Options', 'nosniff').send(Buffer.from(c.contenido));
+  });
+
+  /** Anexo en Excel (equipos, contadores, lo contratado y el excedente) que respalda una factura emitida del propio cliente. */
+  app.get('/portal/api/facturas/:id/anexo', { preHandler: portal }, async (req, reply) => {
+    const id = Number(req.params.id);
+    const f = Number.isInteger(id) ? await db('facturas').where({ id, cliente_id: req.portal.clienteId }).whereNull('deleted_at').whereNotIn('estado', ['borrador', 'anulada']).first() : null;
+    const buf = f ? await anexoFactura(db, f).catch(() => null) : null;
+    if (!f || !buf) return reply.code(404).send({ error: 'no_encontrado' });
+    return reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('Content-Disposition', `attachment; filename="${nombreAnexo(f)}"`).header('Cache-Control', 'private, no-store').header('X-Content-Type-Options', 'nosniff').send(buf);
   });
 
   app.get('/portal/api/documentos/:id/archivo', { preHandler: portal }, async (req, reply) => {

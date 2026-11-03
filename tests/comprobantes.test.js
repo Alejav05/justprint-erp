@@ -156,3 +156,25 @@ test('el anexo en Excel respalda la factura y viaja adjunto en el aviso (si se e
   // sin contrato no hay anexo
   assert.equal((await dir.llamar('GET', `/api/facturas/${fEmitida}/anexo`)).statusCode, 409);
 });
+
+test('en el portal el cliente baja el anexo de su factura (solo la suya y solo si tiene detalle)', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  reemplazarCanal('mail', { configurado: () => false, enviar: async () => {} });
+  const ct = await ctx.db('contratos').where({ estado: 'vigente', cliente_id: cli }).first();
+  let [fc] = await ctx.db('facturas').insert({ cliente_id: cli, contrato_id: ct.id, periodo: '2026-09', moneda: ct.moneda, neto: 85, iva: 17.85, total: 102.85, numero: 'PO-1', estado: 'emitida' }); fc = fc.id ?? fc;
+  assert.equal((await subir(fc, PDF('portal'))).statusCode, 201);
+  let [fs] = await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-08', moneda: 'USD', neto: 10, iva: 2.1, total: 12.1, numero: 'PO-2', estado: 'emitida' }); fs = fs.id ?? fs; // sin contrato
+  assert.equal((await subir(fs, PDF('sin contrato'))).statusCode, 201);
+  const r = await dir.llamar('POST', `/api/clientes/${cli}/portal`, { nombre: 'Pablo', email: 'pablo@cliente.com' });
+  const tk = r.json().url.match(/#\/entrar\/([\w-]+)/)[1];
+  const e = await ctx.app.inject({ method: 'POST', url: '/portal/api/entrar', payload: { token: tk } });
+  const ck = { jp_portal: e.cookies.find((c) => c.name === 'jp_portal').value };
+  const inicio = (await ctx.app.inject({ method: 'GET', url: '/portal/api/inicio', cookies: ck })).json();
+  assert.equal(inicio.facturas.find((x) => x.id === fc).anexo, true);
+  assert.equal(inicio.facturas.find((x) => x.id === fs).anexo, false); // sin contrato
+  const d = await ctx.app.inject({ method: 'GET', url: `/portal/api/facturas/${fc}/anexo`, cookies: ck });
+  assert.equal(d.statusCode, 200); assert.match(d.headers['content-type'], /spreadsheetml/); assert.match(d.headers['content-disposition'], /Anexo_Factura_Septiembre_2026\.xlsx/);
+  assert.equal((await ctx.app.inject({ method: 'GET', url: `/portal/api/facturas/${fs}/anexo`, cookies: ck })).statusCode, 404);
+  assert.equal((await ctx.app.inject({ method: 'GET', url: `/portal/api/facturas/${fOtro}/anexo`, cookies: ck })).statusCode, 404);
+  assert.equal((await ctx.app.inject({ method: 'GET', url: `/portal/api/facturas/${fc}/anexo` })).statusCode, 401);
+});
