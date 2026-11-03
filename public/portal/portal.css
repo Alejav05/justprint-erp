@@ -50,7 +50,8 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 @keyframes ringIn{from{stroke-dashoffset:var(--c,528)}}
 .rings{display:flex;gap:clamp(24px,6vw,64px);flex-wrap:wrap}
 .ringcol{display:flex;flex-direction:column;align-items:flex-start}
-.ringcol .ringbox{width:168px;height:168px}.ringcol .ringbox svg{width:168px;height:168px}
+.ringcol .ringbox{width:128px;height:128px}.ringcol .ringbox svg{width:128px;height:128px}
+.rings{gap:clamp(16px,3vw,28px);flex-wrap:nowrap}.ringcol p{max-width:128px}
 @keyframes barIn{from{transform:scaleY(0)}}
 @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
 .meter{height:10px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}

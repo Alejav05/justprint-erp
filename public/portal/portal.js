@@ -158,7 +158,7 @@ function anillo(titulo, usado, incluido, trazo) {
   s.innerHTML = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="13"></circle><circle class="ring-fg" cx="70" cy="70" r="${R}" fill="none" stroke="${pasado ? '#FFB547' : trazo}" stroke-width="13" stroke-linecap="round" style="--c:${C};stroke-dasharray:${C};stroke-dashoffset:${off}"></circle>`;
   return h('div', { class: 'ringcol' },
     h('div', { class: 'ringbox', role: 'img', 'aria-label': pct == null ? `${titulo}: ${n(usado)} páginas` : `${titulo}: ${pct} por ciento de lo incluido` }, s,
-      h('div', { class: 'mid' }, pct == null ? h('span', { class: 'big', style: 'font-size:26px' }, n(usado)) : h('span', { class: 'big', style: 'font-size:36px' }, `${pct}`, h('small', { style: 'font-size:18px;letter-spacing:0' }, '%')))),
+      h('div', { class: 'mid' }, pct == null ? h('span', { class: 'big', style: 'font-size:22px' }, n(usado)) : h('span', { class: 'big', style: 'font-size:30px' }, `${pct}`, h('small', { style: 'font-size:15px;letter-spacing:0' }, '%')))),
     h('p', { style: 'font-weight:700;font-size:15px;margin-top:12px' }, titulo),
     h('p', { class: 'mut', style: 'font-size:14px;margin-top:2px' }, incluido > 0 ? `${n(usado)} de ${n(incluido)}` : 'Sin tope de páginas'),
     pasado && h('p', { style: 'font-size:13px;margin-top:4px;color:#FFB547;font-weight:600' }, `${n(usado - incluido)} sobre lo incluido`));
@@ -176,9 +176,10 @@ function vistaInicio() {
     h('h1', { class: 'h1', id: 'h-ini' }, `${saludo}, ${D.usuario.nombre.split(' ')[0]}.`),
     h('p', { class: 'sub' }, `Todo lo de ${D.cliente.nombre} con JustPrint, en un solo lugar: tus equipos, cuánto imprimiste y lo que necesitás descargar.`),
     h('div', { class: 'bento' },
-      h('div', { class: 'tile dark s7' }, h('p', { class: 'lbl' }, mesLargo(per)), h('p', { class: 'big', style: 'margin-top:6px' }, n(u.negro + u.color)),
-        h('p', { class: 'mut', style: 'margin:6px 0 24px;font-size:16px' }, `páginas impresas entre ${D.equipos.length === 1 ? 'tu equipo' : `tus ${D.equipos.length} equipos`}${D.contratos.length > 1 ? ` y ${D.contratos.length} contratos` : ''}`),
-        h('div', { class: 'rings' }, anillo('Blanco y negro', u.negro, incN, '#FFFFFF'), (incC > 0 || u.color > 0) && anillo('Color', u.color, incC, '#00BCD4'))),
+      h('div', { class: 'tile dark s7' }, h('div', { class: 'hero-flex', style: 'display:flex;align-items:center;gap:36px' },
+        h('div', { class: 'rings' }, anillo('Blanco y negro', u.negro, incN, '#FFFFFF'), (incC > 0 || u.color > 0) && anillo('Color', u.color, incC, '#00BCD4')),
+        h('div', { style: 'flex:1;min-width:0' }, h('p', { class: 'lbl' }, mesLargo(per)), h('p', { class: 'big', style: 'margin-top:6px' }, n(u.negro + u.color)),
+          h('p', { class: 'mut', style: 'margin:6px 0 0;font-size:16px' }, `páginas impresas entre ${D.equipos.length === 1 ? 'tu equipo' : `tus ${D.equipos.length} equipos`}${D.contratos.length > 1 ? ` y ${D.contratos.length} contratos` : ''}`)))),
 
       h('div', { class: 'tile s5' }, D.soporte ? [
         h('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px' }, h('p', { class: 'lbl' }, 'Tu pedido de soporte'), h('span', { class: 'chip cy' }, h('span', { class: 'dot' }), ESTADO_TK[D.soporte.estado] ?? 'En curso')),
