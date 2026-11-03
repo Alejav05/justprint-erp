@@ -60,3 +60,16 @@ test('solo se aceptan PDF, y solo quien emite facturas puede subirlos', async ()
   await ctx.db('facturas').where({ id: fEmitida }).update({ estado: 'anulada' });
   assert.equal((await subir(fEmitida, PDF('y'))).statusCode, 409);
 });
+
+test('asignar emisor a una factura emitida la convierte en comprobante y entra en Cobranzas', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const ent = (await ctx.db('entidades_facturantes').where({ activa: true }).first()).id;
+  const base = { periodo: '2026-10', moneda: 'USD', neto: 316, iva: 66.36, total: 382.36 };
+  let [id] = await ctx.db('facturas').insert({ ...base, cliente_id: cli, numero: 'X-1', fecha_emision: '2026-10-31', vencimiento: '2026-11-30', estado: 'emitida' });
+  id = id.id ?? id;
+  assert.equal((await dir.llamar('GET', `/api/facturas/${id}`)).json().clase, 'interno');
+  assert.equal((await dir.llamar('PATCH', `/api/facturas/${id}/emisor`, { entidad_facturante_id: 999999 })).statusCode, 400);
+  assert.equal((await dir.llamar('PATCH', `/api/facturas/${fBorrador}/emisor`, { entidad_facturante_id: ent })).statusCode, 409);
+  assert.equal((await dir.llamar('PATCH', `/api/facturas/${id}/emisor`, { entidad_facturante_id: ent })).statusCode, 200);
+  assert.equal((await dir.llamar('GET', `/api/facturas/${id}`)).json().clase, 'fiscal');
+});

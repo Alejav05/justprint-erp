@@ -1356,7 +1356,12 @@ async function vistaFactura(destino, id) {
   destino.append(h('a', { href: '#/facturacion/facturas', class: 'apoyo no-imprimir' }, '← Facturas'), encabezado(titulo, `${cli} · ${nombreMes(f.periodo)}${f.contrato ? ` · ${f.contrato}` : ''}`, chipFactura(f)),
     h('div', { class: 'tarjeta' }, h('dl', { class: 'datos' },
       h('div', null, h('dt', null, 'Cliente'), h('dd', null, `${cli}${f.cliente.cuit ? ` · ${f.cliente.cuit}` : ''}`)),
-      h('div', null, h('dt', null, 'Emisor'), h('dd', null, f.entidad ? `${f.entidad.razon_social} · ${f.entidad.cuit}` : 'Sin comprobante')),
+      h('div', null, h('dt', null, 'Emisor'), h('dd', null, f.entidad ? `${f.entidad.razon_social} · ${f.entidad.cuit}` : 'Sin comprobante', edita && !borrador && f.estado !== 'anulada' && (() => {
+        const sel = h('select', { 'aria-label': 'Emisor' }, h('option', { value: '' }, f.entidad ? 'Cambiar emisor…' : 'Asignar emisor…'));
+        api('/api/entidades-facturantes').then((x) => x.items.forEach((e) => sel.append(h('option', { value: e.id }, e.razon_social))));
+        sel.onchange = async () => { if (!sel.value) return; try { await api(`/api/facturas/${f.id}/emisor`, { metodo: 'PATCH', cuerpo: { entidad_facturante_id: Number(sel.value) } }); recargar(); } catch { sel.value = ''; } };
+        return h('div', { class: 'no-imprimir' }, sel);
+      })())),
       h('div', null, h('dt', null, 'Emisión'), h('dd', null, f.fecha_emision ? `${fecha(f.fecha_emision)}${f.fecha_emision_estimada ? ' (estimada)' : ''}` : '—')),
       f.vencimiento && h('div', null, h('dt', null, 'Vencimiento'), h('dd', null, fecha(f.vencimiento))),
       f.tipo_cambio && h('div', null, h('dt', null, 'Cotización BNA usada'), h('dd', null, `$ ${f.tipo_cambio.toLocaleString('es-AR')}`))),

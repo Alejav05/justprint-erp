@@ -216,6 +216,20 @@ export default async function rutasFacturacion(app, { db }) {
     return { ok: true };
   });
 
+  /** Asigna o cambia el emisor de una factura ya emitida. Con emisor la cuenta pasa a ser un comprobante y entra en Cobranzas. */
+  app.patch('/api/facturas/:id/emisor', { preHandler: emitir }, async (req, reply) => {
+    const d = z.object({ entidad_facturante_id: z.number().int().positive() }).parse(req.body);
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    if (f.estado === 'borrador' || f.estado === 'anulada') return error(reply, 409, 'estado_invalido');
+    if (!(await db('entidades_facturantes').where({ id: d.entidad_facturante_id, activa: true }).whereNull('deleted_at').first())) return error(reply, 400, 'entidad_invalida');
+    await db.transaction(async (trx) => {
+      await trx('facturas').where({ id: f.id }).update({ entidad_facturante_id: d.entidad_facturante_id, updated_by: req.ctx.id, updated_at: trx.fn.now() });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'facturas', f.id, { entidad_facturante_id: f.entidad_facturante_id }, { entidad_facturante_id: d.entidad_facturante_id });
+    });
+    return { ok: true };
+  });
+
   app.post('/api/facturas/:id/anular', { preHandler: emitir }, async (req, reply) => {
     const d = z.object({ motivo: z.string().trim().min(3).max(255) }).parse(req.body);
     const f = await cargarFactura(req.ctx, Number(req.params.id));
