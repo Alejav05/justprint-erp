@@ -70,7 +70,7 @@ test('el ajuste por IPC solo existe para contratos en pesos', async () => {
   const c = (await db('clientes').insert({ razon_social: 'Dólares SA', estado: 'activo' }))[0];
   const ct = (await db('contratos').insert({ cliente_id: c, nombre: 'USD', estado: 'vigente', moneda: 'USD', fecha_inicio: '2026-01-01' }))[0];
   await db('contrato_condiciones').insert({ contrato_id: ct, vigente_desde: '2026-01-01', monto_mensual: 100, franquicia_negro: 0, franquicia_color: 0, excedente_negro: 0, excedente_color: 0 });
-  const r = await dir.llamar('GET', `/api/contratos/${ct}/ajuste?hasta=2026-10`);
+  const r = await dir.llamar('GET', `/api/contratos/${ct}/ajuste?desde=2026-10`);
   assert.equal(r.statusCode, 409); assert.equal(r.json().error, 'solo_pesos');
 });
 

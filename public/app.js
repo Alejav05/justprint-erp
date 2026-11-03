@@ -82,6 +82,7 @@ const ICONOS = {
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   costos: 'M3 6h18M3 12h18M3 18h12M19 15v6M16 18h6',
+  'ajustes-ipc': 'M4 18l5-6 4 3 7-9M15 6h5v5',
   cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
   conformidades: 'M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.3 6.8 19.1l1-5.8L3.5 9.2l5.9-.9zM9.5 12.2l1.7 1.7 3.3-3.4',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
@@ -110,6 +111,7 @@ const MENU = [
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
   { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
+  { ruta: 'ajustes-ipc', texto: 'Ajustes por IPC', permiso: 'importes.ver' },
   { ruta: 'costos', texto: 'Costos', permiso: 'costos.ver' },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
@@ -565,44 +567,109 @@ function tarjetaContrato(c) {
 }
 
 
-/** Cuándo toca revisar el precio de un contrato en pesos. Es un aviso: el ajuste lo acuerda y carga una persona. */
+/** Mes de servicio desde el que toca el próximo ajuste según el acuerdo del contrato (AAAA-MM), o null si no tiene acuerdo. */
+function mesProximoAjuste(c) {
+  if (!c.ajuste_ipc_meses) return null;
+  const ult = (c.condiciones ?? []).filter((x) => x.motivo === 'ajuste_ipc').map((x) => String(x.vigente_desde).slice(0, 7)).sort().at(-1);
+  const ref = [c.ajuste_ipc_base, ult].filter(Boolean).sort().at(-1); if (!ref) return null;
+  const t = Number(ref.slice(0, 4)) * 12 + Number(ref.slice(5, 7)) - 1 + c.ajuste_ipc_meses;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+const CADA = { 1: 'mensual', 3: 'trimestral', 6: 'semestral', 12: 'anual' };
+const textoCada = (n) => CADA[n] ?? `cada ${n} meses`;
+
+/** Cuándo toca revisar el precio de un contrato en pesos. Es un aviso: el ajuste lo confirma una persona. */
 function proximoAjuste(c) {
-  const vig = c.condiciones.find((x) => !x.vigente_hasta); if (!vig) return null;
-  const meses = estado.me.config?.ipc_meses ?? 3; const d = new Date(`${String(vig.vigente_desde).slice(0, 10)}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + meses);
-  const iso = d.toISOString().slice(0, 10); const vencido = iso <= new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
-  return h('div', { style: 'margin-bottom:12px' }, 'Próximo ajuste: ', h('b', null, fecha(iso)), ' ', vencido ? chip('Toca revisarlo', 'aviso') : null, h('div', { class: 'apoyo' }, 'Se acuerda con el cliente. El sistema calcula con el IPC y vos lo confirmás.'));
+  const e = mesProximoAjuste(c);
+  if (!e) return h('div', { style: 'margin-bottom:12px' }, 'Ajuste por IPC: ', h('b', null, 'sin acuerdo cargado'), h('div', { class: 'apoyo' }, 'Cargá cada cuántos meses se ajusta y desde cuándo en "Editar datos".'));
+  const vencido = `${e}-01` <= new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  return h('div', { style: 'margin-bottom:12px' }, `Ajuste ${textoCada(c.ajuste_ipc_meses)}: próximo en el servicio de `, h('b', null, nombreMes(e)), ' ', vencido ? chip('Toca revisarlo', 'aviso') : null,
+    h('div', { class: 'apoyo' }, 'Se calcula con el IPC de los meses anteriores. El sistema propone y vos confirmás.'));
 }
 
-/** Ajuste trimestral por IPC: acumulado compuesto de los 3 meses que terminan en el período elegido. */
+const chipFuenteIpc = (x) => (x.revisado ? chip(x.fuente === 'indec' ? 'INDEC · revisado' : 'Cargado a mano', 'ok') : chip('INDEC · sin revisar', 'aviso'));
+
+/** Propuesta de ajuste de un contrato: IPC de los meses que cuentan, acumulado compuesto, precios hoy/nuevo. `recargar` vuelve a calcular. */
+function bloqueAjuste(r, moneda, recargar, alAplicar) {
+  const m4 = (n) => (moneda === 'ARS' ? '$ ' : 'USD ') + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  const titulo = h('p', null, 'Servicio de ', h('b', null, nombreMes(r.desde)), `, ajuste ${textoCada(r.cada)}. Cuenta el IPC de ${r.meses.map(nombreMes).join(', ')}.`);
+  if (!r.ok) {
+    const aviso = h('div', { class: 'error oculto', role: 'alert' });
+    const traer = h('button', { class: 'btn btn-principal', type: 'button' }, 'Traer del INDEC');
+    traer.addEventListener('click', async () => { traer.disabled = true; aviso.classList.add('oculto'); try { await api('/api/ipc/importar', { metodo: 'POST' }); recargar(); } catch { aviso.textContent = 'No se pudo consultar el INDEC. Probá de nuevo más tarde o cargalo a mano.'; aviso.classList.remove('oculto'); traer.disabled = false; } });
+    const inputs = r.faltan.map((p) => [p, h('input', { type: 'number', step: '0.1', 'aria-label': `IPC ${p}`, placeholder: '% del mes' })]);
+    return h('div', { class: 'tarjeta' }, titulo, h('p', null, 'Todavía no están publicados estos meses: ', h('b', null, r.faltan.map(nombreMes).join(', ')), '.'), aviso, h('div', { class: 'acciones' }, traer),
+      h('details', { style: 'margin-top:12px' }, h('summary', null, 'Cargar a mano'), inputs.map(([p, i]) => h('div', { class: 'dos-col', style: 'margin:8px 0' }, h('span', null, nombreMes(p)), i)),
+        h('button', { class: 'btn', type: 'button', onclick: async () => { if (inputs.some(([, i]) => i.value === '')) return; for (const [p, i] of inputs) await api(`/api/ipc/${p}`, { metodo: 'PUT', cuerpo: { variacion: Number(i.value) } }); recargar(); } }, 'Guardar y calcular')));
+  }
+  const fila = (t, a, b) => h('tr', null, h('td', null, t), h('td', { class: 'num' }, a), h('td', { class: 'num' }, b));
+  const err = h('div', { class: 'error oculto', role: 'alert' });
+  const ok = h('button', { class: 'btn btn-principal', type: 'button' }, 'Confirmar y aplicar');
+  ok.addEventListener('click', async () => { ok.disabled = true; err.classList.add('oculto'); try { await api(`/api/contratos/${r.contrato_id}/ajuste`, { metodo: 'POST', cuerpo: { desde: r.desde } }); alAplicar(); } catch (e) { err.textContent = e.datos?.error === 'periodo_facturado' ? 'Ese mes ya tiene factura. Anulala o elegí un mes posterior.' : 'No se pudo aplicar el ajuste.'; err.classList.remove('oculto'); ok.disabled = false; } });
+  return h('div', { class: 'tarjeta' }, titulo,
+    h('ul', { class: 'lista' }, r.ipc.map((x) => h('li', null, h('span', null, nombreMes(x.periodo)), h('span', null, `${x.variacion}% `, chipFuenteIpc(x))))),
+    h('p', null, h('b', null, `Acumulado compuesto ${r.pct}%`), `. Rige desde ${fecha(r.vigente_desde)}.`),
+    h('table', null, h('thead', null, h('tr', null, h('th', null, ''), h('th', { class: 'num' }, 'Hoy'), h('th', { class: 'num' }, 'Nuevo'))),
+      h('tbody', null, fila('Abono mensual', monto(r.actual.monto_mensual, moneda), monto(r.nuevo.monto_mensual, moneda)), fila('Página negro', m4(r.actual.excedente_negro), m4(r.nuevo.excedente_negro)), fila('Página color', m4(r.actual.excedente_color), m4(r.nuevo.excedente_color)))),
+    h('p', { class: 'apoyo' }, 'La franquicia no cambia. Los precios anteriores se conservan. Al confirmar, esos meses de IPC quedan como revisados.'), err, h('div', { class: 'acciones' }, ok));
+}
+
+/** Ajuste por IPC dentro de la ficha del contrato. */
 function panelAjuste(c) {
   const caja = h('div', { class: 'no-imprimir', style: 'margin-bottom:12px' });
-  const abrir = h('button', { class: 'btn', type: 'button' }, 'Ajustar por IPC');
-  const mes = h('input', { type: 'month', value: mesAnterior(), 'aria-label': 'Último mes del trimestre' });
+  if (!c.ajuste_ipc_meses) return caja;
   const zona = h('div');
   const calcular = async () => {
     vaciar(zona).append(cargando());
-    const r = await api(`/api/contratos/${c.id}/ajuste?hasta=${mes.value}`).catch((e) => e);
-    if (r instanceof Error) { vaciar(zona).append(h('div', { class: 'error' }, r.datos?.error === 'ya_ajustado' ? `Ya hay una condición desde ${fecha(r.datos.desde)} o posterior.` : 'No se pudo calcular el ajuste.')); return; }
-    if (!r.ok) {
-      const inputs = r.faltan.map((p) => { const i = h('input', { type: 'number', step: '0.01', 'aria-label': `IPC ${p}`, placeholder: '% del mes' }); return [p, i]; });
-      vaciar(zona).append(h('div', { class: 'tarjeta' }, h('p', null, 'Faltan cargar estos índices de IPC (variación mensual en %):'),
-        inputs.map(([p, i]) => h('div', { class: 'dos-col', style: 'margin-bottom:8px' }, h('span', null, nombreMes(p)), i)),
-        h('button', { class: 'btn btn-principal', type: 'button', onclick: async () => { for (const [p, i] of inputs) { if (i.value === '') return; await api(`/api/ipc/${p}`, { metodo: 'PUT', cuerpo: { variacion: Number(i.value) } }); } calcular(); } }, 'Guardar y calcular')));
-      return;
-    }
-    const fila = (t, a, b) => h('tr', null, h('td', null, t), h('td', { class: 'num' }, a), h('td', { class: 'num' }, b));
-    const m4 = (n) => (c.moneda === 'ARS' ? '$ ' : 'USD ') + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-    vaciar(zona).append(h('div', { class: 'tarjeta' },
-      h('p', null, 'IPC: ', r.ipc.map((x) => `${nombreMes(x.periodo)} ${x.variacion}%`).join(' · '), h('br'), h('b', null, `Acumulado compuesto ${r.pct}%`), `, rige desde ${fecha(r.vigente_desde)}.`),
-      h('table', null, h('thead', null, h('tr', null, h('th', null, ''), h('th', { class: 'num' }, 'Hoy'), h('th', { class: 'num' }, 'Nuevo'))),
-        h('tbody', null, fila('Abono mensual', monto(r.actual.monto_mensual, c.moneda), monto(r.nuevo.monto_mensual, c.moneda)),
-          fila('Página negro', m4(r.actual.excedente_negro), m4(r.nuevo.excedente_negro)), fila('Página color', m4(r.actual.excedente_color), m4(r.nuevo.excedente_color)))),
-      h('p', { class: 'apoyo' }, 'La franquicia no cambia. La condición actual se cierra el día anterior.'),
-      h('div', { class: 'acciones' }, h('button', { class: 'btn btn-principal', type: 'button', onclick: async (ev) => { ev.target.disabled = true; try { await api(`/api/contratos/${c.id}/ajuste`, { metodo: 'POST', cuerpo: { hasta: mes.value } }); navegar(); } catch { ev.target.disabled = false; } } }, 'Aplicar ajuste'))));
+    const r = await api(`/api/contratos/${c.id}/ajuste`).catch((e) => e);
+    if (r instanceof Error) { vaciar(zona).append(h('div', { class: 'error' }, r.datos?.error === 'ya_ajustado' ? `Ya hay precios desde ${fecha(r.datos.desde)} o posterior.` : r.datos?.error === 'periodo_facturado' ? `Ya hay una factura de ${nombreMes(r.datos.periodo)} o posterior: ese ajuste no se puede aplicar hacia atrás.` : 'No se pudo calcular el ajuste.')); return; }
+    vaciar(zona).append(bloqueAjuste(r, c.moneda, calcular, () => navegar()));
   };
-  abrir.addEventListener('click', () => { abrir.remove(); caja.append(h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' }, h('label', null, 'Último mes del trimestre ', mes), h('button', { class: 'btn', type: 'button', onclick: calcular }, 'Calcular')), zona); });
+  const abrir = h('button', { class: 'btn', type: 'button' }, 'Revisar ajuste por IPC');
+  abrir.addEventListener('click', () => { abrir.remove(); caja.append(zona); calcular(); });
   caja.append(abrir);
   return caja;
+}
+
+const ESTADO_AJUSTE = { futuro: ['Todavía no toca', 'mudo'], faltan_ipc: ['Faltan índices', 'aviso'], revisar: ['Revisar índices', 'aviso'], listo: ['Listo para confirmar', 'ok'], ya_ajustado: ['Ya ajustado', 'mudo'], sin_condiciones: ['Sin precios', 'malo'], periodo_facturado: ['Mes ya facturado', 'malo'], sin_acuerdo: ['Sin acuerdo', 'mudo'] };
+
+/** Pantalla central de ajustes: trae el IPC al abrirla y muestra qué contratos tocan. */
+async function vistaAjustesIpc(destino) {
+  const zona = h('div');
+  const traer = h('button', { class: 'btn', type: 'button' }, 'Traer del INDEC');
+  const nota = h('div', { class: 'apoyo', role: 'status' });
+  const cargar = async () => {
+    vaciar(zona).append(cargando());
+    const d = await api('/api/ajustes-ipc');
+    const orden = [...d.items].sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
+    vaciar(zona).append(
+      h('h2', { style: 'margin:20px 0 8px' }, 'Contratos con ajuste'),
+      ...(d.items.length ? orden.map((x) => {
+        const [t, tono] = ESTADO_AJUSTE[x.estado] ?? [x.estado, 'mudo']; const cuerpo = h('div');
+        const det = h('details', null, h('summary', null, h('b', null, x.cliente), ' ', h('span', { class: 'apoyo' }, `${x.contrato} · ${textoCada(x.cada)}${x.desde ? ` · servicio ${nombreMes(x.desde)}` : ''} `), chip(t, tono)), cuerpo);
+        const recalcular = async () => { vaciar(cuerpo).append(cargando()); const r = await api(`/api/contratos/${x.contrato_id}/ajuste`).catch(() => null); vaciar(cuerpo).append(r ? bloqueAjuste(r, 'ARS', recalcular, cargar) : h('div', { class: 'error' }, 'No se pudo calcular.'), h('a', { href: `#/contratos/${x.contrato_id}` }, 'Ver contrato')); };
+        det.addEventListener('toggle', () => { if (det.open && !cuerpo.childNodes.length) recalcular(); });
+        if (['listo', 'revisar'].includes(x.estado)) det.open = true;
+        return h('div', { class: 'tarjeta' }, det);
+      }) : [h('div', { class: 'tarjeta vacio' }, h('b', null, 'Ningún contrato en pesos tiene acuerdo de ajuste'), h('div', { class: 'apoyo' }, 'Se carga en cada contrato, en "Editar datos": cada cuántos meses y desde qué mes.'))]),
+      h('h2', { style: 'margin:20px 0 8px' }, 'Índices de IPC'),
+      d.indices.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Mes'), h('th', { class: 'num' }, 'Variación'), h('th', null, 'Estado'), puede('contratos.editar') && h('th', null, ''))),
+        h('tbody', null, d.indices.map((i) => {
+          const inp = h('input', { type: 'number', step: '0.1', value: i.variacion, 'aria-label': `IPC ${i.periodo}`, style: 'width:90px' });
+          return h('tr', null, h('td', null, nombreMes(i.periodo)), h('td', { class: 'num' }, `${i.variacion}%`), h('td', null, chipFuenteIpc(i)),
+            puede('contratos.editar') && h('td', null, i.revisado ? null : h('button', { class: 'btn', type: 'button', onclick: async () => { await api(`/api/ipc/${i.periodo}/revisar`, { metodo: 'POST' }); cargar(); } }, 'Marcar revisado'), ' ',
+              h('details', { style: 'display:inline-block' }, h('summary', null, 'Corregir'), inp, h('button', { class: 'btn', type: 'button', onclick: async () => { await api(`/api/ipc/${i.periodo}`, { metodo: 'PUT', cuerpo: { variacion: Number(inp.value) } }); cargar(); } }, 'Guardar'))));
+        })))) : h('div', { class: 'tarjeta vacio' }, 'Todavía no hay índices cargados. Tocá "Traer del INDEC".'));
+  };
+  const importar = async (silencioso) => {
+    traer.disabled = true; nota.textContent = 'Consultando al INDEC…';
+    try { const r = await api('/api/ipc/importar', { metodo: 'POST' }); nota.textContent = r.agregados || r.actualizados ? `Se trajeron ${r.agregados} índice${r.agregados === 1 ? '' : 's'} nuevo${r.agregados === 1 ? '' : 's'}${r.actualizados ? ` y se actualizaron ${r.actualizados}` : ''}. Último publicado: ${r.ultimo ? nombreMes(r.ultimo) : '—'}.` : `Ya estás al día. Último publicado: ${r.ultimo ? nombreMes(r.ultimo) : '—'}.`; }
+    catch { nota.textContent = silencioso ? 'No se pudo consultar al INDEC ahora. Se muestran los índices guardados.' : 'No se pudo consultar al INDEC. Probá de nuevo más tarde o corregí los índices a mano.'; }
+    traer.disabled = false; await cargar();
+  };
+  traer.addEventListener('click', () => importar(false));
+  agregar(destino, [encabezado('Ajustes por IPC', 'El sistema trae el IPC del INDEC y propone el ajuste de cada contrato. Vos revisás y confirmás.', h('div', { class: 'acciones' }, puede('contratos.editar') && traer)), nota, zona]);
+  if (puede('contratos.editar')) await importar(true); else await cargar();
 }
 
 async function vistaCliente(destino, id) {
@@ -1574,6 +1641,7 @@ async function navegar() {
       else if (param === 'factura' && sub) await vistaFactura(nuevo, sub);
       else await vistaFacturacion(nuevo, param);
     } else if (ruta === 'costos' && puede('costos.ver')) await cst.vistaCostos(nuevo);
+    else if (ruta === 'ajustes-ipc' && puede('importes.ver')) await vistaAjustesIpc(nuevo);
     else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
     else if (ruta === 'configuracion' && puede('sistema.configurar')) await conf.vistaConfiguracion(nuevo, param);
     else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));

@@ -1,6 +1,7 @@
 // Motor de alertas: cada regla mira el estado actual del negocio, y por cada caso que cumple arma el aviso con los datos de ese momento.
 import { canales } from './canales.js';
 import { aDia, hoy } from './fechas.js';
+import { proximoAjusteMes } from './ipc.js';
 import { semaforo } from './cobranzas.js';
 import { valor } from './ajustes_sistema.js';
 import { estadoSla } from './servicio.js';
@@ -173,10 +174,16 @@ export const REGLAS = [
     asunto: 'Ajuste por IPC pendiente: {cliente}', cuerpo: 'El contrato "{contrato}" de {cliente} tiene los mismos precios desde {desde}. Toca revisar el ajuste con el cliente. Lo valida y lo carga una persona; el sistema solo calcula y avisa.', variables: ['cliente', 'contrato', 'desde'],
     async evaluar(db) {
       const h = hoy(); const out = []; const cartera = await carteraDe(db); const umbral = valor('ipc.meses_ajuste') ?? 3;
-      const cs = await db('contratos as c').join('clientes', 'clientes.id', 'c.cliente_id').where({ 'c.estado': 'vigente', 'c.moneda': 'ARS' }).whereNull('c.deleted_at').select('c.id', 'c.nombre', 'c.cliente_id', 'clientes.razon_social', 'clientes.nombre_comercial');
+      const cs = await db('contratos as c').join('clientes', 'clientes.id', 'c.cliente_id').where({ 'c.estado': 'vigente', 'c.moneda': 'ARS' }).whereNull('c.deleted_at').select('c.id', 'c.nombre', 'c.cliente_id', 'c.ajuste_ipc_meses', 'c.ajuste_ipc_base', 'clientes.razon_social', 'clientes.nombre_comercial');
       for (const c of cs) {
         const cond = await db('contrato_condiciones').where({ contrato_id: c.id }).whereNull('vigente_hasta').orderBy('vigente_desde', 'desc').first(); if (!cond) continue;
         const desde = aDia(cond.vigente_desde);
+        if (c.ajuste_ipc_meses) { // con acuerdo propio: toca desde el primer día del mes de servicio que se ajusta
+          const ult = await db('contrato_condiciones').where({ contrato_id: c.id, motivo: 'ajuste_ipc' }).max({ d: 'vigente_desde' }).first();
+          const e = proximoAjusteMes({ meses: c.ajuste_ipc_meses, base: c.ajuste_ipc_base, ultimoAjuste: ult?.d ? aDia(ult.d).slice(0, 7) : null });
+          if (e && `${e}-01` <= h && desde < `${e}-01`) out.push({ entidad: `ipc:${c.id}:${e}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: '#/ajustes-ipc', responsables: { comercial: cartera.get(c.cliente_id) } });
+          continue;
+        }
         if (sumarMeses(desde, umbral) <= h) out.push({ entidad: `ipc:${c.id}:${desde}`, vars: { cliente: nombreCliente(c), contrato: c.nombre, desde: desde.split('-').reverse().join('/') }, destino: `#/clientes/${c.cliente_id}`, responsables: { comercial: cartera.get(c.cliente_id) } });
       }
       return out;

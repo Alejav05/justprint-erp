@@ -18,6 +18,25 @@ export function crearContratos(U) {
   const nIn = (id, v, o = {}) => h('input', { id, type: 'number', inputmode: 'decimal', min: '0', step: o.step ?? 'any', value: v ?? '', placeholder: o.ph ?? null });
   const mon = (c) => (c === 'ARS' ? 'pesos' : 'dólares');
 
+  const FREC = [[0, 'Sin ajuste automático'], [1, 'Mensual'], [3, 'Trimestral'], [6, 'Semestral'], [12, 'Anual'], [-1, 'Otra frecuencia…']];
+  /** Acuerdo de ajuste por IPC: cada cuántos meses y desde qué mes de servicio rigen los precios actuales (el primer ajuste cae un período después). */
+  function campoAjuste(meses, base, idp) {
+    const conocido = FREC.some(([v]) => v === (meses ?? 0));
+    const sel = h('select', { id: `${idp}-frec` }, FREC.map(([v, t]) => h('option', { value: v, selected: v === (conocido ? (meses ?? 0) : -1) }, t)));
+    const otra = nIn(`${idp}-otra`, conocido ? '' : meses, { step: '1', ph: 'Cada cuántos meses' }); const mes = h('input', { id: `${idp}-base`, type: 'month', value: base ?? '' });
+    const proximo = h('div', { class: 'apoyo' });
+    const pintar = () => {
+      otra.hidden = Number(sel.value) !== -1; mes.disabled = Number(sel.value) === 0;
+      const n = valorMeses(); if (!n || !mes.value) { proximo.textContent = n ? 'Elegí desde qué mes rigen los precios actuales.' : ''; return; }
+      const t = Number(mes.value.slice(0, 4)) * 12 + Number(mes.value.slice(5, 7)) - 1 + n; const e = `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+      proximo.textContent = `Primer ajuste: servicio de ${e.slice(5, 7)}/${e.slice(0, 4)}, con el IPC de los ${n} meses anteriores.`;
+    };
+    const valorMeses = () => { const v = Number(sel.value); return v === -1 ? (Number(otra.value) || null) : (v || null); };
+    [sel, otra, mes].forEach((e) => e.addEventListener('input', pintar)); pintar();
+    const el = h('div', { class: 'bloque' }, campo('Ajuste por IPC', sel, null, `${idp}-frec`), otra, campo('Precios actuales rigen desde el servicio de', mes, 'Cuando se acordó el último precio. El próximo ajuste cuenta desde acá.', `${idp}-base`), proximo);
+    return { el, valores: () => { const n = valorMeses(); return { ajuste_ipc_meses: n, ajuste_ipc_base: n && mes.value ? mes.value : null }; }, mes, mostrar: (v) => { el.hidden = !v; } };
+  }
+
   /* ---------- lista ---------- */
   async function vistaContratos(destino) {
     const f = { estado: 'vigente', q: '', vencen: '' };
@@ -56,10 +75,11 @@ export function crearContratos(U) {
     const entidad = h('select', { id: 'k-ent' }, h('option', { value: '' }, 'La habitual'), ent.items.map((e) => h('option', { value: e.id }, e.razon_social)));
     const plazo = nIn('k-plz', '', { step: '1', ph: 'Usa el general' }); const notas = h('textarea', { id: 'k-not', maxlength: '2000', placeholder: 'Condiciones especiales, quién firmó, qué se acordó…' });
     const abono = nIn('k-ab', previo?.abono ?? '', { ph: '0' }); const fn = nIn('k-fn', 0, { step: '1' }); const fc = nIn('k-fc', 0, { step: '1' }); const en = nIn('k-en', 0, { step: '0.0001' }); const ec = nIn('k-ec', 0, { step: '0.0001' });
-    const noFact = h('input', { id: 'k-nf', type: 'checkbox' });
+    const noFact = h('input', { id: 'k-nf', type: 'checkbox' }); const ajuste = campoAjuste(3, hoyISO().slice(0, 7), 'k-ipc'); let baseTocada = false; ajuste.mes.addEventListener('input', () => { baseTocada = true; }); ini.addEventListener('input', () => { if (!baseTocada && ini.value) { ajuste.mes.value = ini.value.slice(0, 7); ajuste.mes.dispatchEvent(new Event('input')); baseTocada = false; } });
     const err = h('div', { class: 'error oculto', role: 'alert' }); const resumen = h('div', { class: 'bloque resumen-contrato' });
     const segMoneda = h('div', { class: 'seg', role: 'group', 'aria-label': 'Moneda' }); const segEstado = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado inicial' });
     const pintarSeg = () => {
+      ajuste.mostrar(moneda === 'ARS');
       vaciar(segMoneda).append(...[['USD', 'Dólares'], ['ARS', 'Pesos']].map(([v, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(moneda === v), onclick: () => { moneda = v; pintarSeg(); pintarResumen(); } }, t)));
       vaciar(segEstado).append(...[['vigente', 'Vigente: ya se factura'], ['borrador', 'Borrador: todavía no']].map(([v, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(estadoNuevo === v), onclick: () => { estadoNuevo = v; pintarSeg(); } }, t)));
     };
@@ -83,7 +103,7 @@ export function crearContratos(U) {
       guardar.disabled = true;
       try {
         const r = await api('/api/contratos', { metodo: 'POST', cuerpo: { cliente_id: Number(cliente.value), nombre: nombre.value.trim(), sede_id: sede.value ? Number(sede.value) : null, moneda, estado: estadoNuevo, fecha_inicio: ini.value,
-          duracion_meses: dur.value ? Number(dur.value) : null, entidad_facturante_id: entidad.value ? Number(entidad.value) : null, plazo_pago_dias: plazo.value !== '' ? Number(plazo.value) : null, notas: notas.value.trim() || null,
+          duracion_meses: dur.value ? Number(dur.value) : null, ...(moneda === 'ARS' ? ajuste.valores() : {}), entidad_facturante_id: entidad.value ? Number(entidad.value) : null, plazo_pago_dias: plazo.value !== '' ? Number(plazo.value) : null, notas: notas.value.trim() || null,
           precios: { monto_mensual: Number(abono.value) || 0, franquicia_negro: Number(fn.value) || 0, franquicia_color: Number(fc.value) || 0, excedente_negro: Number(en.value) || 0, excedente_color: Number(ec.value) || 0, facturable: !noFact.checked } } });
         location.hash = `#/contratos/${r.id}`;
       } catch (e) { err.textContent = e.datos?.error ? msg(e) : 'Revisá los datos: hay algún valor fuera de rango.'; err.classList.remove('oculto'); guardar.disabled = false; }
@@ -100,7 +120,7 @@ export function crearContratos(U) {
           h('div', { class: 'tarjeta' }, h('h2', null, 'Precios'), campo('Abono mensual (en la moneda elegida)', abono, null, 'k-ab'),
             h('div', { class: 'dos-col' }, campo('Páginas incluidas en negro', fn, 'Franquicia mensual.', 'k-fn'), campo('Páginas incluidas en color', fc, null, 'k-fc')),
             h('div', { class: 'dos-col' }, campo('Excedente por página en negro', en, 'Lo que se cobra al pasarse.', 'k-en'), campo('Excedente por página en color', ec, null, 'k-ec')),
-            h('label', { class: 'interruptor', for: 'k-nf' }, noFact, h('span', null, 'No se factura (se presta el servicio sin cargo)'))),
+            h('label', { class: 'interruptor', for: 'k-nf' }, noFact, h('span', null, 'No se factura (se presta el servicio sin cargo)')), ajuste.el),
           h('div', { class: 'tarjeta' }, h('h2', null, 'Facturación'), h('div', { class: 'dos-col' }, campo('Entidad que factura', entidad, null, 'k-ent'), campo('Plazo de pago (días)', plazo, 'Desde la emisión de la factura. Vacío usa el general.', 'k-plz')), campo('Notas', notas, null, 'k-not')),
           h('div', { class: 'tarjeta' }, h('h2', null, 'Estado inicial'), segEstado, h('p', { class: 'apoyo', style: 'margin:0' }, 'Un borrador no se factura. Podés activarlo cuando esté todo listo.')),
           err, h('div', { class: 'acciones' }, guardar, h('a', { class: 'btn', href: '#/contratos' }, 'Cancelar'))),
@@ -149,18 +169,18 @@ export function crearContratos(U) {
     const c = d.contrato; const nombre = h('input', { id: 'e-nom', type: 'text', value: c.nombre, maxlength: '160' }); const dur = nIn('e-dur', c.duracion_meses ?? '', { step: '1', ph: 'Sin fecha de fin' });
     const ini = h('input', { id: 'e-ini', type: 'date', value: c.fecha_inicio }); const plazo = nIn('e-plz', c.plazo_pago_dias ?? '', { step: '1', ph: 'Usa el general' }); const notas = h('textarea', { id: 'e-not', maxlength: '2000' }); notas.value = c.notas ?? '';
     const sede = h('select', { id: 'e-sede' }, h('option', { value: '' }, 'Sin sede específica')); const entidad = h('select', { id: 'e-ent' }, h('option', { value: '' }, 'Sin entidad'));
-    const moneda = h('select', { id: 'e-mon' }, [['USD', 'Dólares'], ['ARS', 'Pesos']].map(([v, t]) => h('option', { value: v, selected: v === c.moneda }, t)));
+    const ajuste = campoAjuste(c.ajuste_ipc_meses, c.ajuste_ipc_base, 'e-ipc'); const moneda = h('select', { id: 'e-mon' }, [['USD', 'Dólares'], ['ARS', 'Pesos']].map(([v, t]) => h('option', { value: v, selected: v === c.moneda }, t)));
     api(`/api/clientes/${c.cliente_id}`).then((x) => (x.sedes ?? []).forEach((s) => sede.append(h('option', { value: s.id, selected: s.id === c.sede_id }, s.nombre))));
     api('/api/entidades-facturantes').then((x) => x.items.forEach((e) => entidad.append(h('option', { value: e.id, selected: e.id === c.entidad_facturante_id }, e.razon_social))));
     const err = h('div', { class: 'error oculto', role: 'alert' }); const ok = h('button', { class: 'btn btn-principal', type: 'button' }, 'Guardar cambios');
     ok.addEventListener('click', async () => {
       ok.disabled = true; err.classList.add('oculto');
       try { await api(`/api/contratos/${c.id}`, { metodo: 'PATCH', cuerpo: { nombre: nombre.value.trim(), sede_id: sede.value ? Number(sede.value) : null, fecha_inicio: ini.value, duracion_meses: dur.value ? Number(dur.value) : null, entidad_facturante_id: entidad.value ? Number(entidad.value) : null,
-        plazo_pago_dias: plazo.value !== '' ? Number(plazo.value) : null, notas: notas.value.trim() || null, moneda: moneda.value } }); cerrar(); aviso('Cambios guardados'); alGuardar(); }
+        plazo_pago_dias: plazo.value !== '' ? Number(plazo.value) : null, notas: notas.value.trim() || null, moneda: moneda.value, ...(moneda.value === 'ARS' ? ajuste.valores() : { ajuste_ipc_meses: null, ajuste_ipc_base: null }) } }); cerrar(); aviso('Cambios guardados'); alGuardar(); }
       catch (e) { err.textContent = e.datos?.error ? msg(e) : 'Revisá los datos.'; err.classList.remove('oculto'); ok.disabled = false; }
     });
     return h('div', null, campo('Nombre', nombre, null, 'e-nom'), campo('Sede', sede, null, 'e-sede'), h('div', { class: 'dos-col' }, campo('Fecha de inicio', ini, null, 'e-ini'), campo('Duración (meses)', dur, null, 'e-dur')),
-      campo('Entidad que factura', entidad, null, 'e-ent'), campo('Plazo de pago (días)', plazo, null, 'e-plz'), campo('Moneda', moneda, 'Solo se puede cambiar si todavía no tiene facturas ni cambios de precio.', 'e-mon'), campo('Notas', notas, null, 'e-not'), err, ok);
+      campo('Entidad que factura', entidad, null, 'e-ent'), campo('Plazo de pago (días)', plazo, null, 'e-plz'), campo('Moneda', moneda, 'Solo se puede cambiar si todavía no tiene facturas ni cambios de precio.', 'e-mon'), c.moneda === 'ARS' && ajuste.el, campo('Notas', notas, null, 'e-not'), err, ok);
   }
 
   function formPrecios(d, cerrar, alGuardar) {

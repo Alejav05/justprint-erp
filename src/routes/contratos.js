@@ -17,6 +17,7 @@ const precios = z.object({
 const datos = z.object({
   nombre: z.string().trim().min(2).max(160), sede_id: z.number().int().positive().nullable().optional(), fecha_inicio: fecha, duracion_meses: z.number().int().min(1).max(240).nullable().optional(),
   entidad_facturante_id: z.number().int().positive().nullable().optional(), plazo_pago_dias: z.number().int().min(0).max(365).nullable().optional(), notas: z.string().trim().max(2000).nullable().optional(),
+  ajuste_ipc_meses: z.number().int().min(1).max(36).nullable().optional(), ajuste_ipc_base: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
 });
 const sumarMeses = (iso, n) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); };
 
@@ -106,7 +107,9 @@ export default async function rutasContratos(app, { db }) {
     const ref = await usdRef(d.moneda, d.precios.monto_mensual);
     const id = await db.transaction(async (trx) => {
       const [cid] = await trx('contratos').insert({ cliente_id: d.cliente_id, sede_id: d.sede_id ?? null, nombre: d.nombre, estado: d.estado, fecha_inicio: d.fecha_inicio, duracion_meses: d.duracion_meses ?? null, moneda: d.moneda,
-        entidad_facturante_id: entidad, plazo_pago_dias: d.plazo_pago_dias ?? null, notas: d.notas ?? null, created_by: req.ctx.id });
+        entidad_facturante_id: entidad, plazo_pago_dias: d.plazo_pago_dias ?? null, notas: d.notas ?? null, created_by: req.ctx.id,
+        // En pesos, por defecto se ajusta cada 3 meses contando desde el inicio; el acuerdo real se corrige en la ficha.
+        ajuste_ipc_meses: d.moneda === 'ARS' ? (d.ajuste_ipc_meses === undefined ? 3 : d.ajuste_ipc_meses) : null, ajuste_ipc_base: d.moneda === 'ARS' ? (d.ajuste_ipc_base ?? d.fecha_inicio.slice(0, 7)) : null });
       await trx('contrato_condiciones').insert({ contrato_id: cid, vigente_desde: d.fecha_inicio, ...d.precios, motivo: d.precios.facturable ? 'alta' : 'sin_facturar', monto_usd_referencia: ref.usd, cotizacion_referencia: ref.cot, creado_por: req.ctx.id });
       if (d.estado === 'vigente') await trx('clientes').where({ id: d.cliente_id }).whereNot({ estado: 'activo' }).update({ estado: 'activo', fecha_baja: null, motivo_baja: null });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'contratos', cid, null, { cliente_id: d.cliente_id, nombre: d.nombre, moneda: d.moneda, monto_mensual: d.precios.monto_mensual });
