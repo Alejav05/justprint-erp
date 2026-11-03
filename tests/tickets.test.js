@@ -92,9 +92,11 @@ async function ticketDeMatias(equipo_id) {
 }
 const FIRMA = `data:image/png;base64,${Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64')}`;
 
+let ultimoRemito = 0;
 test('el cierre genera parte, remito de servicio, lectura de contadores, baja de stock y conformidad; el ticket queda cerrado', async () => {
   const id = await ticketDeMatias(ids.equipo);
   const mat = await entrar(ctx.app, 'matias@demo.local');
+  ultimoRemito = (await ctx.db('numeradores').where({ clave: 'remito' }).first())?.ultimo ?? 0;
   const r = await mat.llamar('POST', `/api/tickets/${id}/cierre`, {
     trabajo_realizado: 'Se reemplazó tóner y se limpió el rodillo', contador_negro: 1200, contador_color: 300,
     repuestos: [{ insumo_id: ids.insumo, cantidad: 1 }],
@@ -103,7 +105,8 @@ test('el cierre genera parte, remito de servicio, lectura de contadores, baja de
   assert.equal(r.statusCode, 201, r.body);
   const out = r.json();
   assert.equal(out.estado, 'cerrado');
-  assert.match(out.remito, /^0001-\d{8}$/);
+  assert.equal(out.remito, (await ctx.db('tickets').where({ id }).first()).numero, 'la conformidad de servicio lleva el número del ticket, no un remito');
+  assert.equal((await ctx.db('numeradores').where({ clave: 'remito' }).first())?.ultimo ?? 0, ultimoRemito, 'no consume la numeración de remitos');
   const t = await ctx.db('tickets').where({ id }).first();
   assert.ok(t.resuelto_en && t.cerrado_en && t.horas_resolucion != null);
   assert.equal(t.sla_cumplido === 1 || t.sla_cumplido === true, true);

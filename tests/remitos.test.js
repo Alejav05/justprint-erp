@@ -112,13 +112,14 @@ test('envío: sin canal configurado avisa; con canal manda el PDF y deja registr
 });
 
 test('los remitos viejos se renumeran al formato nuevo sin perder el orden', async () => {
-  const filas = await ctx.db('remitos').select('numero');
+  const filas = await ctx.db('remitos').whereNot({ tipo: 'servicio' }).select('numero');
   assert.ok(filas.every((f) => /^0001-\d{8}$/.test(f.numero)));
 });
 
 test('encuesta: la responde solo el cliente desde su enlace, una sola vez; el equipo no puede cargarla', async () => {
   const head = await entrar('head.tecnico@demo.local');
-  const nuevo = async () => (await head.llamar('POST', '/api/remitos/entrega', { cliente_id: cli.prueba, items: [{ insumo_id: insumo, cantidad: 1 }] })).json().id;
+  let n = 0;
+  const nuevo = async () => { n += 1; const [id] = await ctx.db('remitos').insert({ numero: `TST-CL-01-TK000${n}`, token: `${n}`.padStart(32, 'a'), cliente_id: cli.prueba, tipo: 'servicio', fecha: '2026-11-02', estado: 'emitido', observaciones: 'Se cambió el tóner', created_by: 1 }); return id; };
   const a = await nuevo();
   await head.llamar('POST', `/api/remitos/${a}/conformidad`, { nombre: 'Ana Gómez', firma: PNG });
   assert.equal((await head.llamar('POST', `/api/remitos/${a}/encuesta`, { puntaje: 5 })).statusCode, 404, 'el equipo no puede cargar la opinión del cliente');
@@ -154,4 +155,24 @@ test('el pie del remito dice solo JustPrint como emisor', async () => {
   const { id } = (await head.llamar('POST', '/api/remitos/entrega', { cliente_id: cli.prueba, items: [{ insumo_id: insumo, cantidad: 1 }] })).json();
   const d = (await head.llamar('GET', `/api/remitos/${id}`)).json();
   assert.equal(d.emisor, 'JustPrint · CUIT 30-71646173-0');
+});
+
+test('la conformidad de servicio no es un remito: otro documento, otro PDF, y la entrega de insumos no lleva encuesta', async () => {
+  const head = await entrar('head.tecnico@demo.local');
+  const [sid] = await ctx.db('remitos').insert({ numero: 'ZZZ-CL-01-TK0009', token: 'c'.repeat(32), cliente_id: cli.prueba, tipo: 'servicio', fecha: '2026-11-02', estado: 'emitido', observaciones: 'Cambio de rodillo', created_by: 1 });
+  const d = (await head.llamar('GET', `/api/remitos/${sid}`)).json();
+  assert.equal(d.documento, 'Conformidad de servicio'); assert.equal(d.tipo_texto, 'Servicio técnico'); assert.equal(d.servicio.trabajo, 'Cambio de rodillo');
+  const pdf = await head.llamar('GET', `/api/remitos/${sid}/pdf`); assert.equal(pdf.statusCode, 200); assert.equal(pdf.rawPayload.subarray(0, 5).toString(), '%PDF-');
+  assert.match(pdf.headers['content-disposition'], /Conformidad de servicio/);
+  const pagina = (await ctx.app.inject({ method: 'GET', url: `/r/${'c'.repeat(32)}` })).body;
+  assert.match(pagina, /CONFORMIDAD DE SERVICIO/); assert.match(pagina, /Trabajo realizado/); assert.ok(!pagina.includes('Detalle de lo entregado'));
+  // una entrega firmada no pide opinión
+  const { id } = (await head.llamar('POST', '/api/remitos/entrega', { cliente_id: cli.prueba, items: [{ insumo_id: insumo, cantidad: 1 }] })).json();
+  await head.llamar('POST', `/api/remitos/${id}/conformidad`, { nombre: 'Pedro Ruiz', firma: PNG });
+  const tok = (await ctx.db('remitos').where({ id }).first()).token;
+  const ent = (await ctx.app.inject({ method: 'GET', url: `/r/${tok}` })).body;
+  assert.match(ent, /Detalle de lo entregado/); assert.ok(!ent.includes('Tu opinión'));
+  const lista = (await head.llamar('GET', '/api/remitos?tipo=servicio&limite=100')).json().items;
+  assert.ok(lista.length >= 1 && lista.every((x) => x.tipo === 'servicio'));
+  assert.ok((await head.llamar('GET', '/api/remitos?tipo=entrega&limite=100')).json().items.every((x) => x.tipo !== 'servicio'));
 });

@@ -5,7 +5,7 @@ import { hoy } from '../lib/fechas.js';
 import { siguienteNumero } from '../lib/numeradores.js';
 import { costoDeRemito } from '../lib/costos.js';
 import { canales } from '../lib/canales.js';
-import { cargarRemitoCompleto, codigoVerificacion, contactosDe, guardarConformidad, nuevoToken, parseFirma, telefonoAR, urlPublica } from '../lib/remitos.js';
+import { nombreDocumento, cargarRemitoCompleto, codigoVerificacion, contactosDe, guardarConformidad, nuevoToken, parseFirma, telefonoAR, urlPublica } from '../lib/remitos.js';
 import { generarRemitoPdf } from '../lib/remito_pdf.js';
 import { leerEncuesta } from '../lib/encuestas.js';
 import { paginaPublicaRemito } from '../lib/remito_publico.js';
@@ -49,12 +49,13 @@ export default async function rutasRemitos(app, { db }) {
 
   // ---------- lista ----------
   app.get('/api/remitos', { preHandler: ver }, async (req) => {
-    const f = z.object({ cliente: z.coerce.number().int().positive().optional(), estado: z.enum(['emitido', 'firmado', 'anulado']).optional(), q: z.string().trim().max(80).optional(),
+    const f = z.object({ cliente: z.coerce.number().int().positive().optional(), estado: z.enum(['emitido', 'firmado', 'anulado']).optional(), tipo: z.enum(['entrega', 'servicio']).optional(), q: z.string().trim().max(80).optional(),
       pagina: z.coerce.number().int().min(1).default(1), limite: z.coerce.number().int().min(1).max(100).default(30) }).parse(req.query);
     const visibles = await clientesVisibles(db, req.ctx);
     const base = () => db('remitos as r').join('clientes as c', 'c.id', 'r.cliente_id').whereNull('r.deleted_at').modify((b) => { if (visibles !== null) b.whereIn('r.cliente_id', visibles.length ? visibles : [0]); if (f.cliente) b.where('r.cliente_id', f.cliente); });
     const q = base().modify((b) => {
       if (f.estado) b.where('r.estado', f.estado);
+      if (f.tipo === 'servicio') b.where('r.tipo', 'servicio'); else if (f.tipo === 'entrega') b.whereNot('r.tipo', 'servicio');
       if (f.q) b.where((w) => w.where('r.numero', 'like', `%${f.q}%`).orWhere('c.razon_social', 'like', `%${f.q}%`).orWhere('c.nombre_comercial', 'like', `%${f.q}%`));
     });
     const [{ total }] = await q.clone().count({ total: 'r.id' });
@@ -143,7 +144,7 @@ export default async function rutasRemitos(app, { db }) {
   app.get('/api/remitos/:id/pdf', { preHandler: ver }, async (req, reply) => {
     const r = await remitoVisible(req, reply, Number(req.params.id)); if (!r) return;
     const pdf = await generarRemitoPdf(await datosPdf(req, r));
-    return reply.type('application/pdf').header('Content-Disposition', `${req.query.descargar ? 'attachment' : 'inline'}; filename="Remito ${r.numero}.pdf"`).header('Cache-Control', 'private, no-store').send(pdf);
+    return reply.type('application/pdf').header('Content-Disposition', `${req.query.descargar ? 'attachment' : 'inline'}; filename="${nombreDocumento(r.tipo)} ${r.numero}.pdf"`).header('Cache-Control', 'private, no-store').send(pdf);
   });
 
   app.get('/api/remitos/:id/firma.png', { preHandler: ver }, async (req, reply) => {
@@ -214,12 +215,14 @@ export default async function rutasRemitos(app, { db }) {
   });
 
   // ---------- envío al cliente ----------
-  const textoEnvio = (r, url) => `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo, descargarlo y contarnos cómo fue la atención (son 10 segundos) acá: ${url}`;
+  const textoEnvio = (r, url) => (r.tipo === 'servicio'
+    ? `Hola! Te acercamos la conformidad del servicio ${r.numero} de JustPrint, con el detalle de lo realizado. Podés verla, descargarla y contarnos cómo fue la atención (son 10 segundos) acá: ${url}`
+    : `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo y descargarlo acá: ${url}`);
   async function enviar(req, r, canal, destino) {
     const url = urlPublica(req, r.token);
     if (canal === 'mail') {
       const pdf = await generarRemitoPdf(await datosPdf(req, r));
-      await canales.mail.enviar({ to: destino, subject: `Remito ${r.numero} · JustPrint`, text: `${textoEnvio(r, url)}\n\nAdjuntamos también el PDF.\n\nJustPrint · soporte@justprint.com.ar`, attachments: [{ filename: `Remito ${r.numero}.pdf`, content: pdf, contentType: 'application/pdf' }] });
+      await canales.mail.enviar({ to: destino, subject: `${nombreDocumento(r.tipo)} ${r.numero} · JustPrint`, text: `${textoEnvio(r, url)}\n\nAdjuntamos también el PDF.\n\nJustPrint · soporte@justprint.com.ar`, attachments: [{ filename: `${nombreDocumento(r.tipo)} ${r.numero}.pdf`, content: pdf, contentType: 'application/pdf' }] });
     } else {
       const tel = telefonoAR(destino); if (!tel) throw Object.assign(new Error('telefono'), { codigo: 'telefono_invalido' });
       await canales.whatsapp.enviar({ to: tel, text: textoEnvio(r, url) });
@@ -263,7 +266,7 @@ export default async function rutasRemitos(app, { db }) {
   app.get('/r/:token/pdf', async (req, reply) => {
     const r = await porToken(req.params.token); if (!r) return reply.code(404).send('No encontrado');
     const pdf = await generarRemitoPdf(await datosPdf(req, r));
-    return reply.type('application/pdf').header('Content-Disposition', `inline; filename="Remito ${r.numero}.pdf"`).header('X-Robots-Tag', 'noindex').header('Cache-Control', 'no-store').send(pdf);
+    return reply.type('application/pdf').header('Content-Disposition', `inline; filename="${nombreDocumento(r.tipo)} ${r.numero}.pdf"`).header('X-Robots-Tag', 'noindex').header('Cache-Control', 'no-store').send(pdf);
   });
   app.get('/r/:token/firma.png', async (req, reply) => {
     const r = await porToken(req.params.token); if (!r) return reply.code(404).send('No encontrado');

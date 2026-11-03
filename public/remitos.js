@@ -15,7 +15,7 @@ export function crearRemitos(U) {
   const telAR = (t) => { let d = String(t ?? '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('54')) { d = d.slice(2); if (d.startsWith('9')) d = d.slice(1); } d = d.replace(/^0/, ''); if (d.length === 12) d = d.replace(/^(\d{2,4})15/, '$1'); return d.length >= 10 && d.length <= 11 ? `549${d}` : null; };
   const telBonito = (n) => (n ? `+54 9 ${n.slice(3, 5)} ${n.slice(5, 9)}-${n.slice(9)}` : '');
   const ESTADO = { emitido: ['Sin firmar', 'aviso'], firmado: ['Firmado', 'ok'], anulado: ['Anulado', 'malo'] };
-  const TIPO = { entrega: 'Entrega de insumos', mixto: 'Instalación de equipo', servicio: 'Servicio técnico' };
+  const TIPO = { entrega: 'Entrega de insumos', mixto: 'Instalación de equipo', servicio: 'Conformidad de servicio' };
   const abrir = (url) => window.open(url, '_blank', 'noopener');
   const copiar = async (t) => { try { await navigator.clipboard.writeText(t); aviso('Enlace copiado'); } catch { window.prompt('Copiá el enlace:', t); } };
 
@@ -24,22 +24,23 @@ export function crearRemitos(U) {
     h('div', { style: 'min-width:0;flex:1' },
       h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, h('b', { class: 'num-t' }, r.numero), chip(...(ESTADO[r.estado] ?? [r.estado, 'mudo']))),
       h('div', { class: 'apoyo' }, [conCliente && r.cliente, TIPO[r.tipo] ?? r.tipo, `${r.unidades} u.`, r.ticket].filter(Boolean).join(' · '))),
-    h('div', { style: 'text-align:right' }, h('div', null, fecha(r.fecha)), r.conformidad && h('div', { class: 'apoyo' }, `Recibió ${r.conformidad.nombre}`)));
+    h('div', { style: 'text-align:right' }, h('div', null, fecha(r.fecha)), r.conformidad && h('div', { class: 'apoyo' }, `${r.tipo === 'servicio' ? 'Conformó' : 'Recibió'} ${r.conformidad.nombre}`)));
 
   async function vistaRemitos(destino) {
-    let estado = ''; let q = '';
+    let estado = ''; let q = ''; let tipo = '';
     const lista = h('div'); const buscar = h('input', { type: 'search', placeholder: 'Buscar por número o cliente', 'aria-label': 'Buscar remitos' });
-    const pills = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado' });
+    const pills = h('div', { class: 'seg', role: 'group', 'aria-label': 'Estado' }); const tipos = h('div', { class: 'seg', role: 'group', 'aria-label': 'Tipo' });
     async function cargar() {
-      const p = new URLSearchParams({ limite: '50' }); if (estado) p.set('estado', estado); if (q) p.set('q', q);
+      const p = new URLSearchParams({ limite: '50' }); if (estado) p.set('estado', estado); if (tipo) p.set('tipo', tipo); if (q) p.set('q', q);
       const r = await api(`/api/remitos?${p}`);
       vaciar(pills).append(...[['', 'Todos', (r.por_estado.emitido ?? 0) + (r.por_estado.firmado ?? 0)], ['emitido', 'Sin firmar', r.por_estado.emitido ?? 0], ['firmado', 'Firmados', r.por_estado.firmado ?? 0]]
         .map(([k, t, n]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(estado === k), onclick: () => { estado = k; cargar(); } }, `${t} (${n})`)));
-      vaciar(lista).append(r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x)))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay remitos para mostrar'), 'Los remitos se generan al entregar insumos o equipos, y al cerrar un servicio técnico.'));
+      vaciar(tipos).append(...[['', 'Todo'], ['entrega', 'Remitos de entrega'], ['servicio', 'Conformidades de servicio']].map(([k, t]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(tipo === k), onclick: () => { tipo = k; cargar(); } }, t)));
+      vaciar(lista).append(r.items.length ? h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x)))) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'No hay nada para mostrar'), 'Los remitos se generan al entregar insumos o equipos. Las conformidades de servicio, al cerrar un ticket.'));
     }
     let espera; buscar.addEventListener('input', () => { clearTimeout(espera); espera = setTimeout(() => { q = buscar.value.trim(); cargar(); }, 250); });
-    destino.append(encabezado('Remitos', 'Entregas, instalaciones y servicios, con su conformidad', puede('remitos.crear') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/remitos/nuevo' }, '+ Nuevo remito'))),
-      h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px' }, pills, h('div', { style: 'flex:1;min-width:200px' }, buscar)), lista);
+    destino.append(encabezado('Remitos y conformidades', 'Remitos de entrega de equipos e insumos, y conformidades de los servicios', puede('remitos.crear') && h('div', { class: 'acciones' }, h('a', { class: 'btn btn-principal', href: '#/remitos/nuevo' }, '+ Nuevo remito'))),
+      h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px' }, tipos, pills, h('div', { style: 'flex:1;min-width:200px' }, buscar)), lista);
     await cargar();
   }
 
@@ -47,9 +48,9 @@ export function crearRemitos(U) {
   function panelCliente(clienteId) {
     const caja = h('div', { class: 'tarjeta', style: 'margin-top:16px' }, cargando());
     api(`/api/remitos?cliente=${clienteId}&limite=50`).then((r) => {
-      vaciar(caja).append(h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px' }, h('h2', { style: 'margin:0' }, `Remitos (${r.total})`),
+      vaciar(caja).append(h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px' }, h('h2', { style: 'margin:0' }, `Remitos y conformidades (${r.total})`),
         puede('remitos.crear') && h('a', { class: 'btn', href: `#/remitos/nuevo/${clienteId}` }, '+ Nuevo remito')),
-      r.items.length ? h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x, false))) : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no hay remitos para este cliente.'));
+      r.items.length ? h('ul', { class: 'lista' }, r.items.map((x) => filaRemito(x, false))) : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no hay remitos ni conformidades para este cliente.'));
     }).catch((e) => { if (e.message !== 'sesion') vaciar(caja).append(h('p', { class: 'apoyo' }, 'No se pudieron cargar los remitos.')); });
     return caja;
   }
@@ -95,39 +96,35 @@ export function crearRemitos(U) {
   }
 
   // ---------- envío ----------
-  /** Mandar el remito al cliente: automático si el canal está configurado; si no, abre el WhatsApp o el mail del usuario con el mensaje y el enlace. */
+  /** Mandar el comprobante al cliente por mail (con el PDF). Sin SMTP configurado se abre el mail del usuario con el mensaje y el enlace ya escritos.
+   *  El envío por WhatsApp está oculto a propósito: saldría del celular del técnico; vuelve cuando esté la API de WhatsApp. */
   function panelEnvio(r, recargar, { compacto = false } = {}) {
+    const srv = r.tipo === 'servicio'; const doc = r.documento ?? 'Remito';
     const primeroMail = r.conformidad?.email || r.contactos.flatMap((c) => c.emails)[0] || '';
-    const primeroTel = r.conformidad?.telefono || r.contactos.flatMap((c) => c.telefonos)[0] || '';
     const mail = h('input', { type: 'email', value: primeroMail, placeholder: 'mail@cliente.com', 'aria-label': 'Mail del cliente', autocomplete: 'off' });
-    const tel = h('input', { type: 'tel', value: primeroTel, placeholder: '11 5555-1234', 'aria-label': 'WhatsApp del cliente', inputmode: 'tel', autocomplete: 'off' });
-    const vista = h('div', { class: 'apoyo' }); const error = err();
-    const actualizar = () => { const n = telAR(tel.value); vista.textContent = tel.value.trim() ? (n ? `WhatsApp ${telBonito(n)}` : 'Falta el código de área') : ''; };
-    tel.addEventListener('input', actualizar); actualizar();
-    const texto = `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo, descargarlo y contarnos cómo fue la atención (son 10 segundos) acá: ${r.url_publica}`;
-    const registrar = (canal, destino) => api(`/api/remitos/${r.id}/enviar`, { metodo: 'POST', cuerpo: { canal, destino, manual: true } }).catch(() => {});
-    async function enviar(canal) {
+    const error = err();
+    const texto = srv
+      ? `Hola! Te acercamos la conformidad del servicio ${r.numero} de JustPrint, con el detalle de lo realizado. Podés verla, descargarla y contarnos cómo fue la atención (son 10 segundos) acá: ${r.url_publica}`
+      : `Hola! Te acercamos el remito N° ${r.numero} de JustPrint con el detalle de lo entregado. Podés verlo y descargarlo acá: ${r.url_publica}`;
+    async function enviar() {
       error.classList.add('oculto');
-      const destino = canal === 'mail' ? mail.value.trim() : tel.value.trim();
-      if (!destino) { mostrar(error, canal === 'mail' ? 'Escribí el mail del cliente.' : 'Escribí el WhatsApp del cliente.'); return; }
-      if (canal === 'whatsapp' && !telAR(destino)) { mostrar(error, ERR.telefono_invalido); return; }
-      if (r.canales[canal]) {
-        try { await api(`/api/remitos/${r.id}/enviar`, { metodo: 'POST', cuerpo: { canal, destino } }); aviso(canal === 'mail' ? 'Mail enviado con el PDF adjunto' : 'WhatsApp enviado'); recargar?.(); } catch (e) { if (e.message !== 'sesion') mostrar(error, msg(e)); }
+      const destino = mail.value.trim();
+      if (!destino) { mostrar(error, 'Escribí el mail del cliente.'); return; }
+      if (r.canales.mail) {
+        try { await api(`/api/remitos/${r.id}/enviar`, { metodo: 'POST', cuerpo: { canal: 'mail', destino } }); aviso('Mail enviado con el PDF adjunto'); recargar?.(); } catch (e) { if (e.message !== 'sesion') mostrar(error, msg(e)); }
         return;
       }
-      await registrar(canal, destino);
-      if (canal === 'whatsapp') window.open(`https://wa.me/${telAR(destino)}?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
-      else window.location.href = `mailto:${encodeURIComponent(destino)}?subject=${encodeURIComponent(`Remito ${r.numero} · JustPrint`)}&body=${encodeURIComponent(`${texto}\n\nJustPrint · soporte@justprint.com.ar`)}`;
+      await api(`/api/remitos/${r.id}/enviar`, { metodo: 'POST', cuerpo: { canal: 'mail', destino, manual: true } }).catch(() => {});
+      window.location.href = `mailto:${encodeURIComponent(destino)}?subject=${encodeURIComponent(`${doc} ${r.numero} · JustPrint`)}&body=${encodeURIComponent(`${texto}\n\nJustPrint · soporte@justprint.com.ar`)}`;
       recargar?.();
     }
-    const contactos = r.contactos.length ? h('div', { class: 'rapidos', style: 'margin:0 0 10px' }, r.contactos.map((c) => h('button', { type: 'button', class: 'rapido', onclick: () => { if (c.emails[0]) mail.value = c.emails[0]; if (c.telefonos[0]) { tel.value = c.telefonos[0]; actualizar(); } } }, c.nombre))) : null;
+    const contactos = r.contactos.some((c) => c.emails.length) ? h('div', { class: 'rapidos', style: 'margin:0 0 10px' }, r.contactos.filter((c) => c.emails.length).map((c) => h('button', { type: 'button', class: 'rapido', onclick: () => { mail.value = c.emails[0]; } }, c.nombre))) : null;
     return h('div', { class: compacto ? '' : 'tarjeta' }, !compacto && h('h2', null, 'Enviar al cliente'), contactos,
-      h('div', { class: 'campo' }, h('label', null, 'WhatsApp'), tel, vista), h('button', { class: 'btn', type: 'button', style: 'margin-bottom:12px', onclick: () => enviar('whatsapp') }, r.canales.whatsapp ? 'Enviar por WhatsApp' : 'Abrir WhatsApp con el mensaje'),
-      h('div', { class: 'campo' }, h('label', null, 'Mail'), mail), h('button', { class: 'btn', type: 'button', style: 'margin-bottom:8px', onclick: () => enviar('mail') }, r.canales.mail ? 'Enviar por mail con el PDF' : 'Abrir mi mail con el mensaje'),
+      h('div', { class: 'campo' }, h('label', null, 'Mail'), mail), h('button', { class: 'btn', type: 'button', style: 'margin-bottom:8px', onclick: enviar }, r.canales.mail ? 'Enviar por mail con el PDF' : 'Abrir mi mail con el mensaje'),
       h('button', { class: 'btn', type: 'button', onclick: () => copiar(r.url_publica) }, 'Copiar enlace'), error,
-      (!r.canales.mail || !r.canales.whatsapp) && h('p', { class: 'apoyo', style: 'margin:10px 0 0' }, `${!r.canales.mail && !r.canales.whatsapp ? 'El envío automático todavía no está configurado:' : !r.canales.mail ? 'El mail automático todavía no está configurado:' : 'El WhatsApp automático todavía no está configurado:'} se abre tu ${!r.canales.mail && !r.canales.whatsapp ? 'WhatsApp o tu mail' : !r.canales.mail ? 'mail' : 'WhatsApp'} con el mensaje y el enlace ya escritos, y solo tenés que enviarlo.`));
+      !r.canales.mail && h('p', { class: 'apoyo', style: 'margin:10px 0 0' }, 'El mail automático todavía no está configurado: se abre tu mail con el mensaje y el enlace ya escritos, y solo tenés que enviarlo.'),
+      srv && h('p', { class: 'apoyo', style: 'margin:10px 0 0' }, 'El cliente recibe el enlace y desde ahí califica la atención.'));
   }
-
 
   // ---------- opinión del cliente (solo lectura: la responde el cliente desde su enlace) ----------
   const ASPECTOS = [['puntualidad', 'Puntualidad'], ['trato', 'Trato'], ['resolucion', 'Que quedó resuelto'], ['claridad', 'Claridad en las explicaciones'], ['orden', 'Orden y limpieza']];
@@ -138,7 +135,21 @@ export function crearRemitos(U) {
       e ? h('div', null, h('div', { class: 'estrellas-fijas', 'aria-label': `${e.puntaje} de 5 estrellas` }, estrellasTexto(e.puntaje)),
         e.aspectos.length > 0 && h('div', { class: 'rapidos', style: 'margin:8px 0 0' }, e.aspectos.map((a) => h('span', { class: 'rapido' }, ASPECTOS.find((x) => x[0] === a)?.[1] ?? a))),
         e.comentario && h('p', { style: 'margin:10px 0 0' }, `“${e.comentario}”`))
-        : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no respondió. Le llega con el enlace del remito: lo califica él, desde su mail o WhatsApp.'));
+        : h('p', { class: 'apoyo', style: 'margin:0' }, 'Todavía no respondió. Le llega con el enlace del remito: lo califica él, desde su mail.'));
+  }
+
+  // ---------- lo que se hizo en el servicio (conformidad de servicio) ----------
+  function hechosServicio(r) {
+    const S = r.servicio ?? {};
+    const lineas = [['Ticket', S.ticket?.numero ?? r.numero], ['Motivo', S.ticket?.asunto], ['Equipo', S.equipo ? `${S.equipo.marca} ${S.equipo.modelo} · N° de serie ${S.equipo.serie}` : null],
+      ['Fecha y horario', S.horario || fecha(r.fecha)],
+      S.contador_negro != null ? ['Contadores al cierre', `Negro ${S.contador_negro}${S.equipo?.tipo === 'color' || S.contador_color ? ` · Color ${S.contador_color ?? 0}` : ''}`] : null].filter((x) => x && x[1]);
+    return h('div', null,
+      h('div', { class: 'hr-hechos' }, lineas.map(([k, v]) => h('div', null, h('small', null, k.toUpperCase()), h('b', null, v)))),
+      S.diagnostico && h('div', { class: 'hr-obs' }, h('small', null, 'DIAGNÓSTICO'), h('p', null, S.diagnostico)),
+      h('div', { class: 'hr-obs' }, h('small', null, 'TRABAJO REALIZADO'), h('p', null, S.trabajo || 'Sin detalle.')),
+      r.items.length > 0 && h('div', { class: 'hr-items' }, h('small', { class: 'hr-sub' }, 'REPUESTOS E INSUMOS UTILIZADOS'),
+        r.items.map((i) => h('div', { class: 'item-rem' }, h('span', { class: 'cant-rem' }, String(i.cantidad)), h('div', null, h('b', null, i.descripcion), i.detalle && h('div', { class: 'apoyo' }, i.detalle))))));
   }
 
   // ---------- firma en el celular ----------
@@ -160,35 +171,35 @@ export function crearRemitos(U) {
     const nombre = h('input', { id: 'f-nombre', maxlength: 120, autocomplete: 'off', placeholder: 'Nombre y apellido', required: true }); const cargo = h('input', { maxlength: 80, placeholder: 'Cargo (opcional)', autocomplete: 'off' });
     const dni = h('input', { maxlength: 20, inputmode: 'numeric', placeholder: 'DNI (opcional)', autocomplete: 'off' });
     const mail = h('input', { type: 'email', maxlength: 160, placeholder: 'Mail (opcional)', autocomplete: 'off', value: r.contactos.flatMap((c) => c.emails)[0] ?? '' });
-    const tel = h('input', { type: 'tel', maxlength: 40, inputmode: 'tel', placeholder: 'WhatsApp (opcional)', autocomplete: 'off', value: r.contactos.flatMap((c) => c.telefonos)[0] ?? '' });
+    const srv = r.tipo === 'servicio';
     const pad = lienzoFirma(); const error = err(); const boton = h('button', { class: 'btn btn-principal grande', type: 'submit' }, 'Confirmar y firmar');
     const cuerpo = h('div');
     const form = h('form', { class: 'formulario', onsubmit: async (ev) => {
       ev.preventDefault(); error.classList.add('oculto');
-      if (!nombre.value.trim()) { mostrar(error, 'Escribí el nombre de quien recibe.'); nombre.focus(); return; }
+      if (!nombre.value.trim()) { mostrar(error, srv ? 'Escribí el nombre de quien da la conformidad.' : 'Escribí el nombre de quien recibe.'); nombre.focus(); return; }
       if (!pad.hay()) { mostrar(error, 'Falta la firma. Firmá con el dedo en el recuadro.'); return; }
       boton.disabled = true; boton.textContent = 'Guardando…';
       try {
-        const out = await api(`/api/remitos/${id}/conformidad`, { metodo: 'POST', cuerpo: { nombre: nombre.value.trim(), ...(cargo.value.trim() ? { cargo: cargo.value.trim() } : {}), ...(dni.value.trim() ? { dni: dni.value.trim() } : {}), ...(mail.value.trim() ? { email: mail.value.trim() } : {}), ...(tel.value.trim() ? { telefono: tel.value.trim() } : {}), firma: pad.png() } });
+        const out = await api(`/api/remitos/${id}/conformidad`, { metodo: 'POST', cuerpo: { nombre: nombre.value.trim(), ...(cargo.value.trim() ? { cargo: cargo.value.trim() } : {}), ...(dni.value.trim() ? { dni: dni.value.trim() } : {}), ...(mail.value.trim() ? { email: mail.value.trim() } : {}), firma: pad.png() } });
         const nuevo = await api(`/api/remitos/${id}`); vaciar(cuerpo).append(pantallaListo(nuevo, out, nombre.value.trim()));
         window.scrollTo?.({ top: 0 });
       } catch (e) { if (e.message === 'sesion') return; mostrar(error, msg(e)); boton.disabled = false; boton.textContent = 'Confirmar y firmar'; }
     } }, error,
-    h('div', { class: 'tarjeta' }, h('h2', null, 'Qué se entrega'), r.items.map((i) => h('div', { class: 'item-rem' }, h('span', { class: 'cant-rem' }, String(i.cantidad)), h('div', null, h('b', null, i.descripcion), i.detalle && h('div', { class: 'apoyo' }, i.detalle))))),
-    h('div', { class: 'tarjeta' }, h('h2', null, 'Quién recibe'), campo('Nombre y apellido', nombre), h('div', { class: 'dos-col' }, campo('Cargo', cargo), campo('DNI', dni)),
-      h('div', { class: 'dos-col' }, campo('Mail', mail), campo('WhatsApp', tel)), h('p', { class: 'apoyo', style: 'margin:0' }, 'Si dejás mail o WhatsApp te mandamos el remito firmado.')),
-    h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad'), h('p', { style: 'margin:0 0 4px' }, 'Recibo conforme lo detallado en este remito.'), pad.el,
+    srv ? h('div', { class: 'tarjeta' }, h('h2', null, 'Servicio realizado'), hechosServicio(r)) : h('div', { class: 'tarjeta' }, h('h2', null, 'Qué se entrega'), r.items.map((i) => h('div', { class: 'item-rem' }, h('span', { class: 'cant-rem' }, String(i.cantidad)), h('div', null, h('b', null, i.descripcion), i.detalle && h('div', { class: 'apoyo' }, i.detalle))))),
+    h('div', { class: 'tarjeta' }, h('h2', null, srv ? 'Quién da la conformidad' : 'Quién recibe'), campo('Nombre y apellido', nombre), h('div', { class: 'dos-col' }, campo('Cargo', cargo), campo('DNI', dni)),
+      campo('Mail', mail), h('p', { class: 'apoyo', style: 'margin:0' }, srv ? 'Si dejás tu mail te mandamos la conformidad y podés calificar la atención.' : 'Si dejás tu mail te mandamos el remito firmado.')),
+    h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad'), h('p', { style: 'margin:0 0 4px' }, srv ? 'Doy conformidad al servicio realizado, según el detalle de este comprobante.' : 'Recibo conforme lo detallado en este remito.'), pad.el,
       h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center' }, h('span', { class: 'apoyo' }, 'Firmá con el dedo dentro del recuadro'), h('button', { type: 'button', class: 'rapido', onclick: () => pad.limpiar() }, 'Borrar'))), boton);
     cuerpo.append(form);
-    destino.append(h('a', { href: `#/remitos/${id}`, class: 'apoyo' }, `← Remito ${r.numero}`), encabezado('Conformidad de recepción', `${r.cliente.nombre_comercial || r.cliente.razon_social} · remito ${r.numero}`), cuerpo);
+    destino.append(h('a', { href: `#/remitos/${id}`, class: 'apoyo' }, `← ${r.documento} ${r.numero}`), encabezado(srv ? 'Conformidad de servicio' : 'Conformidad de recepción', `${r.cliente.nombre_comercial || r.cliente.razon_social} · ${srv ? '' : 'remito '}${r.numero}`), cuerpo);
   }
 
   function pantallaListo(r, out, nombre) {
-    const auto = [out.enviado?.mail && 'por mail', out.enviado?.whatsapp && 'por WhatsApp'].filter(Boolean).join(' y ');
+    const srv = r.tipo === 'servicio'; const auto = out.enviado?.mail ? 'por mail' : '';
     return h('div', null, h('div', { class: 'tarjeta listo' }, h('div', { class: 'tilde' }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M5 12.5l4.5 4.5L19 7.5' }))),
-      h('h2', null, 'Remito firmado'), h('p', null, `Recibió ${nombre}. La conformidad quedó guardada junto al remito ${r.numero}.`), auto && h('p', { class: 'apoyo' }, `Ya se le envió ${auto}.`),
-      h('div', { class: 'acciones', style: 'justify-content:center' }, h('a', { class: 'btn btn-principal', href: `/api/remitos/${r.id}/pdf?descargar=1` }, 'Descargar PDF'), h('a', { class: 'btn', href: `#/remitos/${r.id}` }, 'Ver remito'))),
-    h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar el remito firmado'), panelEnvio(r, null, { compacto: true })));
+      h('h2', null, srv ? 'Servicio conformado' : 'Remito firmado'), h('p', null, srv ? `${nombre} dio su conformidad. Quedó guardada junto al ticket ${r.servicio?.ticket?.numero ?? r.numero}.` : `Recibió ${nombre}. La conformidad quedó guardada junto al remito ${r.numero}.`), auto && h('p', { class: 'apoyo' }, `Ya se le envió ${auto}.`),
+      h('div', { class: 'acciones', style: 'justify-content:center' }, h('a', { class: 'btn btn-principal', href: `/api/remitos/${r.id}/pdf?descargar=1` }, 'Descargar PDF'), h('a', { class: 'btn', href: `#/remitos/${r.id}` }, srv ? 'Ver conformidad' : 'Ver remito'))),
+    h('div', { class: 'tarjeta' }, h('h2', null, srv ? 'Enviar la conformidad al cliente' : 'Enviar el remito firmado'), panelEnvio(r, null, { compacto: true })));
   }
 
   // ---------- remito firmado en papel ----------
@@ -220,17 +231,19 @@ export function crearRemitos(U) {
     async function pintar() {
       const r = await api(`/api/remitos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
       if (!r) { vaciar(cuerpo).append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese remito'))); return; }
-      const c = r.conformidad; const cliente = r.cliente.nombre_comercial || r.cliente.razon_social;
+      const c = r.conformidad; const cliente = r.cliente.nombre_comercial || r.cliente.razon_social; const srv = r.tipo === 'servicio';
       const hoja = h('div', { class: 'hoja-remito' },
-        h('div', { class: 'hr-cab' }, h('img', { src: '/img/logo-blanco.png', alt: 'JustPrint' }), h('div', { class: 'hr-num' }, h('small', null, 'REMITO'), h('b', null, `N° ${r.numero}`), h('span', null, fecha(r.fecha)))),
+        h('div', { class: 'hr-cab' }, h('img', { src: '/img/logo-blanco.png', alt: 'JustPrint' }), h('div', { class: 'hr-num' }, h('small', null, r.documento.toUpperCase()), h('b', null, srv ? r.numero : `N° ${r.numero}`), h('span', null, fecha(r.fecha)))),
         h('div', { class: 'hr-cuerpo' }, h('span', { class: 'hr-tipo' }, r.tipo_texto.toUpperCase()),
-          h('div', { class: 'hr-partes' }, h('div', null, h('small', null, 'ENTREGADO A'), h('b', null, cliente), r.cliente.cuit && h('div', { class: 'apoyo' }, `CUIT ${r.cliente.cuit}`), r.sede && h('div', { class: 'apoyo' }, [r.sede.nombre, r.sede.domicilio, r.sede.localidad].filter(Boolean).join(' · '))),
-            h('div', null, h('small', null, 'EMITIDO POR'), h('b', null, 'JustPrint'), h('div', { class: 'apoyo' }, 'CUIT 30-71646173-0'), h('div', { class: 'apoyo' }, 'soporte@justprint.com.ar'))),
+          h('div', { class: 'hr-partes' }, h('div', null, h('small', null, srv ? 'CLIENTE' : 'ENTREGADO A'), h('b', null, cliente), r.cliente.cuit && h('div', { class: 'apoyo' }, `CUIT ${r.cliente.cuit}`), r.sede && h('div', { class: 'apoyo' }, [r.sede.nombre, r.sede.domicilio, r.sede.localidad].filter(Boolean).join(' · '))),
+            h('div', null, h('small', null, srv ? 'ATENDIÓ' : 'EMITIDO POR'), h('b', null, srv ? (r.servicio?.tecnico || 'JustPrint') : 'JustPrint'), h('div', { class: 'apoyo' }, 'CUIT 30-71646173-0'), h('div', { class: 'apoyo' }, 'soporte@justprint.com.ar'))),
+          ...(srv ? [hechosServicio(r)] : [
           h('div', { class: 'hr-items' }, r.items.map((i) => h('div', { class: 'item-rem' }, h('span', { class: 'cant-rem' }, String(i.cantidad)), h('div', null, h('b', null, i.descripcion), i.detalle && h('div', { class: 'apoyo' }, i.detalle))))),
-          r.observaciones && h('div', { class: 'hr-obs' }, h('small', null, r.tipo === 'servicio' ? 'TRABAJO REALIZADO' : 'OBSERVACIONES'), h('p', null, r.observaciones)),
-          h('div', { class: `hr-conf ${c ? 'ok' : ''}` }, h('small', null, 'CONFORMIDAD DE RECEPCIÓN'),
+          r.observaciones && h('div', { class: 'hr-obs' }, h('small', null, r.tipo === 'servicio' ? 'TRABAJO REALIZADO' : 'OBSERVACIONES'), h('p', null, r.observaciones))
+          ]),
+          h('div', { class: `hr-conf ${c ? 'ok' : ''}` }, h('small', null, srv ? 'CONFORMIDAD DEL SERVICIO' : 'CONFORMIDAD DE RECEPCIÓN'),
             c ? h('div', null, c.tiene_firma && h('img', { class: 'hr-firma', src: `/api/remitos/${r.id}/firma.png`, alt: `Firma de ${c.nombre}` }), h('b', null, c.nombre), h('div', { class: 'apoyo' }, [c.cargo, c.dni && `DNI ${c.dni}`].filter(Boolean).join(' · ')),
-              h('div', { class: 'apoyo' }, `${c.metodo === 'papel' ? 'Firmó el remito en papel' : 'Firmó en pantalla'} · ${cuando(c.firmado_en)}`))
+              h('div', { class: 'apoyo' }, `${c.metodo === 'papel' ? `Firmó el ${r.documento.toLowerCase()} en papel` : 'Firmó en pantalla'} · ${cuando(c.firmado_en)}`))
               : h('p', { class: 'apoyo', style: 'margin:6px 0 0' }, 'Todavía sin firmar.'))));
       const acciones = h('div', { class: 'acciones no-imprimir' },
         r.puede_firmar && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.id}/firmar` }, 'Tomar conformidad en el celular'),
@@ -246,8 +259,8 @@ export function crearRemitos(U) {
         puede('remitos.crear') && panelEnvio(r, pintar),
         r.envios.length > 0 && h('div', { class: 'tarjeta' }, h('h2', null, 'Envíos'), h('ul', { class: 'lista' }, r.envios.map((e) => h('li', null, h('div', null, h('b', null, e.canal === 'mail' ? 'Mail' : 'WhatsApp'), ` · ${e.destino}`, h('div', { class: 'apoyo' }, `${cuando(e.created_at)}${e.usuario ? ` · ${e.usuario}` : ''}${e.detalle ? ` · ${e.detalle}` : ''}`)),
           chip(e.resultado === 'enviado' ? 'Enviado' : e.resultado === 'manual' ? 'Abierto' : 'Error', e.resultado === 'enviado' ? 'ok' : e.resultado === 'manual' ? 'info' : 'malo'))))));
-      vaciar(cuerpo).append(h('a', { href: '#/remitos', class: 'apoyo no-imprimir' }, '← Remitos'),
-        encabezado(`Remito ${r.numero}`, `${cliente} · ${fecha(r.fecha)}`, acciones), h('div', { class: 'rejilla dos-remito' }, hoja, lateral));
+      vaciar(cuerpo).append(h('a', { href: '#/remitos', class: 'apoyo no-imprimir' }, '← Remitos y conformidades'),
+        encabezado(`${r.documento} ${r.numero}`, `${cliente} · ${fecha(r.fecha)}`, acciones), h('div', { class: 'rejilla dos-remito' }, hoja, lateral));
     }
     await pintar();
   }

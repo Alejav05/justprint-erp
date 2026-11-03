@@ -3,10 +3,9 @@ import { auditar } from '../lib/audit.js';
 import { clientesVisibles, esArea, puede, usuariosVisibles } from '../lib/contexto.js';
 import { AREA, SLA_HORAS, TIPOS_CON_SLA } from '../lib/catalogo.js';
 import { hoy, json } from '../lib/fechas.js';
-import { siguienteNumero } from '../lib/numeradores.js';
 import { numeroTicket } from '../lib/numero_ticket.js';
 import { costoDeRemito } from '../lib/costos.js';
-import { guardarConformidad, nuevoToken, parseFirma, urlPublica } from '../lib/remitos.js';
+import { guardarConformidad, numeroConformidad, nuevoToken, parseFirma, urlPublica } from '../lib/remitos.js';
 import { aSql, cargarFeriados, deSql, horasHabiles, sumarHorasHabiles } from '../lib/sla.js';
 import { estadoSla, kpiSla } from '../lib/servicio.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
@@ -305,10 +304,9 @@ export default async function rutasTickets(app, { db }) {
         }
 
         const [remito] = await trx('remitos').insert({
-          numero: await siguienteNumero(trx, 'remito'), token: nuevoToken(), cliente_id: t.cliente_id, sede_id: t.sede_id, tipo: 'servicio', fecha: hoy(),
+          numero: await numeroConformidad(trx, t.numero), token: nuevoToken(), cliente_id: t.cliente_id, sede_id: t.sede_id, tipo: 'servicio', fecha: hoy(),
           estado: d.conformidad ? 'firmado' : 'emitido', ticket_id: t.id, parte_id: parte, observaciones: d.trabajo_realizado, created_by: req.ctx.id,
         });
-        await trx('remito_items').insert({ remito_id: remito, equipo_id: equipo?.id ?? null, descripcion: 'Servicio técnico', cantidad: 1 });
         for (const rep of d.repuestos) {
           const ins = await trx('insumos').where({ id: rep.insumo_id }).whereNull('deleted_at').first();
           if (!ins) throw Object.assign(new Error('insumo'), { codigo: 'insumo_invalido' });

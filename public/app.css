@@ -442,3 +442,10 @@ canvas.firma-grande.firmando{border-style:solid;border-color:var(--cian-os)}
 .barra-dist{display:grid;grid-template-columns:34px 1fr 36px;gap:8px;align-items:center;margin:6px 0;font-size:14px}
 .barra-dist .pista{background:var(--fondo,#EEF3F6);border-radius:99px;height:10px;overflow:hidden}
 .barra-dist .pista i{display:block;height:100%;background:#F5B301;border-radius:99px}
+
+/* Conformidad de servicio */
+.hr-hechos{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin:14px 0 6px;padding:14px 16px;border:1px solid #D9E2E7;border-radius:10px}
+.hr-hechos small{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;color:#7C8B96;margin-bottom:2px}
+.hr-hechos b{font-weight:600;word-break:break-word}
+.hr-sub{display:block;margin:12px 0 8px;font-size:11px;font-weight:700;letter-spacing:.08em;color:#7C8B96}
+@media (max-width:600px){.hr-hechos{grid-template-columns:1fr}}

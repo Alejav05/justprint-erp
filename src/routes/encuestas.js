@@ -26,7 +26,7 @@ export default async function rutasEncuestas(app, { db }) {
     const r = /^[a-f0-9]{32}$/.test(token) ? await db('remitos').where({ token }).whereNull('deleted_at').first() : null;
     if (!r) return reply.code(404).send('No encontrado');
     const ok = encuestaSchema.safeParse({ puntaje: req.body?.puntaje, aspectos: req.body?.aspectos ?? [], comentario: req.body?.comentario || undefined });
-    if (ok.success && r.estado === 'firmado') await guardarEncuesta(db, r, ok.data, 'enlace');
+    if (ok.success && r.estado === 'firmado' && r.tipo === 'servicio') await guardarEncuesta(db, r, ok.data, 'enlace');
     return reply.redirect(`/r/${token}#opinion`, 303);
   });
 

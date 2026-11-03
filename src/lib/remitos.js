@@ -29,9 +29,20 @@ export function telefonoAR(texto) {
   return d.length >= 10 && d.length <= 11 ? `549${d}` : null;
 }
 
-export function tipoTexto(r, ticketNumero, items) {
-  if (r.tipo === 'servicio') return `Servicio técnico${ticketNumero ? ` · Ticket ${ticketNumero}` : ''}`;
+const TIPO_SERVICIO = { soporte: 'Soporte técnico', instalacion: 'Instalación', retiro: 'Retiro de equipo', insumos: 'Entrega de insumos', otro: 'Servicio técnico' };
+/** El servicio de un ticket no es un remito: es la conformidad del servicio. Las entregas de equipos e insumos sí son remitos. */
+export const nombreDocumento = (tipo) => (tipo === 'servicio' ? 'Conformidad de servicio' : 'Remito');
+
+export function tipoTexto(r, ticket, items) {
+  if (r.tipo === 'servicio') return TIPO_SERVICIO[ticket?.tipo] ?? 'Servicio técnico';
   return items.some((i) => i.equipo_id && !i.insumo_id) ? 'Instalación de equipo' : 'Entrega de insumos';
+}
+
+/** El número de la conformidad es el del ticket (CIA-CL-01-TK0002); si el ticket se reabre y se vuelve a cerrar, lleva -2, -3… */
+export async function numeroConformidad(trx, ticketNumero) {
+  let n = 1; let numero = ticketNumero;
+  while (await trx('remitos').where({ numero }).first()) { n += 1; numero = `${ticketNumero}-${n}`; }
+  return numero;
 }
 
 /** Los costos nunca salen de acá: es lo que ve el cliente. */
@@ -43,20 +54,46 @@ export async function cargarRemitoCompleto(db, remito, { conFirma = false } = {}
       .where('ri.remito_id', remito.id).orderBy('ri.id').select('ri.descripcion', 'ri.cantidad', 'ri.equipo_id', 'ri.insumo_id', 'i.codigo as insumo_codigo', 'e.numero_serie'),
     db('conformidades').where({ documento_tipo: 'remito', documento_id: remito.id }).orderBy('id', 'desc').first(),
     db('remito_escaneos').where({ remito_id: remito.id }).orderBy('id', 'desc').select('id', 'nombre_original', 'mime', 'bytes', 'created_at').first(),
-    remito.ticket_id ? db('tickets').where({ id: remito.ticket_id }).select('id', 'numero').first() : null,
+    remito.ticket_id ? db('tickets').where({ id: remito.ticket_id }).select('id', 'numero', 'asunto', 'tipo', 'equipo_id').first() : null,
   ]);
-  const items = filas.map((f) => ({
+  const todos = filas.map((f) => ({
     descripcion: f.descripcion, cantidad: f.cantidad, equipo_id: f.equipo_id, insumo_id: f.insumo_id,
     detalle: [f.insumo_codigo ? `Cód. ${f.insumo_codigo}` : null, f.numero_serie ? `N° de serie ${f.numero_serie}` : null].filter(Boolean).join(' · ') || null,
   }));
+  // En la conformidad de servicio solo van los repuestos e insumos usados; el servicio en sí es el documento.
+  const items = remito.tipo === 'servicio' ? todos.filter((i) => i.insumo_id) : todos;
+  const servicio = remito.tipo === 'servicio' ? await cargarServicio(db, remito, ticket) : null;
   let firma = null;
   if (conf && conFirma) firma = (await db('conformidad_firmas').where({ conformidad_id: conf.id }).first())?.png ?? null;
   const tieneFirma = conf ? Boolean(await db('conformidad_firmas').where({ conformidad_id: conf.id }).first()) : false;
   return {
-    id: remito.id, numero: remito.numero, tipo: remito.tipo, tipo_texto: tipoTexto(remito, ticket?.numero, items), fecha: aDia(remito.fecha), estado: remito.estado,
+    id: remito.id, numero: remito.numero, tipo: remito.tipo, tipo_texto: tipoTexto(remito, ticket, items), documento: nombreDocumento(remito.tipo), servicio, fecha: aDia(remito.fecha), estado: remito.estado,
     observaciones: remito.observaciones, token: remito.token, cliente, sede, items, ticket,
     conformidad: conf ? { id: conf.id, metodo: conf.metodo, nombre: conf.firmante_nombre, cargo: conf.firmante_cargo, dni: conf.firmante_dni, email: conf.firmante_email, telefono: conf.firmante_telefono, firmado_en: conf.firmado_en, tiene_firma: tieneFirma, firma: firma ? Buffer.from(firma) : null } : null,
     escaneo: escaneo ?? null,
+  };
+}
+
+const BA = 'America/Argentina/Buenos_Aires';
+const aFecha = (x) => new Date(`${String(x).replace(' ', 'T')}${String(x).includes('Z') ? '' : 'Z'}`);
+const dia = (x) => aFecha(x).toLocaleDateString('es-AR', { timeZone: BA, day: '2-digit', month: '2-digit', year: 'numeric' });
+const hora = (x) => aFecha(x).toLocaleTimeString('es-AR', { timeZone: BA, hour: '2-digit', minute: '2-digit', hour12: false });
+/** "02/11/2026 · 14:05 a 15:20 h" (o con las dos fechas si cruza la medianoche). */
+export const horarioServicio = (inicio, fin, respaldo) => {
+  if (inicio && fin) return dia(inicio) === dia(fin) ? `${dia(inicio)} · ${hora(inicio)} a ${hora(fin)} h` : `${dia(inicio)} ${hora(inicio)} h a ${dia(fin)} ${hora(fin)} h`;
+  return fin ? `${dia(fin)} · ${hora(fin)} h` : respaldo;
+};
+
+async function cargarServicio(db, remito, ticket) {
+  const parte = remito.parte_id ? await db('partes_tecnicos as p').leftJoin('usuarios as u', 'u.id', 'p.tecnico_id').where('p.id', remito.parte_id)
+    .select('p.inicio', 'p.fin', 'p.diagnostico', 'p.trabajo_realizado', 'p.contador_negro', 'p.contador_color', 'u.nombre as tecnico').first() : null;
+  const eq = ticket?.equipo_id ? await db('equipos as e').join('modelos_equipo as m', 'm.id', 'e.modelo_id').where('e.id', ticket.equipo_id).select('m.marca', 'm.modelo', 'e.numero_serie', 'm.tipo').first() : null;
+  return {
+    ticket: ticket ? { id: ticket.id, numero: ticket.numero, asunto: ticket.asunto, tipo: ticket.tipo } : null,
+    equipo: eq ? { marca: eq.marca, modelo: eq.modelo, serie: eq.numero_serie, tipo: eq.tipo } : null,
+    tecnico: parte?.tecnico ?? null, inicio: parte?.inicio ?? null, fin: parte?.fin ?? null, horario: horarioServicio(parte?.inicio, parte?.fin, aDia(remito.fecha)),
+    diagnostico: parte?.diagnostico ?? null, trabajo: parte?.trabajo_realizado ?? remito.observaciones ?? null,
+    contador_negro: parte?.contador_negro ?? null, contador_color: parte?.contador_color ?? null,
   };
 }
 

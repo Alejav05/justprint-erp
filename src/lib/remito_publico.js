@@ -41,6 +41,7 @@ main{max-width:640px;margin:0 auto;padding:16px 16px 40px}
 .chips input:focus-visible+label{outline:2px solid var(--cian-os)}
 .op textarea{width:100%;border:1.5px solid var(--linea);border-radius:12px;padding:12px;font:inherit;resize:vertical;min-height:84px}
 .op button{width:100%;border:0;cursor:pointer;font:inherit;font-weight:700}.op .fin{text-align:center;font-size:44px;letter-spacing:6px;color:#F5B301;margin:4px 0}
+.hechos{display:grid;gap:12px}.hecho small{display:block;color:var(--suave);font-size:12px;font-weight:700;letter-spacing:.06em}.hecho b{font-weight:600}
 .pie{text-align:center;color:var(--suave);font-size:12.5px;margin-top:22px}
 `;
 
@@ -63,23 +64,33 @@ export function paginaPublicaRemito(r, { codigo, encuesta } = {}) {
     return base('Remito no encontrado · JustPrint', `<div class="cab"><div class="fila"><img src="/img/logo-blanco.png" alt="JustPrint"><h1>No encontramos este remito</h1><p>Revisá que el enlace esté completo o pedinos que te lo reenviemos.</p></div></div>
       <main><div class="tarjeta soporte"><h2>Contacto</h2><p>Escribinos por WhatsApp y te lo mandamos de nuevo.</p><a href="https://wa.me/${esc(config.whatsappSoporte)}">Abrir WhatsApp</a></div></main>`);
   }
-  const c = r.conformidad; const cli = r.cliente;
+  const c = r.conformidad; const cli = r.cliente; const srv = r.tipo === 'servicio'; const S = r.servicio ?? {};
   const items = r.items.map((i) => `<div class="item"><div class="cant">${esc(i.cantidad)}</div><div><b>${esc(i.descripcion)}</b>${i.detalle ? `<span>${esc(i.detalle)}</span>` : ''}</div></div>`).join('');
   const conf = c
-    ? `<div class="tarjeta ok"><h2>Conformidad</h2><strong>Recibido conforme</strong><p class="apoyo" style="font-size:16px;color:var(--navy);margin-top:6px"><b>${esc(c.nombre)}</b>${c.cargo ? ` · ${esc(c.cargo)}` : ''}${c.dni ? ` · DNI ${esc(c.dni)}` : ''}</p>
+    ? `<div class="tarjeta ok"><h2>Conformidad</h2><strong>${srv ? 'Servicio conforme' : 'Recibido conforme'}</strong><p class="apoyo" style="font-size:16px;color:var(--navy);margin-top:6px"><b>${esc(c.nombre)}</b>${c.cargo ? ` · ${esc(c.cargo)}` : ''}${c.dni ? ` · DNI ${esc(c.dni)}` : ''}</p>
         ${c.tiene_firma ? `<img class="firma" src="/r/${esc(r.token)}/firma.png" alt="Firma de ${esc(c.nombre)}">` : ''}
-        <p class="apoyo">${c.metodo === 'papel' ? 'Firmó el remito en papel' : 'Firmó en pantalla'} · ${esc(cuando(c.firmado_en))}</p></div>`
-    : `<div class="tarjeta pend"><h2>Conformidad</h2><strong>Pendiente de firma</strong><p class="apoyo">Todavía no tenemos la conformidad de recepción de este remito.</p></div>`;
-  return base(`Remito ${r.numero} · JustPrint`, `<div class="cab"><div class="fila"><img src="/img/logo-blanco.png" alt="JustPrint"><small>REMITO</small><h1>N° ${esc(r.numero)}</h1><p>${esc(dmy(r.fecha))}</p></div></div>
+        <p class="apoyo">${c.metodo === 'papel' ? 'Firmó el ${esc(r.documento.toLowerCase())} en papel' : 'Firmó en pantalla'} · ${esc(cuando(c.firmado_en))}</p></div>`
+    : `<div class="tarjeta pend"><h2>Conformidad</h2><strong>Pendiente de firma</strong><p class="apoyo">${srv ? 'Todavía no tenemos la conformidad de este servicio.' : 'Todavía no tenemos la conformidad de recepción de este remito.'}</p></div>`;
+  const hora = (x) => cuando(x);
+  const hechos = srv ? [['Ticket', S.ticket?.numero ?? r.numero], ['Motivo', S.ticket?.asunto], ['Equipo', S.equipo ? `${S.equipo.marca} ${S.equipo.modelo} · N° de serie ${S.equipo.serie}` : null],
+    ['Fecha y horario', S.horario || dmy(r.fecha)], ['Atendió', S.tecnico ? `${S.tecnico} · JustPrint` : 'JustPrint'],
+    S.contador_negro != null ? ['Contadores al cierre', `Negro ${S.contador_negro}${S.equipo?.tipo === 'color' || S.contador_color ? ` · Color ${S.contador_color ?? 0}` : ''}`] : null].filter((x) => x && x[1]) : [];
+  const hechosHtml = hechos.map(([k, v]) => `<div class="hecho"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+  const tituloDoc = `${r.documento} ${r.numero} · JustPrint`;
+  return base(tituloDoc, `<div class="cab"><div class="fila"><img src="/img/logo-blanco.png" alt="JustPrint"><small>${esc(r.documento.toUpperCase())}</small><h1${srv ? ' style="font-size:25px"' : ''}>${srv ? '' : 'N° '}${esc(r.numero)}</h1><p>${esc(dmy(r.fecha))}</p></div></div>
 <main>
   <div class="tarjeta"><span class="tipo">${esc(r.tipo_texto.toUpperCase())}</span><p class="cli">${esc(cli.nombre_comercial || cli.razon_social)}</p>
     ${r.sede ? `<p class="apoyo">${esc([r.sede.nombre, r.sede.domicilio, r.sede.localidad].filter(Boolean).join(' · '))}</p>` : ''}</div>
-  <div class="tarjeta"><h2>Detalle de lo entregado</h2>${items}</div>
-  ${r.observaciones ? `<div class="tarjeta"><h2>${r.tipo === 'servicio' ? 'Trabajo realizado' : 'Observaciones'}</h2><p class="obs">${esc(r.observaciones)}</p></div>` : ''}
+  ${srv ? `<div class="tarjeta"><h2>Servicio realizado</h2><div class="hechos">${hechosHtml}</div></div>
+  ${S.diagnostico ? `<div class="tarjeta"><h2>Diagnóstico</h2><p class="obs">${esc(S.diagnostico)}</p></div>` : ''}
+  <div class="tarjeta"><h2>Trabajo realizado</h2><p class="obs">${esc(S.trabajo || 'Sin detalle.')}</p></div>
+  ${r.items.length ? `<div class="tarjeta"><h2>Repuestos e insumos utilizados</h2>${items}</div>` : ''}`
+  : `<div class="tarjeta"><h2>Detalle de lo entregado</h2>${items}</div>
+  ${r.observaciones ? `<div class="tarjeta"><h2>Observaciones</h2><p class="obs">${esc(r.observaciones)}</p></div>` : ''}`}
   ${conf}
-  ${c ? bloqueOpinion(r, encuesta) : ''}
+  ${c && srv ? bloqueOpinion(r, encuesta) : ''}
   <a class="btn" href="/r/${esc(r.token)}/pdf">Ver o descargar el PDF</a>
   <div class="tarjeta soporte"><h2>¿Necesitás soporte técnico o insumos?</h2><p>Escaneá el QR pegado en tu equipo o escribinos.</p><a href="https://wa.me/${esc(config.whatsappSoporte)}">Escribir por WhatsApp</a> &nbsp;·&nbsp; <a href="mailto:soporte@justprint.com.ar">soporte@justprint.com.ar</a></div>
-  <p class="pie">Europa Haus S.A.S. · JustPrint · Comprobante de entrega, no es un documento fiscal.${codigo ? `<br>Código de verificación ${esc(codigo)}` : ''}</p>
+  <p class="pie">Europa Haus S.A.S. · JustPrint · ${srv ? 'Comprobante de servicio' : 'Comprobante de entrega'}, no es un documento fiscal.${codigo ? `<br>Código de verificación ${esc(codigo)}` : ''}</p>
 </main>`);
 }

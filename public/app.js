@@ -104,7 +104,7 @@ const MENU = [
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
   { ruta: 'contadores', texto: 'Contadores', permiso: 'contadores.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
-  { ruta: 'remitos', texto: 'Remitos', permiso: 'insumos.ver' },
+  { ruta: 'remitos', texto: 'Remitos y conformidades', permiso: 'insumos.ver' },
   { grupo: 'Finanzas' },
   { ruta: 'facturacion', texto: 'Facturación', permiso: 'importes.ver' },
   { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
@@ -844,7 +844,7 @@ async function vistaTicket(destino, id) {
           h('p', { style: 'margin:0 0 4px;white-space:pre-line' }, p.trabajo_realizado), h('div', { class: 'apoyo' }, `${p.tecnico} · ${cuando(p.fin)}`),
           (p.contador_negro != null) && h('div', { class: 'apoyo' }, `Contadores: ${p.contador_negro} negro${p.contador_color ? ` / ${p.contador_color} color` : ''}`),
           p.repuestos.length > 0 && h('div', { class: 'apoyo' }, `Insumos usados: ${p.repuestos.reduce((s, r) => s + r.cantidad, 0)}`))),
-          t.remitos.map((r) => h('div', { style: 'margin-top:10px' }, h('a', { href: `#/remitos/${r.id}` }, chip(`Remito ${r.numero}`, 'info')), ' ', r.conformidad ? chip(`Conforme: ${r.conformidad.firmante_nombre}`, 'ok') : chip('Sin conformidad', 'aviso')))),
+          t.remitos.map((r) => h('div', { style: 'margin-top:10px' }, h('a', { href: `#/remitos/${r.id}` }, chip(`Conformidad ${r.numero}`, 'info')), ' ', r.conformidad ? chip(`Conforme: ${r.conformidad.firmante_nombre}`, 'ok') : chip('Sin conformidad', 'aviso')))),
         asignar),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Historial'), t.eventos.map(linea),
         h('div', { style: 'margin-top:12px' }, comentario, h('div', { style: 'margin-top:8px' },
@@ -867,29 +867,29 @@ async function vistaCierre(destino, id) {
   const pintarRep = () => { vaciar(listaRep).append(...repuestos.map((r, k) => h('div', { class: 'item-rep' }, h('span', null, `${r.cant} × ${r.nombre}`), h('button', { type: 'button', class: 'rapido', onclick: () => { repuestos.splice(k, 1); pintarRep(); } }, 'Quitar')))); };
   selIns.addEventListener('change', () => { if (!selIns.value) return; const i = insumos.find((x) => x.id === Number(selIns.value)); const ya = repuestos.find((r) => r.id === i.id); if (ya) ya.cant += 1; else repuestos.push({ id: i.id, nombre: i.descripcion, cant: 1 }); selIns.value = ''; pintarRep(); });
 
-  const quien = h('input', { id: 'qn', maxlength: 120, placeholder: 'Nombre de quien recibe', autocomplete: 'off' }); const cargo = h('input', { id: 'qc', maxlength: 80, placeholder: 'Cargo (opcional)', autocomplete: 'off' });
+  const quien = h('input', { id: 'qn', maxlength: 120, placeholder: 'Nombre de quien da la conformidad', autocomplete: 'off' }); const cargo = h('input', { id: 'qc', maxlength: 80, placeholder: 'Cargo (opcional)', autocomplete: 'off' });
   const dniQ = h('input', { maxlength: 20, inputmode: 'numeric', placeholder: 'DNI (opcional)', autocomplete: 'off' });
-  const mailQ = h('input', { type: 'email', maxlength: 160, placeholder: 'Mail (opcional)', autocomplete: 'off' }); const telQ = h('input', { type: 'tel', maxlength: 40, inputmode: 'tel', placeholder: 'WhatsApp (opcional)', autocomplete: 'off' });
+  const mailQ = h('input', { type: 'email', maxlength: 160, placeholder: 'Mail (opcional)', autocomplete: 'off' });
   const pad = rem.lienzoFirma();
   const error = h('div', { class: 'error oculto', role: 'alert' });
-  const boton = h('button', { class: 'btn btn-principal grande', type: 'submit' }, 'Cerrar ticket y generar remito');
+  const boton = h('button', { class: 'btn btn-principal grande', type: 'submit' }, 'Cerrar ticket y generar conformidad');
   const MENSAJES = { contador_menor_al_anterior: 'El contador es menor al de la última lectura. Revisalo.', equipo_monocromo: 'Este equipo es monocromo: no lleva contador de color.', sin_stock: 'No hay stock suficiente de uno de los insumos.', firma_invalida: 'La firma no es válida. Volvé a firmar.', contador_color_requerido: 'Este equipo es color: cargá también el contador de color.', contador_negro_requerido: 'Cargá el contador negro.' };
 
   const form = h('form', { class: 'formulario', onsubmit: async (ev) => {
     ev.preventDefault(); error.classList.add('oculto'); boton.disabled = true;
     const cuerpo = { trabajo_realizado: trabajo.value, repuestos: repuestos.map((r) => ({ insumo_id: r.id, cantidad: r.cant })) };
     if (cNegro.value !== '') cuerpo.contador_negro = Number(cNegro.value); if (color && cColor.value !== '') cuerpo.contador_color = Number(cColor.value);
-    if (quien.value.trim()) cuerpo.conformidad = { nombre: quien.value.trim(), ...(cargo.value.trim() ? { cargo: cargo.value.trim() } : {}), ...(dniQ.value.trim() ? { dni: dniQ.value.trim() } : {}), ...(mailQ.value.trim() ? { email: mailQ.value.trim() } : {}), ...(telQ.value.trim() ? { telefono: telQ.value.trim() } : {}), ...(pad.hay() ? { firma: pad.png() } : {}) };
+    if (quien.value.trim()) cuerpo.conformidad = { nombre: quien.value.trim(), ...(cargo.value.trim() ? { cargo: cargo.value.trim() } : {}), ...(dniQ.value.trim() ? { dni: dniQ.value.trim() } : {}), ...(mailQ.value.trim() ? { email: mailQ.value.trim() } : {}), ...(pad.hay() ? { firma: pad.png() } : {}) };
     try {
       const r = await api(`/api/tickets/${id}/cierre`, { metodo: 'POST', cuerpo });
       const remito = await api(`/api/remitos/${r.remito_id}`).catch(() => null);
       vaciar(contenedor).append(h('div', { class: 'tarjeta listo' }, h('div', { class: 'tilde' }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: 'M5 12.5l4.5 4.5L19 7.5' }))),
-        h('h2', null, r.estado === 'cerrado' ? 'Ticket cerrado' : 'Ticket resuelto'), h('p', null, `Remito ${r.remito} generado.`),
+        h('h2', null, r.estado === 'cerrado' ? 'Ticket cerrado' : 'Ticket resuelto'), h('p', null, 'Conformidad de servicio generada.'),
         r.estado === 'resuelto' && h('p', { class: 'apoyo' }, 'Quedó pendiente la conformidad del cliente: podés tomarla ahora o dejarla para después.'),
         r.sla_cumplido != null && h('p', null, chip(r.sla_cumplido ? 'Dentro del SLA' : 'Fuera de SLA', r.sla_cumplido ? 'ok' : 'malo'), ` ${num1(r.horas_resolucion)} h hábiles`),
-        h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar remito'),
-          h('a', { class: 'btn', href: `#/remitos/${r.remito_id}` }, 'Ver remito'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
-      remito && h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar el remito al cliente'), rem.panelEnvio(remito, null, { compacto: true })));
+        h('div', { class: 'acciones', style: 'justify-content:center' }, r.estado === 'resuelto' && h('a', { class: 'btn btn-principal', href: `#/remitos/${r.remito_id}/firmar` }, 'Tomar conformidad'), h('a', { class: 'btn', href: `/api/remitos/${r.remito_id}/pdf?descargar=1` }, 'Descargar conformidad'),
+          h('a', { class: 'btn', href: `#/remitos/${r.remito_id}` }, 'Ver conformidad'), h('a', { class: r.estado === 'resuelto' ? 'btn' : 'btn btn-principal', href: '#/tickets' }, 'Volver a mis tickets'))),
+      remito && h('div', { class: 'tarjeta' }, h('h2', null, 'Enviar la conformidad al cliente'), rem.panelEnvio(remito, null, { compacto: true })));
     } catch (e) {
       if (e.message === 'sesion') return; error.textContent = MENSAJES[e.datos?.error] ?? 'No se pudo cerrar el ticket. Revisá los datos.';
       error.classList.remove('oculto'); boton.disabled = false; error.scrollIntoView({ block: 'center' });
@@ -899,8 +899,8 @@ async function vistaCierre(destino, id) {
   t.equipo && h('div', { class: 'tarjeta' }, h('h2', null, `Contadores · ${t.equipo.marca} ${t.equipo.modelo}`), h('div', { class: 'dos-col' }, cNegro, color ? cColor : null),
     h('p', { class: 'apoyo', style: 'margin:8px 0 0' }, color ? 'Equipo color: se toman los dos contadores.' : 'Equipo monocromo: solo contador negro.')),
   insumos.length > 0 && h('div', { class: 'tarjeta' }, h('h2', null, 'Insumos usados'), selIns, listaRep),
-  h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad del cliente'), h('p', { class: 'apoyo', style: 'margin-top:0' }, 'Si no puede firmar ahora, dejalo vacío: el ticket queda resuelto, a la espera de la conformidad.'),
-    h('div', { class: 'dos-col' }, quien, cargo), h('div', { class: 'dos-col', style: 'margin-top:10px' }, dniQ, telQ), h('div', { style: 'margin-top:10px' }, mailQ), pad.el,
+  h('div', { class: 'tarjeta' }, h('h2', null, 'Conformidad del cliente'), h('p', { class: 'apoyo', style: 'margin-top:0' }, 'El cliente da su conformidad al servicio realizado. Si no puede firmar ahora, dejalo vacío: el ticket queda resuelto, a la espera de la conformidad.'),
+    h('div', { class: 'dos-col' }, quien, cargo), h('div', { class: 'dos-col', style: 'margin-top:10px' }, dniQ, mailQ), h('p', { class: 'apoyo', style: 'margin:6px 0 10px' }, 'Con el mail le mandamos la conformidad y puede calificar la atención.'), pad.el,
     h('div', { style: 'display:flex;justify-content:space-between;gap:12px;align-items:center' }, h('span', { class: 'apoyo' }, 'Firmá con el dedo dentro del recuadro'), h('button', { type: 'button', class: 'rapido', onclick: () => pad.limpiar() }, 'Borrar firma'))),
   boton);
   destino.append(h('a', { href: `#/tickets/${id}`, class: 'apoyo' }, `← ${t.numero}`), encabezado(`Cerrar ${t.numero}`, `${t.cliente.nombre_comercial || t.cliente.razon_social} · ${t.asunto}`), form);
