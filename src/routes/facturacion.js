@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles } from '../lib/contexto.js';
-import { aDia, hoy } from '../lib/fechas.js';
+import { aDia, hoy, json } from '../lib/fechas.js';
 import { IVA, liquidar, redondear } from '../lib/liquidacion.js';
 import { ultimaCotizacion } from '../lib/cotizacion.js';
 import { plazoDefecto, sumarDias } from '../lib/cobranzas.js';
+import { avisarFactura, destinatariosFactura } from '../lib/aviso_factura.js';
+import { baseUrl } from '../lib/portal.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const MAX_PDF = 10 * 1024 * 1024;
@@ -136,7 +138,10 @@ export default async function rutasFacturacion(app, { db }) {
     ]);
     const cobrado = redondear(cobros.reduce((s, c) => s + Number(c.importe), 0));
     const pdf = await db('factura_comprobantes as p').leftJoin('usuarios as u', 'u.id', 'p.subido_por').where('p.factura_id', f.id).select('p.nombre_original', 'p.bytes', 'p.created_at', 'u.nombre as subido_por').first();
-    return { comprobante: pdf ? { nombre: pdf.nombre_original, bytes: pdf.bytes, subido_el: aDia(pdf.created_at), subido_por: pdf.subido_por } : null, ...f, fecha_emision: aDia(f.fecha_emision), vencimiento: aDia(f.vencimiento), clase: clase(f), cliente, entidad, contrato: contrato?.nombre ?? null,
+    const [avisos, destinatarios] = await Promise.all([
+      db('factura_avisos as a').leftJoin('usuarios as u', 'u.id', 'a.enviado_por').where('a.factura_id', f.id).orderBy('a.id', 'desc').limit(5).select('a.estado', 'a.destinatarios', 'a.created_at', 'u.nombre as por'),
+      destinatariosFactura(db, f.cliente_id)]);
+    return { avisos: avisos.map((a) => ({ estado: a.estado, destinatarios: json(a.destinatarios, []), el: aDia(a.created_at), por: a.por })), destinatarios_aviso: destinatarios.map((d) => d.email), comprobante: pdf ? { nombre: pdf.nombre_original, bytes: pdf.bytes, subido_el: aDia(pdf.created_at), subido_por: pdf.subido_por } : null, ...f, fecha_emision: aDia(f.fecha_emision), vencimiento: aDia(f.vencimiento), clase: clase(f), cliente, entidad, contrato: contrato?.nombre ?? null,
       neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total), neto_usd: f.neto_usd == null ? null : Number(f.neto_usd), tipo_cambio: f.tipo_cambio == null ? null : Number(f.tipo_cambio),
       items: items.map((i) => ({ ...i, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), subtotal: Number(i.subtotal), alicuota_iva: Number(i.alicuota_iva) })),
       cobros: cobros.map((c) => ({ ...c, fecha_cobro: aDia(c.fecha_cobro), importe: Number(c.importe) })), cobrado, saldo: redondear(Number(f.total) - cobrado) };
@@ -245,6 +250,26 @@ export default async function rutasFacturacion(app, { db }) {
 
 
   // ---------- comprobante (PDF) de la factura ----------
+  /** Arma y manda el aviso al cliente con el PDF guardado de la factura. */
+  async function avisar(req, f) {
+    const c = await db('factura_comprobantes_contenido').where({ factura_id: f.id }).first();
+    const meta = await db('factura_comprobantes').where({ factura_id: f.id }).first();
+    const cli = await db('clientes').where({ id: f.cliente_id }).select('razon_social', 'nombre_comercial').first();
+    const conPortal = await db('portal_accesos').where({ cliente_id: f.cliente_id }).whereNot({ estado: 'baja' }).first();
+    const nombrePdf = `Factura_${String(f.numero ?? f.periodo).replace(/[^\w.-]/g, '_')}.pdf`;
+    return avisarFactura(db, { factura: f, pdf: Buffer.from(c.contenido), nombrePdf: meta?.nombre_original || nombrePdf, cliente: cli?.nombre_comercial || cli?.razon_social,
+      urlPortal: conPortal ? `${baseUrl(req)}/portal/` : null, usuarioId: req.ctx.id });
+  }
+
+  app.post('/api/facturas/:id/avisar', { preHandler: emitir }, async (req, reply) => {
+    const f = await cargarFactura(req.ctx, Number(req.params.id));
+    if (!f) return error(reply, 404, 'no_encontrado');
+    if (f.estado === 'anulada' || f.estado === 'borrador' || !(await db('factura_comprobantes').where({ factura_id: f.id }).first())) return error(reply, 409, 'sin_comprobante');
+    const r = await avisar(req, f);
+    await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'factura_avisos', f.id, null, { estado: r.estado, destinatarios: r.destinatarios });
+    return r;
+  });
+
   app.post('/api/facturas/:id/comprobante', { preHandler: emitir, bodyLimit: MAX_PDF + 1024 }, async (req, reply) => {
     const f = await cargarFactura(req.ctx, Number(req.params.id));
     if (!f) return error(reply, 404, 'no_encontrado');
@@ -264,7 +289,8 @@ export default async function rutasFacturacion(app, { db }) {
       await trx('factura_comprobantes_contenido').insert({ factura_id: f.id, contenido: pdf });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, reemplaza ? 'editar' : 'crear', 'factura_comprobantes', f.id, null, { bytes: pdf.length, nombre, reemplaza });
     });
-    return reply.code(201).send({ ok: true, reemplaza });
+    const aviso = req.headers['x-avisar'] === '1' ? await avisar(req, f).catch(() => ({ estado: 'error', destinatarios: [] })) : null;
+    return reply.code(201).send({ ok: true, reemplaza, aviso });
   });
 
   app.get('/api/facturas/:id/comprobante', { preHandler: ver }, async (req, reply) => {

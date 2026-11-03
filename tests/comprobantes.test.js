@@ -73,3 +73,31 @@ test('asignar emisor a una factura emitida la convierte en comprobante y entra e
   assert.equal((await dir.llamar('PATCH', `/api/facturas/${id}/emisor`, { entidad_facturante_id: ent })).statusCode, 200);
   assert.equal((await dir.llamar('GET', `/api/facturas/${id}`)).json().clase, 'fiscal');
 });
+
+test('al subir el PDF con aviso, sale un mail con el adjunto a los contactos de facturación y queda registrado', async () => {
+  const dir = await entrar(ctx.app, 'direccion@demo.local');
+  const enviados = [];
+  reemplazarCanal('mail', { configurado: () => true, enviar: async (m) => { enviados.push(m); } });
+  await ctx.db('contactos').insert([
+    { cliente_id: cli, nombre: 'Marta Gómez', roles: JSON.stringify(['facturacion']), telefonos: '[]', emails: JSON.stringify([{ tipo: 'laboral', direccion: 'otro@cli.com' }, { tipo: 'facturacion', direccion: 'Pagos@Cli.com' }]), estado: 'activo' },
+    { cliente_id: cli, nombre: 'Luis', roles: JSON.stringify(['facturacion']), telefonos: '[]', emails: JSON.stringify([{ tipo: 'laboral', direccion: 'pagos@cli.com' }]), estado: 'activo' },
+    { cliente_id: cli, nombre: 'Sin rol', roles: JSON.stringify(['decisor']), telefonos: '[]', emails: JSON.stringify([{ tipo: 'laboral', direccion: 'jefe@cli.com' }]), estado: 'activo' },
+  ]);
+  const s = await entrar(ctx.app, 'direccion@demo.local');
+  let [fx] = await ctx.db('facturas').insert({ cliente_id: cli, periodo: '2026-09', moneda: 'USD', neto: 85, iva: 17.85, total: 102.85, numero: 'AV-1', vencimiento: '2026-10-15', estado: 'emitida' }); fx = fx.id ?? fx;
+  const subirA = (id, avisar) => ctx.app.inject({ method: 'POST', url: `/api/facturas/${id}/comprobante`, payload: PDF('aviso'), headers: { 'content-type': 'application/pdf', 'x-avisar': avisar, 'x-nombre-archivo': 'f.pdf' }, cookies: { jp_sid: s.cookie.value } });
+  const sin = await subirA(fx, '0');
+  assert.equal(sin.json().aviso, null); assert.equal(enviados.length, 0);
+  const r = await subirA(fx, '1');
+  assert.equal(r.json().aviso.estado, 'enviado');
+  assert.deepEqual(r.json().aviso.destinatarios, ['pagos@cli.com']); // sin duplicados, solo rol facturación
+  assert.equal(enviados.length, 1); assert.equal(enviados[0].cuenta, 'facturacion'); assert.equal(enviados[0].attachments[0].contentType, 'application/pdf');
+  assert.match(enviados[0].text, /^Hola Marta!/); assert.match(enviados[0].subject, /septiembre de 2026/);
+  const det = (await dir.llamar('GET', `/api/facturas/${fx}`)).json();
+  assert.equal(det.avisos[0].estado, 'enviado'); assert.deepEqual(det.destinatarios_aviso, ['pagos@cli.com']);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fx}/avisar`)).json().estado, 'enviado'); assert.equal(enviados.length, 2);
+  assert.equal((await dir.llamar('POST', `/api/facturas/${fBorrador}/avisar`)).statusCode, 409);
+  // sin mail configurado no rompe la carga
+  reemplazarCanal('mail', { configurado: () => false, enviar: async () => {} });
+  assert.equal((await subirA(fx, '1')).json().aviso.estado, 'sin_mail');
+});

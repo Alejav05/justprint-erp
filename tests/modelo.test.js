@@ -11,7 +11,7 @@ test('las migraciones crean las tablas del modelo, y se pueden revertir', async 
   const db = knexLib(knexfile.test);
   await db.migrate.latest();
   const nombres = (await tablas(db)).map((t) => t.name);
-  assert.equal(nombres.length, 66);
+  assert.equal(nombres.length, 67);
   assert.ok(nombres.includes('sesiones'));
   for (const esperada of ['cartera_asignaciones', 'ticket_eventos', 'cobro_aplicaciones', 'contrato_condiciones', 'audit_log']) {
     assert.ok(nombres.includes(esperada), `falta ${esperada}`);
