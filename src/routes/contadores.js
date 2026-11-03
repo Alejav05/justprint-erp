@@ -151,4 +151,32 @@ export default async function rutasContadores(app, { db }) {
     }
     return reply.code(errores.length && !asignadas.length ? 409 : 200).send({ asignadas, errores });
   });
+
+  /**
+   * Corrige la fecha y/o el período de una lectura ya cargada (por ejemplo, una lectura importada con la fecha del día de la importación).
+   * `periodo: null` vuelve a que cuente en el mes de su fecha. La lectura tiene que quedar en orden con las demás del equipo.
+   */
+  app.patch('/api/lecturas/:id', { preHandler: cargar }, async (req, reply) => {
+    const d = z.object({ fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), periodo: periodoSchema.nullable().optional() }).refine((x) => x.fecha !== undefined || x.periodo !== undefined).parse(req.body);
+    const l = await db('lecturas_contador').where({ id: Number(req.params.id) }).first();
+    if (!l) return reply.code(404).send({ error: 'no_encontrado' });
+    const v = await clientesVisibles(db, req.ctx);
+    if (v) {
+      const clientes = (await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').where('a.equipo_id', l.equipo_id).select('c.cliente_id')).map((x) => x.cliente_id);
+      if (!clientes.some((c) => v.includes(c))) return reply.code(404).send({ error: 'no_encontrado' });
+    }
+    const fecha = d.fecha ?? aDia(l.fecha); const periodo = d.periodo === undefined ? l.periodo : d.periodo;
+    if (fecha > hoy()) return reply.code(400).send({ error: 'fecha_futura' });
+    if (periodo && periodo > fecha.slice(0, 7)) return reply.code(400).send({ error: 'periodo_posterior_a_la_fecha' });
+    const resto = (await db('lecturas_contador').where({ equipo_id: l.equipo_id }).whereNot({ id: l.id }).orderBy('fecha').orderBy('id')).map((x) => ({ ...x, fecha: aDia(x.fecha), per: periodoDeLectura(x) }));
+    const nueva = { ...l, fecha, periodo }; const perNueva = periodoDeLectura(nueva);
+    if (resto.some((x) => x.per === perNueva)) return reply.code(409).send({ error: 'periodo_ocupado', periodo: perNueva });
+    const orden = [...resto, { ...nueva, fecha }].sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.id - b.id));
+    const i = orden.findIndex((x) => x.id === l.id); const prev = orden[i - 1]; const sig = orden[i + 1];
+    if (prev && (l.contador_negro < prev.contador_negro || l.contador_color < prev.contador_color)) return reply.code(409).send({ error: 'contador_menor_al_anterior', anterior: { negro: prev.contador_negro, color: prev.contador_color, fecha: prev.fecha } });
+    if (sig && (l.contador_negro > sig.contador_negro || l.contador_color > sig.contador_color)) return reply.code(409).send({ error: 'contador_mayor_al_siguiente', siguiente: { negro: sig.contador_negro, color: sig.contador_color, fecha: sig.fecha } });
+    await db('lecturas_contador').where({ id: l.id }).update({ fecha, periodo: periodo ?? null });
+    await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'lecturas_contador', l.id, { fecha: aDia(l.fecha), periodo: l.periodo ?? null }, { fecha, periodo: periodo ?? null });
+    return { ok: true, fecha, periodo: perNueva };
+  });
 }

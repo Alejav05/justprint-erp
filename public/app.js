@@ -1140,6 +1140,28 @@ async function vistaNuevoEquipo(destino) {
       enviar: () => api('/api/equipos', { metodo: 'POST', cuerpo: { modelo_id: Number(modelo.value), numero_serie: serie.value } }), alExito: (r) => { location.hash = `#/equipos/${r.id}`; } }), nuevoModelo);
 }
 
+/** Corrige la fecha o el período con que quedó cargada una lectura (p. ej. una importada con la fecha del día de la importación). */
+function corregirLectura(l, color, alGuardar) {
+  const ERR = { contador_menor_al_anterior: (d) => `Con esa fecha la lectura quedaría después de otra más alta (${d.anterior.negro}${color ? ` / ${d.anterior.color}` : ''} del ${fecha(d.anterior.fecha)}). Revisá la fecha.`,
+    contador_mayor_al_siguiente: (d) => `Con esa fecha la lectura quedaría antes de otra más baja (${d.siguiente.negro}${color ? ` / ${d.siguiente.color}` : ''} del ${fecha(d.siguiente.fecha)}). Revisá la fecha.`,
+    periodo_ocupado: (d) => `Ya hay otra lectura para ${d.periodo}.`, fecha_futura: () => 'La fecha no puede ser futura.', periodo_posterior_a_la_fecha: () => 'El período no puede ser posterior a la fecha de la lectura.' };
+  cajonLateral('Corregir fecha de la lectura', (cerrar) => {
+    const f = h('input', { id: 'cl-f', type: 'date', value: String(l.fecha).slice(0, 10), max: new Date().toISOString().slice(0, 10) });
+    const p = h('input', { id: 'cl-p', type: 'month', value: l.periodo ?? '' });
+    const e = h('div', { class: 'error oculto', role: 'alert' });
+    const ok = h('button', { class: 'btn btn-principal', type: 'button' }, 'Guardar corrección');
+    ok.addEventListener('click', async () => {
+      e.classList.add('oculto'); ok.disabled = true;
+      try { await api(`/api/lecturas/${l.id}`, { metodo: 'PATCH', cuerpo: { fecha: f.value, periodo: p.value || null } }); toast('Lectura corregida'); cerrar(); alGuardar(); }
+      catch (x) { if (x.message === 'sesion') return; e.textContent = ERR[x.datos?.error]?.(x.datos) ?? 'No se pudo guardar.'; e.classList.remove('oculto'); ok.disabled = false; }
+    });
+    return h('div', null, h('p', { class: 'apoyo' }, `Lectura ${l.contador_negro}${color ? ` / ${l.contador_color}` : ''} cargada el ${fecha(l.fecha)}.`),
+      h('div', { class: 'campo' }, h('label', { for: 'cl-f' }, 'Fecha en que se tomó'), f),
+      h('div', { class: 'campo' }, h('label', { for: 'cl-p' }, 'Período al que pertenece'), p, h('div', { class: 'apoyo' }, 'Dejalo vacío si es el mes de la fecha. Completalo si la toma de un mes se hizo después (ej. la de septiembre, hecha a fin de octubre).')),
+      e, h('div', { class: 'acciones' }, ok));
+  });
+}
+
 async function vistaEquipo(destino, id) {
   const e = await api(`/api/equipos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
   if (!e) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Volver a equipos'))); return; }
@@ -1173,7 +1195,7 @@ async function vistaEquipo(destino, id) {
         dato('Última lectura', ult ? `${ult.contador_negro}${color ? ` / ${ult.contador_color}` : ''} · ${fecha(ult.fecha)}` : '—'),
         dato('Páginas entre las dos últimas', e.periodo ? `${e.periodo.negro}${color ? ` negro / ${e.periodo.color} color` : ''}` : '—'))),
       lectura, mover,
-      h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''} · período ${l.periodo ?? String(l.fecha).slice(0, 7)}`))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
+      h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''} · período ${l.periodo ?? String(l.fecha).slice(0, 7)}`), puede('contadores.cargar') && h('td', null, h('button', { class: 'btn-texto', type: 'button', onclick: () => corregirLectura(l, color, recargar) }, 'Corregir fecha')))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Tickets'), e.tickets.length ? h('ul', { class: 'lista' }, e.tickets.map((t) => h('li', null, h('a', { href: `#/tickets/${t.id}` }, `${t.numero} · ${t.asunto}`), chipTicket(t.estado)))) : h('p', { class: 'apoyo' }, 'Sin tickets.'))),
     h('div', null,
       h('div', { class: 'tarjeta etiqueta-qr' }, h('h2', null, 'Etiqueta para el equipo'), etiquetaSoporte(e), h('div', { class: 'apoyo', style: 'margin-top:8px' }, 'Autoadhesiva de 90 × 58 mm. El cliente la escanea y le llega a WhatsApp de soporte con el serie ya cargado.'),

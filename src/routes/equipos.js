@@ -95,7 +95,7 @@ export default async function rutasEquipos(app, { db }) {
       db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('clientes as cl', 'cl.id', 'c.cliente_id').leftJoin('sedes as s', 's.id', 'a.sede_id')
         .where('a.equipo_id', e.id).orderBy('a.desde', 'desc').select('a.desde', 'a.hasta', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'a.contador_final_negro', 'a.contador_final_color', 'cl.razon_social', 'cl.nombre_comercial', 's.nombre as sede'),
       db('lecturas_contador').leftJoin('usuarios', 'usuarios.id', 'lecturas_contador.usuario_id').where({ equipo_id: e.id }).orderBy('fecha', 'desc').orderBy('lecturas_contador.id', 'desc').limit(24)
-        .select('lecturas_contador.fecha', 'lecturas_contador.periodo', 'contador_negro', 'contador_color', 'origen', 'usuarios.nombre as usuario'),
+        .select('lecturas_contador.id', 'lecturas_contador.fecha', 'lecturas_contador.periodo', 'contador_negro', 'contador_color', 'origen', 'usuarios.nombre as usuario'),
       db('tickets').where({ equipo_id: e.id }).whereNull('deleted_at').orderBy('abierto_en', 'desc').limit(20).select('id', 'numero', 'asunto', 'estado', 'abierto_en'),
       db('movimientos_equipo').leftJoin('ubicaciones as o', 'o.id', 'movimientos_equipo.ubicacion_origen_id').leftJoin('ubicaciones as d', 'd.id', 'movimientos_equipo.ubicacion_destino_id')
         .leftJoin('usuarios', 'usuarios.id', 'movimientos_equipo.usuario_id').where({ equipo_id: e.id }).orderBy('movimientos_equipo.id', 'desc').limit(30)
