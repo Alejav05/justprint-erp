@@ -56,6 +56,11 @@ export function crearCostos(U) {
   }
 
   /** Quitar un costo, con confirmación. */
+  async function pasarAAccesorio(c, alHecho) {
+    if (!window.confirm(`¿Pasar este costo a accesorio del equipo ${c.equipo}?\n\n${c.concepto} · ${usd2(c.importe_usd)}\n\nSe suma al costo del equipo (se amortiza con él) y deja de contarse como insumo del cliente. Queda registrado en la auditoría.`)) return;
+    try { await api(`/api/costos/${c.id}/pasar-a-accesorio`, { metodo: 'POST' }); aviso('Pasó a accesorio del equipo'); alHecho(); } catch (e) { if (e.message !== 'sesion') aviso({ equipo_sin_costo: 'Primero cargá el costo del equipo en su ficha.', moneda_distinta: 'El costo y el equipo están en monedas distintas.', sin_cotizacion: 'No hay cotización del dólar cargada.' }[e.datos?.error] ?? 'No se pudo pasar a accesorio.'); }
+  }
+
   async function borrar(c, alBorrar) {
     if (!window.confirm(`¿Eliminar este costo?\n\n${c.concepto} · ${usd2(c.importe_usd)}\n\nDeja de sumar en el negocio del cliente. Queda registrado en la auditoría.`)) return;
     try { await api(`/api/costos/${c.id}`, { metodo: 'DELETE' }); aviso('Costo eliminado'); alBorrar(); } catch (e) { if (e.message !== 'sesion') aviso(ERR[e.datos?.error] ?? 'No se pudo eliminar.'); }
@@ -71,7 +76,7 @@ export function crearCostos(U) {
       h('td', { 'data-rotulo': 'Tipo' }, chip(c.tipo_nombre, 'mudo')),
       h('td', { class: 'num', 'data-rotulo': 'Importe' }, monto(c), c.moneda === 'ARS' && h('div', { class: 'apoyo' }, usd2(c.importe_usd))),
       h('td', { class: 'num', 'data-rotulo': 'USD' }, h('b', null, usd2(c.importe_usd))),
-      puede('costos.cargar') && h('td', { class: 'acciones-fila', 'data-rotulo': 'Acciones' }, c.automatico ? h('span', { class: 'apoyo', title: c.origen === 'amortizacion' ? 'Se calcula solo desde el costo del equipo' : 'Salió de un remito de insumos' }, c.origen === 'amortizacion' ? 'Automático' : 'Del remito')
+      puede('costos.cargar') && h('td', { class: 'acciones-fila', 'data-rotulo': 'Acciones' }, c.automatico ? [h('span', { class: 'apoyo', title: c.origen === 'amortizacion' ? 'Se calcula solo desde el costo del equipo' : 'Salió de un remito de insumos' }, c.origen === 'amortizacion' ? 'Automático' : 'Del remito'), ...(c.origen === 'remito' && c.equipo_id ? [' ', h('button', { class: 'btn', type: 'button', onclick: () => pasarAAccesorio(c, recargar) }, 'Es un accesorio')] : [])]
         : [h('button', { class: 'btn', type: 'button', onclick: () => formularioCosto({ costo: c, clienteFijo: null, alGuardar: recargar }) }, 'Editar'), ' ', h('button', { class: 'btn', type: 'button', onclick: () => borrar(c, recargar) }, 'Eliminar')]));
   }
   const tabla = (filas, conCliente, recargar) => h('table', { class: 'tarjetas' },

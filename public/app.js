@@ -95,6 +95,7 @@ const ICONOS = {
 };
 const icono = (n) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: ICONOS[n] }));
 
+const VERSION_CLIENTE = '2026.11.04.5'; // debe coincidir con src/version.js (hay una prueba que lo controla)
 const MENU = [
   { ruta: 'inicio', texto: 'Inicio' },
   { ruta: 'notificaciones', texto: 'Notificaciones' },
@@ -181,9 +182,11 @@ function armarEstructura() {
     if (pendienteGrupo) { menu.append(h('div', { class: 'menu-titulo' }, pendienteGrupo)); pendienteGrupo = null; }
     menu.append(h('a', { href: `#/${it.ruta}`, class: it.pronto ? 'pronto' : '', 'data-ruta': it.ruta, onclick: cerrarMenu }, icono(it.ruta), it.texto, it.ruta === 'notificaciones' && h('span', { class: 'insignia oculto' })));
   }
+  const versionPie = h('span', { class: 'apoyo', style: 'font-size:11px;opacity:.7' }, `Versión ${VERSION_CLIENTE}`);
+  api('/api/salud').then((r) => { if (r.version && r.version !== VERSION_CLIENTE) { vaciar(versionPie).append(h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); location.reload(); }, style: 'color:inherit;text-decoration:underline' }, `Hay una versión nueva (${r.version}): recargar`)); } else if (r.version) versionPie.textContent = `Versión ${r.version}`; }).catch(() => {});
   lateral.append(logo(), menu, h('div', { class: 'lateral-pie' }, h('b', null, estado.me.nombre),
     h('span', { class: 'apoyo' }, [...new Set(estado.me.areas.map((a) => a.area))].join(' · ') || estado.me.rol),
-    h('div', null, h('button', { type: 'button', onclick: async () => { await api('/api/auth/logout', { metodo: 'POST' }).catch(() => {}); estado.me = null; mostrarIngreso(); } }, 'Salir'))));
+    h('div', null, h('button', { type: 'button', onclick: async () => { await api('/api/auth/logout', { metodo: 'POST' }).catch(() => {}); estado.me = null; mostrarIngreso(); } }, 'Salir')), versionPie));
   contenedor = h('main', { class: 'contenido', id: 'contenido', tabindex: '-1' });
   const barra = h('div', { class: 'barra' }, logo(), h('span', { style: 'display:flex;align-items:center' }, h('a', { href: '#/notificaciones', class: 'campana', 'aria-label': 'Notificaciones' }, icono('notificaciones'), h('span', { class: 'insignia oculto' })), h('button', { type: 'button', 'aria-label': 'Abrir menú', onclick: () => { lateral.classList.add('abierto'); velo.classList.remove('oculto'); } }, '☰')));
   vaciar(raiz).append(h('div', { class: 'estructura' }, lateral, h('div', { class: 'principal' }, barra, contenedor)), velo);

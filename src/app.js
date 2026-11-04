@@ -1,3 +1,4 @@
+import { VERSION } from './version.js';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import { ZodError } from 'zod';
@@ -68,7 +69,7 @@ export async function crearApp({ db, logger = false } = {}) {
 
   app.get('/api/salud', async () => {
     await db.raw('select 1');
-    return { ok: true };
+    return { ok: true, version: VERSION };
   });
 
   await cargarAjustes(db).catch(() => {});

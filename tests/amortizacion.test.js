@@ -205,3 +205,26 @@ test('la foto del negocio: gastos por rubro con el equipo completo y con el equi
   assert.deepEqual([n.ritmo.meses_base, n.ritmo.aporte_operativo, n.ritmo.aporte_mensual, n.ritmo.margen, n.ritmo.meses_para_recuperar, n.ritmo.mes_desde_inicio], [2, 100, 79, 79, 12, 15]);
   assert.equal(n.equipos[0].costo_operativo, 700); assert.equal(n.equipos[0].paginas, 3000); assert.equal(n.equipos[0].costo_pagina, 0.2333);
 });
+
+test('un accesorio que entró como insumo por remito pasa al costo del equipo y no se cuenta dos veces', async () => {
+  const { entrar } = await import('./ayuda.js'); const { llamar } = await entrar(ctx.app, 'direccion@demo.local'); const db = ctx.db;
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente G', estado: 'activo' }))[0];
+  const con = (await db('contratos').insert({ cliente_id: cli, nombre: 'CG', estado: 'vigente', moneda: 'USD', fecha_inicio: '2026-01-01' }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'G', tipo: 'monocromo' }))[0];
+  const e = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'ACC-1', estado: 'instalado', moneda: 'USD' }))[0];
+  await db('asignaciones_equipo').insert({ equipo_id: e, contrato_id: con, desde: '2026-01-01', contador_inicial_negro: 0, contador_inicial_color: 0 });
+  const k = (await db('costos').insert({ fecha: '2026-01-05', concepto: 'LT-340 — Bandeja', tipo: 'insumo', importe: 36, moneda: 'USD', importe_usd: 36, cliente_id: cli, equipo_id: e, origen: 'remito' }))[0];
+  assert.equal((await llamar('POST', `/api/costos/${k}/pasar-a-accesorio`)).json().error, 'equipo_sin_costo'); // primero el costo del equipo
+  await llamar('PATCH', `/api/equipos/${e}/costo`, { costo_adquisicion: 324, moneda: 'USD' });
+  const r = await llamar('POST', `/api/costos/${k}/pasar-a-accesorio`); assert.equal(r.statusCode, 200); assert.equal(r.json().accesorios, 36);
+  assert.ok((await db('costos').where({ id: k }).first()).deleted_at, 'el insumo del remito se da de baja');
+  const c = (await llamar('GET', `/api/equipos/${e}/costo`)).json(); assert.equal(c.costo_usd, 360); assert.equal(c.costo_accesorios, 36);
+  assert.equal((await llamar('POST', `/api/costos/${k}/pasar-a-accesorio`)).statusCode, 404, 'no se puede pasar dos veces');
+});
+
+test('la versión del servidor y la del navegador coinciden, y el código se revalida siempre', async () => {
+  const { readFileSync } = await import('node:fs'); const { VERSION } = await import('../src/version.js');
+  assert.equal(readFileSync(new URL('../public/app.js', import.meta.url), 'utf8').match(/VERSION_CLIENTE = '([^']+)'/)[1], VERSION);
+  assert.equal((await ctx.app.inject({ method: 'GET', url: '/api/salud' })).json().version, VERSION);
+  assert.match((await ctx.app.inject({ method: 'GET', url: '/app.js' })).headers['cache-control'], /max-age=0/); // el código se revalida siempre
+});

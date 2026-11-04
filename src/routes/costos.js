@@ -1,6 +1,7 @@
 // Costos: el detalle de lo que costó prestar el servicio, por período y por cliente. Solo lo ve quien tiene `costos.ver`.
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
+import { recalcularEquipo } from '../lib/amortizacion.js';
 import { aUsd } from '../lib/costos.js';
 import { aDia, hoy } from '../lib/fechas.js';
 import { clientesVisibles, puedeVerCliente } from '../lib/contexto.js';
@@ -116,6 +117,30 @@ export default async function rutasCostos(app, { db }) {
     await db('costos').where({ id: antes.id }).update({ ...r.fila, updated_by: req.ctx.id, updated_at: db.fn.now() });
     await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'costos', antes.id, { concepto: antes.concepto, importe: antes.importe, moneda: antes.moneda, importe_usd: antes.importe_usd }, { concepto: r.fila.concepto, importe: r.fila.importe, moneda: r.fila.moneda, importe_usd: r.fila.importe_usd });
     return { ok: true };
+  });
+
+  /**
+   * Un accesorio (bandeja, etc.) que entró como insumo por un remito pasa a ser parte del costo del equipo: se suma a sus accesorios y se amortiza con él.
+   * El costo del remito se da de baja (queda en la auditoría) para no contarlo dos veces.
+   */
+  app.post('/api/costos/:id/pasar-a-accesorio', { preHandler: carga }, async (req, reply) => {
+    const k = await db('costos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
+    if (!k || (k.cliente_id ? !(await puedeVerCliente(db, req.ctx, k.cliente_id)) : (await clientesVisibles(db, req.ctx)) !== null)) return reply.code(404).send({ error: 'no_encontrado' });
+    if (!k.equipo_id) return reply.code(409).send({ error: 'sin_equipo' });
+    if (k.origen === 'amortizacion' || ['amortizacion', 'equipo'].includes(k.tipo)) return reply.code(409).send({ error: 'no_aplica' });
+    const e = await db('equipos').where({ id: k.equipo_id }).whereNull('deleted_at').first(); if (!e) return reply.code(404).send({ error: 'no_encontrado' });
+    if (e.costo_adquisicion == null || Number(e.costo_adquisicion) <= 0) return reply.code(409).send({ error: 'equipo_sin_costo' });
+    const monto = e.moneda === 'USD' ? Number(k.importe_usd) : (k.moneda === e.moneda ? Number(k.importe) : null);
+    if (monto == null) return reply.code(409).send({ error: 'moneda_distinta' });
+    const accesorios = Math.round(((e.costo_accesorios == null ? 0 : Number(e.costo_accesorios)) + monto) * 100) / 100;
+    const conv = await aUsd(db, Number(e.costo_adquisicion) + accesorios, e.moneda, aDia(e.fecha_adquisicion) ?? hoy()); if (!conv) return reply.code(400).send({ error: 'sin_cotizacion' });
+    await db.transaction(async (trx) => {
+      await trx('equipos').where({ id: e.id }).update({ costo_accesorios: accesorios, costo_usd: conv.usd, updated_by: req.ctx.id, updated_at: trx.fn.now() });
+      await trx('costos').where({ id: k.id }).update({ deleted_at: trx.fn.now(), updated_by: req.ctx.id });
+      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'equipos', e.id, { costo_accesorios: e.costo_accesorios }, { costo_accesorios: accesorios, desde_costo: k.id, concepto: k.concepto });
+    });
+    await recalcularEquipo(db, e.id);
+    return { ok: true, accesorios };
   });
 
   app.delete('/api/costos/:id', { preHandler: carga }, async (req, reply) => {
