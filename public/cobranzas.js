@@ -212,13 +212,7 @@ export function crearCobranzas(U) {
     if (n) gracia = gracia ?? GRACIA_FALLBACK;
     const nodo = h('div');
     if (n) {
-      const t = n.totales; const col = t.resultado >= 0 ? 'pos' : 'neg';
-      const kpi = (r, v, nota, c) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, r), h('div', { class: `valor ${c ?? ''}` }, v), nota && h('div', { class: 'nota' }, nota));
-      nodo.append(h('div', { class: 'carril' }, h('h2', null, 'Rentabilidad'), h('p', null, 'Lo facturado contra lo que costó, mes a mes. No depende de si ya se cobró.')),
-        h('div', { class: 'rejilla negocio-kpis' }, kpi('Ingresos (facturado)', usd(t.ingresos), n.ingresos_sin_comprobante > 0 ? `USD netos · incluye ${usd(n.ingresos_sin_comprobante)} sin comprobante` : 'USD netos'), kpi('Egresos (costos)', usd(t.egresos), n.sin_costos ? 'Sin costos cargados' : null),
-          kpi('Resultado', `${t.resultado < 0 ? '−' : ''}${usd(Math.abs(t.resultado))}`, null, col), kpi('Margen', t.margen == null ? '—' : `${String(t.margen).replace('.', ',')} %`, null, col)));
-      nodo.append(bloqueRecupero(n));
-      nodo.append(graficoNegocio(n));
+      nodo.append(fotoNegocio(n), indicadoresNegocio(n), graficoNegocio(n), equiposNegocio(n));
     }
     if (pc) {
       nodo.append(h('div', { class: 'carril' }, h('h2', null, 'Por cobrar'), h('p', null, 'El flujo del dinero, aparte de la rentabilidad: lo facturado que todavía no se cobró.')));
@@ -231,22 +225,49 @@ export function crearCobranzas(U) {
     vaciar(destino).append(nodo);
   }
 
-  /** Resultado del mes (con el equipo amortizado) y recupero de inversión (con el equipo completo). */
-  function bloqueRecupero(n) {
-    const u = n.serie.at(-1); if (!u) return h('div');
-    const mesAct = u; const r = n.recupero; const signo = (v) => `${v < 0 ? '−' : ''}${usd(Math.abs(v))}`;
-    const kpi = (rot, v, nota, c) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, rot), h('div', { class: `valor ${c ?? ''}` }, v), nota && h('div', { class: 'nota' }, nota));
-    const tarjetas = [kpi(`Resultado de ${nombreMes(mesAct.mes)}`, signo(mesAct.resultado), mesAct.amortizacion ? `Con ${usd(mesAct.amortizacion)} de amortización del equipo` : 'Sin amortización de equipo este mes', mesAct.resultado >= 0 ? 'pos' : 'neg')];
-    if (r.invertido > 0) {
-      tarjetas.push(h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Recupero de inversión'), h('div', { class: `valor ${r.acumulado >= 0 ? 'pos' : 'neg'}` }, signo(r.acumulado)),
-        h('div', { class: 'barra-amort', role: 'img', 'aria-label': `${r.porcentaje}% recuperado` }, h('i', { style: `width:${r.porcentaje ?? 0}%` })),
-        h('div', { class: 'nota' }, r.mes_recupero ? `Recuperado en ${nombreMes(r.mes_recupero)}` : `${r.porcentaje} % recuperado de ${usd(r.invertido)} invertidos`)));
-    } else tarjetas.push(kpi('Recupero de inversión', '—', 'Sin equipos con costo cargado en este cliente'));
-    return h('div', null, h('div', { class: 'carril' }, h('h2', null, 'Resultado y recupero'),
-      h('p', null, 'El resultado reparte el equipo en su vida útil; el recupero cuenta el equipo entero desde que llega y devuelve a stock lo que falta amortizar si se retira.')),
-      h('div', { class: 'rejilla negocio-kpis' }, ...tarjetas),
-      n.equipos.length ? h('div', { class: 'tarjeta' }, h('h3', null, 'Equipos de este negocio'), h('ul', { class: 'lista' }, n.equipos.map((e) => h('li', null,
-        h('span', null, `${e.equipo} · ${e.numero_serie}`, h('div', { class: 'apoyo' }, `${e.vigente ? 'Instalado' : `Retirado${e.retirado ? ` · le faltaban ${usd(e.retirado.valor_en_libros)} por amortizar al salir` : ''}`} · costo ${usd(e.costo_usd)} · amortizado ${usd(e.amortizado_en_este_cliente)} acá`)), h('b', null, `${usd(e.valor_en_libros)} en libros`))))) : null);
+  const signoUsd = (v) => `${v < 0 ? '−' : ''}${usd(Math.abs(v))}`;
+
+  /** Lo que entra y lo que sale, con el equipo entero (plata puesta) y con el equipo repartido en su vida útil. */
+  function fotoNegocio(n) {
+    const f = n.foto; const fila = (rot, a, b, fuerte) => h('tr', { class: fuerte ? 'total' : '' }, h('td', null, fuerte ? h('b', null, rot) : rot), h('td', { class: 'num' }, a == null ? '' : (fuerte ? h('b', null, signoUsd(a)) : signoUsd(a))), h('td', { class: 'num' }, b == null ? '' : (fuerte ? h('b', null, signoUsd(b)) : signoUsd(b))));
+    const g = (c, k) => -f[c][k]; const hayOtros = f.completa.otros > 0;
+    return h('div', null, h('div', { class: 'carril' }, h('h2', null, 'Foto del negocio'), h('p', null, 'Lo que entra y lo que sale. A la izquierda, el equipo cuenta entero desde que llega; a la derecha, repartido en su vida útil.')),
+      h('div', { class: 'tarjeta', style: 'padding:6px 8px' }, h('table', { class: 'foto' }, h('thead', null, h('tr', null, h('th', null, ''), h('th', { class: 'num' }, 'Plata puesta'), h('th', { class: 'num' }, 'Equipo repartido'))),
+        h('tbody', null, fila('Ingresos facturados', f.ingresos, f.ingresos), h('tr', null, h('td', { class: 'apoyo', colspan: '3' }, 'Gastos')),
+          fila('Equipo y accesorios', g('completa', 'equipo'), g('amortizada', 'equipo')), fila('Insumos', g('completa', 'insumos'), g('amortizada', 'insumos')), fila('Mano de obra', g('completa', 'mano_de_obra'), g('amortizada', 'mano_de_obra')), hayOtros ? fila('Otros costos', g('completa', 'otros'), g('amortizada', 'otros')) : null,
+          fila('Total de gastos', g('completa', 'total'), g('amortizada', 'total')), fila('Rentabilidad', f.completa.rentabilidad, f.amortizada.rentabilidad, true))),
+        f.arranque_insumos > 0 ? h('p', { class: 'apoyo', style: 'margin:8px 12px 10px' }, `Los insumos incluyen ${usd(f.arranque_insumos)} del primer mes (kit de arranque).`) : null));
+  }
+
+  /** Tres números de lectura rápida: dónde estoy, cuánto aporta el negocio por mes y cuándo recupero. */
+  function indicadoresNegocio(n) {
+    const f = n.foto; const r = n.ritmo; const kpi = (rot, v, nota, c) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, rot), h('div', { class: `valor ${c ?? ''}` }, v), nota && h('div', { class: 'nota' }, nota));
+    const hoyR = f.completa.rentabilidad; const hayEquipo = n.recupero.invertido > 0;
+    const tarjetas = [kpi('Rentabilidad hoy', signoUsd(hoyR), hoyR < 0 ? `Te faltan ${usd(-hoyR)} para recuperar lo invertido` : 'Ya recuperaste lo invertido', hoyR >= 0 ? 'pos' : 'neg')];
+    tarjetas.push(r ? kpi('Aporte mensual', signoUsd(r.aporte_mensual), `Promedio de los últimos ${r.meses_base} meses, con el equipo repartido${r.margen != null ? ` · margen ${String(r.margen).replace('.', ',')} %` : ''}`, r.aporte_mensual >= 0 ? 'pos' : 'neg') : kpi('Aporte mensual', '—', 'Hacen falta al menos 2 meses después del arranque'));
+    if (hayEquipo && r && r.meses_para_recuperar === 0) tarjetas.push(kpi('Recuperás en', 'Recuperado', null, 'pos'));
+    else if (hayEquipo && r && r.meses_para_recuperar != null) tarjetas.push(kpi('Recuperás en', `~${r.meses_para_recuperar} ${r.meses_para_recuperar === 1 ? 'mes' : 'meses'} más`, `Al ritmo de los últimos ${r.meses_base} meses: mes ${r.mes_desde_inicio} desde el inicio. Tu meta: 12 a 14`, r.mes_desde_inicio <= 14 ? 'pos' : 'neg'));
+    else tarjetas.push(kpi('Recuperás en', '—', hayEquipo ? (r ? 'Con el ritmo actual no se recupera' : 'Todavía no hay ritmo suficiente') : 'Sin equipos con costo cargado'));
+    return h('div', { class: 'rejilla negocio-kpis kpis3' }, ...tarjetas);
+  }
+
+  /** Equipos del negocio: resumen y, con muchos equipos, los que más cuestan por página primero. */
+  function equiposNegocio(n) {
+    const lista = n.equipos; if (!lista.length) return h('div');
+    const vig = lista.filter((e) => e.vigente); const conCosto = vig.filter((e) => e.costo_usd != null); const inv = conCosto.reduce((t, e) => t + e.costo_usd, 0); const libros = conCosto.reduce((t, e) => t + e.valor_en_libros, 0);
+    const pct = inv > 0 ? Math.round(((inv - libros) / inv) * 100) : 0; const sinCosto = vig.length - conCosto.length;
+    const orden = [...lista].sort((a, b) => (b.costo_pagina ?? -1) - (a.costo_pagina ?? -1)); const LIM = 5; let todos = false; let q = '';
+    const cuerpo = h('ul', { class: 'lista' }); const mas = h('button', { class: 'btn-texto', type: 'button' }, ''); const buscar = h('input', { type: 'search', placeholder: 'Buscar por serie o modelo', 'aria-label': 'Buscar equipo', style: 'max-width:280px;margin:8px 0' });
+    const cpp = (v) => `USD ${v.toLocaleString('es-AR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`;
+    const pintar = () => {
+      const f = orden.filter((e) => !q || `${e.equipo} ${e.numero_serie}`.toLowerCase().includes(q)); const ver = todos || q ? f : f.slice(0, LIM);
+      vaciar(cuerpo).append(...ver.map((e) => h('li', null, h('span', null, `${e.equipo} · ${e.numero_serie}`, h('div', { class: 'apoyo' }, `${e.vigente ? 'Instalado' : `Retirado${e.retirado ? ` · le faltaban ${usd(e.retirado.valor_en_libros)} por amortizar al salir` : ''}`}${e.costo_usd != null ? ` · costo ${usd(e.costo_usd)} · amortizado ${usd(e.amortizado_en_este_cliente)} acá` : ' · sin costo cargado'}${e.costo_pagina != null ? ` · ${cpp(e.costo_pagina)} por página` : ''}`)), h('b', null, e.costo_usd != null ? `${usd(e.valor_en_libros)} en libros` : '—'))));
+      mas.style.display = f.length > LIM && !q ? '' : 'none'; mas.textContent = todos ? 'Ver solo los primeros' : `Ver los ${f.length}`;
+    };
+    mas.addEventListener('click', () => { todos = !todos; pintar(); }); buscar.addEventListener('input', () => { q = buscar.value.trim().toLowerCase(); pintar(); }); pintar();
+    return h('div', { class: 'tarjeta' }, h('h2', null, `Equipos de este negocio · ${plural(vig.length, 'instalado', 'instalados')}`),
+      h('p', { class: 'apoyo' }, `Inversión ${usd(inv)} · valor en libros ${usd(libros)} · amortizado ${pct} %${sinCosto ? ` · ${plural(sinCosto, 'equipo sin costo cargado', 'equipos sin costo cargado')}` : ''}`),
+      lista.length > LIM ? buscar : null, cuerpo, mas);
   }
 
   /** Dos miradas sobre el mismo negocio: Recupero (el equipo completo desde el día uno) y Resultado (el equipo repartido en su vida útil). */
@@ -283,7 +304,7 @@ export function crearCobranzas(U) {
       titulo.textContent = vista === 'recupero' ? 'Recupero de inversión' : 'Resultado con el equipo amortizado';
       vaciar(lienzo).append(svgNegocio(n, modo, mostrar)); mostrar(null);
       vaciar(ley).append(h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Ingresos'), h('span', null, h('i', { style: 'background:#E08A2E' }), vista === 'recupero' ? 'Costos con el equipo completo' : 'Costos con el equipo amortizado'),
-        n.punto_equilibrio && modo === 'acum' ? h('span', { class: 'ley-eq' }, h('i', { style: 'background:#2FB37A;border-radius:50%' }), vista === 'recupero' ? 'Recuperaste lo invertido' : 'Punto de equilibrio') : null);
+        ...(n.punto_equilibrio && modo === 'acum' ? [h('span', { class: 'ley-eq' }, h('i', { style: 'background:#2FB37A;border-radius:50%' }), vista === 'recupero' ? 'Recuperaste lo invertido' : 'Punto de equilibrio')] : []));
       conclusion.textContent = mensaje();
     }
     [['recupero', 'Recupero'], ['resultado', 'Resultado']].forEach(([v, t]) => vistas.append(h('button', { type: 'button', 'data-v': v, onclick: () => { vista = v; pintar(); } }, t)));

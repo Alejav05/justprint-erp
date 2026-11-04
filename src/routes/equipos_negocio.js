@@ -20,15 +20,16 @@ export default async function rutasEquiposNegocio(app, { db }) {
 
   /** Costo de adquisición del equipo (dato interno: solo lo ve quien tiene permiso de costos). Al guardarlo se fija el costo en USD y la vida útil, y se recalcula la amortización. */
   app.patch('/api/equipos/:id/costo', { preHandler: cargaCosto }, async (req, reply) => {
-    const d = z.object({ costo_adquisicion: z.number().min(0).max(1e9).nullable(), moneda: z.enum(['USD', 'ARS']).default('USD'), fecha_adquisicion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).parse(req.body);
+    const d = z.object({ costo_adquisicion: z.number().min(0).max(1e9).nullable(), costo_accesorios: z.number().min(0).max(1e9).nullable().optional(), moneda: z.enum(['USD', 'ARS']).default('USD'), fecha_adquisicion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).parse(req.body);
     const e = await db('equipos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first(); if (!e) return error(reply, 404, 'no_encontrado');
     const fecha = d.fecha_adquisicion !== undefined ? d.fecha_adquisicion : aDia(e.fecha_adquisicion);
     let costoUsd = null;
+    const accesorios = d.costo_accesorios !== undefined ? d.costo_accesorios : (e.costo_accesorios == null ? null : Number(e.costo_accesorios));
     if (d.costo_adquisicion != null && d.costo_adquisicion > 0) {
-      const conv = await aUsd(db, d.costo_adquisicion, d.moneda, fecha ?? hoy()); if (!conv) return error(reply, 400, 'sin_cotizacion');
+      const conv = await aUsd(db, d.costo_adquisicion + (accesorios ?? 0), d.moneda, fecha ?? hoy()); if (!conv) return error(reply, 400, 'sin_cotizacion');
       costoUsd = conv.usd;
     }
-    const cambios = { costo_adquisicion: d.costo_adquisicion, moneda: d.moneda, costo_usd: costoUsd, vida_util_meses: e.vida_util_meses ?? vidaUtilDe({}), ...(d.fecha_adquisicion !== undefined ? { fecha_adquisicion: d.fecha_adquisicion } : {}) };
+    const cambios = { costo_adquisicion: d.costo_adquisicion, costo_accesorios: accesorios, moneda: d.moneda, costo_usd: costoUsd, vida_util_meses: e.vida_util_meses ?? vidaUtilDe({}), ...(d.fecha_adquisicion !== undefined ? { fecha_adquisicion: d.fecha_adquisicion } : {}) };
     await db.transaction(async (trx) => {
       await trx('equipos').where({ id: e.id }).update({ ...cambios, updated_by: req.ctx.id, updated_at: trx.fn.now() });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'equipos', e.id, { costo_adquisicion: e.costo_adquisicion, moneda: e.moneda }, cambios);
@@ -58,7 +59,7 @@ export default async function rutasEquiposNegocio(app, { db }) {
     for (const f of amort) { const k = f.cliente_id ?? 0; const x = porCliente.get(k) ?? { cliente_id: f.cliente_id, cliente: f.cliente_id ? (f.nombre_comercial || f.razon_social) : 'Flota (depósito o taller)', usd: 0 }; x.usd += Number(f.importe_usd); porCliente.set(k, x); }
     const mesesCargados = new Set(amort.map((f) => String(aDia(f.fecha)).slice(0, 7))).size;
     return {
-      costo_adquisicion: e.costo_adquisicion == null ? null : Number(e.costo_adquisicion), moneda: e.moneda, fecha_adquisicion: aDia(e.fecha_adquisicion), costo_usd: costo, vida_util_meses: vida, inicio: costo ? inicio : null,
+      costo_adquisicion: e.costo_adquisicion == null ? null : Number(e.costo_adquisicion), costo_accesorios: e.costo_accesorios == null ? null : Number(e.costo_accesorios), moneda: e.moneda, fecha_adquisicion: aDia(e.fecha_adquisicion), costo_usd: costo, vida_util_meses: vida, inicio: costo ? inicio : null,
       meses_amortizados: Math.min(vida, mesesCargados), amortizado: Math.round(cargado * 100) / 100, valor_en_libros: costo == null ? null : (e.estado === 'baja' ? 0 : Math.round((costo - cargado) * 100) / 100),
       retiros, perdida_baja: perdida ? Number(perdida.importe_usd) : null,
       cliente_actual: asig ? { id: asig.cliente_id, nombre: asig.nombre_comercial || asig.razon_social, contrato: asig.contrato, desde: aDia(asig.desde) } : null,

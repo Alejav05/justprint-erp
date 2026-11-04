@@ -11,13 +11,14 @@ export function crearEquiposNegocio(U) {
     const c = await api(`/api/equipos/${equipoId}/costo`).catch(() => null); if (!c) return null;
     const edita = puede('costos.cargar');
     const importe = h('input', { type: 'number', min: '0', step: '0.01', inputmode: 'decimal', value: c.costo_adquisicion ?? '', placeholder: 'Sin cargar', 'aria-label': 'Costo del equipo' });
+    const accesorios = h('input', { type: 'number', min: '0', step: '0.01', inputmode: 'decimal', value: c.costo_accesorios ?? '', placeholder: 'Accesorios (bandejas, etc.)', 'aria-label': 'Costo de los accesorios' });
     const moneda = h('select', { 'aria-label': 'Moneda' }, [['USD', 'USD'], ['ARS', 'Pesos']].map(([v, t]) => h('option', { value: v, selected: v === c.moneda }, t)));
     const fadq = h('input', { type: 'date', value: c.fecha_adquisicion ?? '', 'aria-label': 'Fecha de compra' });
     const err = h('div', { class: 'error oculto', role: 'alert' });
     const guardar = h('button', { class: 'btn', type: 'button' }, 'Guardar costo');
     guardar.addEventListener('click', async () => {
       guardar.disabled = true; err.classList.add('oculto');
-      try { await api(`/api/equipos/${equipoId}/costo`, { metodo: 'PATCH', cuerpo: { costo_adquisicion: importe.value === '' ? null : Number(importe.value), moneda: moneda.value, fecha_adquisicion: fadq.value || null } }); aviso('Costo guardado'); navegar(); }
+      try { await api(`/api/equipos/${equipoId}/costo`, { metodo: 'PATCH', cuerpo: { costo_adquisicion: importe.value === '' ? null : Number(importe.value), costo_accesorios: accesorios.value === '' ? null : Number(accesorios.value), moneda: moneda.value, fecha_adquisicion: fadq.value || null } }); aviso('Costo guardado'); navegar(); }
       catch (e) { err.textContent = ERR[e.datos?.error] ?? 'No se pudo guardar. Revisá el importe.'; err.classList.remove('oculto'); guardar.disabled = false; }
     });
     const llevaCosto = c.costo_usd != null && c.costo_usd > 0;
@@ -32,7 +33,8 @@ export function crearEquiposNegocio(U) {
         ...c.reparto.map((r) => h('li', null, h('span', null, `Cargado a ${r.cliente}`), h('b', null, usd2(r.usd))))))
       : h('p', { class: 'apoyo' }, 'Sin costo cargado, el equipo no suma costo a ningún negocio.');
     return h('div', { class: 'tarjeta' }, h('h2', null, 'Costo del equipo'),
-      edita ? h('div', { class: 'dos-col', style: 'margin-bottom:8px' }, importe, moneda) : h('p', null, c.costo_adquisicion == null ? 'Sin cargar' : (c.moneda === 'ARS' ? `$ ${num(c.costo_adquisicion)}` : usd2(c.costo_adquisicion))),
+      edita ? h('div', { class: 'dos-col', style: 'margin-bottom:8px' }, importe, moneda) : null, edita ? h('div', { class: 'campo' }, h('label', null, 'Accesorios (se amortizan con el equipo)'), accesorios) : null,
+      !edita ? h('p', null, c.costo_adquisicion == null ? 'Sin cargar' : (c.moneda === 'ARS' ? `$ ${num(c.costo_adquisicion)}` : usd2(c.costo_adquisicion))) : null,
       edita && h('div', { class: 'campo' }, h('label', null, 'Fecha de compra'), fadq),
       err, edita && h('div', { class: 'acciones' }, guardar),
       estado,

@@ -162,19 +162,34 @@ export default async function rutasCobranzas(app, { db }) {
     const mes = (iso) => String(iso).slice(0, 7);
     const fact = await db('facturas').where({ cliente_id: id }).whereNull('deleted_at').whereIn('estado', ['emitida', 'cobrada_parcial', 'cobrada']);
     const costos = await db('costos').where({ cliente_id: id }).whereNull('deleted_at');
-    const m = new Map(); const celda = (k) => { if (!m.has(k)) m.set(k, { mes: k, ingresos: 0, egresos: 0, amort: 0, inversion: 0, devolucion: 0, sin_comprobante: 0 }); return m.get(k); };
+    const m = new Map(); const celda = (k) => { if (!m.has(k)) m.set(k, { mes: k, ingresos: 0, egresos: 0, amort: 0, inversion: 0, devolucion: 0, sin_comprobante: 0, insumos: 0, mano: 0, otros: 0, equipo_legado: 0 }); return m.get(k); };
     let sinFecha = 0;
     for (const f of fact) {
       const usd = Number(f.neto_usd ?? 0); const emi = aDia(f.fecha_emision); if (!emi) sinFecha += 1;
       const c = celda(emi ? mes(emi) : f.periodo); c.ingresos += usd; if (!f.entidad_facturante_id) c.sin_comprobante += usd; // sin comprobante también es ingreso del negocio
     }
-    for (const k of costos) { const c = celda(mes(aDia(k.fecha))); const u = Number(k.importe_usd ?? 0); c.egresos += u; if (k.origen === 'amortizacion') c.amort += u; }
+    for (const k of costos) { const c = celda(mes(aDia(k.fecha))); const u = Number(k.importe_usd ?? 0); c.egresos += u;
+      if (k.origen === 'amortizacion') c.amort += u;
+      else if (k.tipo === 'insumo') c.insumos += u; else if (k.tipo === 'mano_de_obra') c.mano += u; else if (['amortizacion', 'equipo'].includes(k.tipo)) c.equipo_legado += u; else c.otros += u; }
     // Recupero de inversión: cuando un equipo llega al cliente cuenta lo que le falta amortizar (entero si es nuevo) y, si se retira, ese valor en libros vuelve a stock.
     const equiposNeg = [];
+    // Costo operativo (insumos, mano de obra, otros) del equipo en este cliente y por página impresa, para comparar equipos entre sí.
+    const costoOperativo = async (eid, asigs) => {
+      const op = costos.filter((k) => k.equipo_id === eid && k.origen !== 'amortizacion' && !['amortizacion', 'equipo'].includes(k.tipo)).reduce((t, k) => t + Number(k.importe_usd ?? 0), 0);
+      const ls = await db('lecturas_contador').where({ equipo_id: eid }).orderBy('fecha').orderBy('id'); let paginas = 0;
+      for (const a of asigs.filter((x) => x.equipo_id === eid)) {
+        const ini = ls.filter((l) => aDia(l.fecha) >= aDia(a.desde) && (!a.hasta || aDia(l.fecha) <= aDia(a.hasta))); const ult = ini.at(-1); if (!ult) continue;
+        const asg = await db('asignaciones_equipo').where({ id: a.id }).first();
+        paginas += Math.max(0, ult.contador_negro - (asg.contador_inicial_negro ?? 0)) + Math.max(0, (ult.contador_color ?? 0) - (asg.contador_inicial_color ?? 0));
+      }
+      return { costo_operativo: redondear(op), paginas, costo_pagina: paginas > 0 ? Math.round((op / paginas) * 10000) / 10000 : null };
+    };
     const asigsCli = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('equipos as e', 'e.id', 'a.equipo_id').join('modelos_equipo as mo', 'mo.id', 'e.modelo_id')
       .where('c.cliente_id', id).whereNull('c.deleted_at').whereNull('e.deleted_at').select('a.id', 'a.equipo_id', 'a.contrato_id', 'a.reemplaza_equipo_id', 'a.desde', 'a.hasta', 'e.numero_serie', 'e.estado', 'mo.marca', 'mo.modelo');
     for (const eid of [...new Set(asigsCli.map((a) => a.equipo_id))]) {
-      const eq = await db('equipos').where({ id: eid }).first(); const costo = await costoUsdDe(db, eq); if (!costo) continue;
+      const eq = await db('equipos').where({ id: eid }).first(); const costo = await costoUsdDe(db, eq);
+      const base0 = asigsCli.find((a) => a.equipo_id === eid);
+      if (!costo) { equiposNeg.push({ equipo_id: eid, equipo: `${base0.marca} ${base0.modelo}`, numero_serie: base0.numero_serie, vigente: asigsCli.some((x) => x.equipo_id === eid && !x.hasta), costo_usd: null, ...(await costoOperativo(eid, asigsCli)) }); continue; }
       const todas = await db('asignaciones_equipo').where({ equipo_id: eid }).select('desde', 'hasta');
       const vida = vidaUtilDe(eq); const base = asigsCli.find((a) => a.equipo_id === eid); const m0 = mesAmort(inicioDe(eq, todas));
       const idx = (p) => { const [a, b] = p.split('-').map(Number); const [a0, b0] = m0.split('-').map(Number); return (a - a0) * 12 + (b - b0); };
@@ -188,7 +203,7 @@ export default async function rutasCobranzas(app, { db }) {
       const vigente = asigsCli.some((x) => x.equipo_id === eid && !x.hasta);
       const cargado = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion', cliente_id: id }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;
       const total = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion' }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;
-      equiposNeg.push({ equipo_id: eid, equipo: `${base.marca} ${base.modelo}`, numero_serie: base.numero_serie, vigente, costo_usd: redondear(costo), vida_util_meses: vida, amortizado_total: redondear(total), amortizado_en_este_cliente: redondear(cargado), valor_en_libros: base.estado === 'baja' ? 0 : redondear(costo - total), retirado: ultSalida && !vigente ? { fecha: aDia(ultSalida.hasta), valor_en_libros: redondear(costo - acumuladoHasta(costo, vida, idx(mes(aDia(ultSalida.hasta))))) } : null });
+      equiposNeg.push({ equipo_id: eid, equipo: `${base.marca} ${base.modelo}`, numero_serie: base.numero_serie, vigente, costo_usd: redondear(costo), vida_util_meses: vida, amortizado_total: redondear(total), amortizado_en_este_cliente: redondear(cargado), valor_en_libros: base.estado === 'baja' ? 0 : redondear(costo - total), retirado: ultSalida && !vigente ? { fecha: aDia(ultSalida.hasta), valor_en_libros: redondear(costo - acumuladoHasta(costo, vida, idx(mes(aDia(ultSalida.hasta))))) } : null, ...(await costoOperativo(eid, asigsCli)) });
     }
     const claves = [...m.keys()].sort(); const serie = []; let punto_equilibrio = null; let punto_recupero = null; let invertidoTotal = 0;
     if (claves.length) {
@@ -207,7 +222,20 @@ export default async function rutasCobranzas(app, { db }) {
     const tot = serie.at(-1) ?? { acum_ingresos: 0, acum_egresos: 0, acum_resultado: 0 };
     const sinEgresos = costos.length === 0;
     const ult = serie.at(-1); const recupero = { invertido: redondear(invertidoTotal), acumulado: ult ? ult.acum_recupero : 0, porcentaje: invertidoTotal > 0 && ult ? Math.max(0, Math.min(100, Math.round(((invertidoTotal + ult.acum_recupero) / invertidoTotal) * 100))) : null, mes_recupero: punto_recupero };
-    return { moneda: 'USD', neto: true, serie, punto_equilibrio, recupero, equipos: equiposNeg,
+    // La foto del negocio: lo que entra y lo que sale, con el equipo entero (plata puesta) y con el equipo repartido en su vida útil.
+    const suma = (c) => [...m.values()].reduce((t, x) => t + x[c], 0);
+    const gastos = (equipo) => { const ins = suma('insumos'); const mano = suma('mano'); const otros = suma('otros'); const total = equipo + ins + mano + otros; return { equipo: redondear(equipo), insumos: redondear(ins), mano_de_obra: redondear(mano), otros: redondear(otros), total: redondear(total), rentabilidad: redondear(tot.acum_ingresos - total) }; };
+    const foto = { ingresos: tot.acum_ingresos, completa: gastos(suma('equipo_legado') + suma('inversion') - suma('devolucion')), amortizada: gastos(suma('equipo_legado') + suma('amort')),
+      arranque_insumos: claves.length > 1 ? redondear(m.get(claves[0]).insumos) : 0 };
+    // Ritmo: promedio de los últimos 3 meses sin contar el de arranque (kit de toners, instalación). Hacen falta al menos 2 meses.
+    const ventana = serie.slice(1).slice(-3); let ritmo = null;
+    if (ventana.length >= 2) {
+      const prom = (f) => ventana.reduce((t, x) => t + f(x), 0) / ventana.length; const celdaDe = (x) => m.get(x.mes) ?? { insumos: 0, mano: 0, otros: 0, amort: 0 };
+      const aporteOp = prom((x) => x.ingresos - celdaDe(x).insumos - celdaDe(x).mano - celdaDe(x).otros); const ing = prom((x) => x.ingresos); const aporteAm = aporteOp - prom((x) => celdaDe(x).amort);
+      const falta = Math.max(0, -(ult?.acum_recupero ?? 0)); const meses = falta === 0 ? 0 : (aporteOp > 0 ? Math.ceil(falta / aporteOp) : null);
+      ritmo = { meses_base: ventana.length, aporte_operativo: redondear(aporteOp), aporte_mensual: redondear(aporteAm), margen: ing > 0 ? Math.round((aporteAm / ing) * 1000) / 10 : null, meses_para_recuperar: invertidoTotal > 0 ? meses : null, mes_desde_inicio: invertidoTotal > 0 && meses != null ? serie.length + meses : null };
+    }
+    return { moneda: 'USD', neto: true, serie, punto_equilibrio, recupero, foto, ritmo, equipos: equiposNeg,
       totales: { ingresos: tot.acum_ingresos, egresos: tot.acum_egresos, resultado: tot.acum_resultado, margen: tot.acum_ingresos > 0 ? Math.round((tot.acum_resultado / tot.acum_ingresos) * 1000) / 10 : null },
       sin_costos: sinEgresos, facturas_sin_fecha: sinFecha, ingresos_sin_comprobante: redondear(serie.reduce((t, x) => t + x.sin_comprobante, 0)),
       por_cobrar: { usd: redondear(pend.reduce((s, i) => s + i.saldo_usd, 0)), facturas: pend.length, rojas: pend.filter((i) => i.color === 'rojo').length, amarillas: pend.filter((i) => i.color === 'amarillo').length, detalle: pend } };

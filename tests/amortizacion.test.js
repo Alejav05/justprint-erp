@@ -184,3 +184,24 @@ test('al retirar un equipo queda como referencia lo que le faltaba amortizar, y 
   const n = (await llamar('GET', `/api/clientes/${cli}/negocio`)).json(); assert.equal(n.equipos[0].retirado.valor_en_libros, 300);
   assert.ok(n.serie.every((s) => 'acum_recupero' in s && 'recupero' in s));
 });
+
+test('la foto del negocio: gastos por rubro con el equipo completo y con el equipo amortizado, y el ritmo sin el mes de arranque', async () => {
+  const { entrar } = await import('./ayuda.js'); const { llamar } = await entrar(ctx.app, 'direccion@demo.local'); const db = ctx.db;
+  const h = new Date(); const mes = (n) => { const t = h.getFullYear() * 12 + h.getMonth() - n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
+  await db('cotizaciones_usd').insert({ fecha: `${mes(0)}-01`, valor: 1500, fuente: 'BNA' }).catch(() => {});
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente F', estado: 'activo' }))[0];
+  const con = (await db('contratos').insert({ cliente_id: cli, nombre: 'CF', estado: 'vigente', moneda: 'USD', fecha_inicio: `${mes(2)}-01` }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'F', tipo: 'monocromo' }))[0];
+  const e = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'FOT-1', estado: 'instalado', moneda: 'USD' }))[0];
+  await db('asignaciones_equipo').insert({ equipo_id: e, contrato_id: con, desde: `${mes(2)}-01`, contador_inicial_negro: 0, contador_inicial_color: 0 });
+  await db('lecturas_contador').insert({ equipo_id: e, fecha: `${mes(0)}-02`, periodo: mes(0), contador_negro: 3000, contador_color: 0, origen: 'tecnico' });
+  assert.equal((await llamar('PATCH', `/api/equipos/${e}/costo`, { costo_adquisicion: 720, costo_accesorios: 36, moneda: 'USD' })).json().costo_usd, 756);
+  await db('costos').insert([{ fecha: `${mes(2)}-05`, concepto: 'Kit', tipo: 'insumo', importe: 600, moneda: 'USD', importe_usd: 600, cliente_id: cli, equipo_id: e, origen: 'importacion' }, { fecha: `${mes(2)}-05`, concepto: 'Instalación', tipo: 'mano_de_obra', importe: 100, moneda: 'USD', importe_usd: 100, cliente_id: cli, equipo_id: e, origen: 'importacion' }]);
+  for (const n of [2, 1, 0]) await db('facturas').insert({ cliente_id: cli, contrato_id: con, periodo: mes(n), estado: 'cobrada', fecha_emision: `${mes(n)}-05`, neto_usd: 100, total: 100, moneda: 'USD' });
+  const n = (await llamar('GET', `/api/clientes/${cli}/negocio`)).json();
+  assert.deepEqual([n.foto.ingresos, n.foto.completa.equipo, n.foto.completa.insumos, n.foto.completa.mano_de_obra, n.foto.completa.total, n.foto.completa.rentabilidad], [300, 756, 600, 100, 1456, -1156]);
+  assert.deepEqual([n.foto.amortizada.equipo, n.foto.amortizada.total, n.foto.amortizada.rentabilidad], [63, 763, -463]);
+  assert.equal(n.foto.arranque_insumos, 600); assert.equal(n.recupero.acumulado, -1156);
+  assert.deepEqual([n.ritmo.meses_base, n.ritmo.aporte_operativo, n.ritmo.aporte_mensual, n.ritmo.margen, n.ritmo.meses_para_recuperar, n.ritmo.mes_desde_inicio], [2, 100, 79, 79, 12, 15]);
+  assert.equal(n.equipos[0].costo_operativo, 700); assert.equal(n.equipos[0].paginas, 3000); assert.equal(n.equipos[0].costo_pagina, 0.2333);
+});

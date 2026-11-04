@@ -31,7 +31,7 @@ export function inicioDe(e, asigs) {
 export async function costoUsdDe(db, e) {
   if (e.costo_usd != null) return Number(e.costo_usd);
   if (e.costo_adquisicion == null || Number(e.costo_adquisicion) <= 0) return null;
-  const conv = await aUsd(db, Number(e.costo_adquisicion), e.moneda, aDia(e.fecha_adquisicion) ?? hoy());
+  const conv = await aUsd(db, Number(e.costo_adquisicion) + Number(e.costo_accesorios ?? 0), e.moneda, aDia(e.fecha_adquisicion) ?? hoy());
   if (!conv) return null;
   await db('equipos').where({ id: e.id }).update({ costo_usd: conv.usd });
   return conv.usd;
