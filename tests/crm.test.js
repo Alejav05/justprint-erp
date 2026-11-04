@@ -16,7 +16,9 @@ before(async () => {
 });
 after(async () => { await ctx.cerrar(); });
 
-const contacto = (o = {}) => ({ nombre: 'Laura', apellido: 'Paz', cargo: 'Compras', roles: ['comercial'], telefonos: [{ tipo: 'celular', numero: '1155550000' }], emails: [{ tipo: 'laboral', direccion: 'laura@clinica.com' }], fecha_nacimiento: '1985-11-03', ...o });
+// Cumpleaños siempre a 10 días de hoy: la prueba no puede depender de la fecha en que se corre.
+const CUMPLE = (() => { const d = new Date(Date.now() + 10 * 86400000); return `1984-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+const contacto = (o = {}) => ({ nombre: 'Laura', apellido: 'Paz', cargo: 'Compras', roles: ['comercial'], telefonos: [{ tipo: 'celular', numero: '1155550000' }], emails: [{ tipo: 'laboral', direccion: 'laura@clinica.com' }], fecha_nacimiento: CUMPLE, ...o });
 const alta = (o = {}) => ({ razon_social: 'Clínica Norte SA', nombre_comercial: 'Clínica Norte', cuit: '30-71646173-0', condicion_iva: 'responsable_inscripto', rubro_id: K.rubro, subrubro_id: K.sub,
   sede: { nombre: 'Casa central', domicilio: 'Av. Cabildo 1000', localidad: 'CABA', zona: 'caba' }, contactos: [contacto(), contacto({ nombre: 'Marta', apellido: 'Gil', roles: ['facturacion', 'cobranzas'], emails: [{ tipo: 'facturacion', direccion: 'pagos@clinica.com' }], fecha_nacimiento: null })], ...o });
 
@@ -36,7 +38,7 @@ test('alta completa: cliente, sede, contactos con roles y responsable, todo en u
   const d = (await dir.llamar('GET', `/api/clientes/${r.json().id}`)).json();
   assert.equal(d.cliente.cuit, '30-71646173-0'); assert.equal(d.cliente.rubro_nombre, 'Salud'); assert.ok(d.cliente.subrubro_nombre); assert.equal(d.sedes.length, 1); assert.equal(d.sedes[0].es_principal, true);
   assert.equal(d.contactos.length, 2); assert.equal(d.responsable.id, nicoId);
-  const laura = d.contactos.find((c) => c.nombre === 'Laura'); assert.equal(laura.fecha_nacimiento, '1985-11-03'); assert.ok(laura.edad >= 40); assert.deepEqual(laura.roles, ['comercial']);
+  const laura = d.contactos.find((c) => c.nombre === 'Laura'); assert.equal(laura.fecha_nacimiento, CUMPLE); assert.ok(laura.edad >= 40); assert.deepEqual(laura.roles, ['comercial']);
   assert.deepEqual(d.contactos.find((c) => c.nombre === 'Marta').roles, ['facturacion', 'cobranzas']);
   K.cli = r.json().id; K.laura = laura.id;
 });

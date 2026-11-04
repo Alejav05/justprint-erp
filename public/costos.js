@@ -71,7 +71,7 @@ export function crearCostos(U) {
       h('td', { 'data-rotulo': 'Tipo' }, chip(c.tipo_nombre, 'mudo')),
       h('td', { class: 'num', 'data-rotulo': 'Importe' }, monto(c), c.moneda === 'ARS' && h('div', { class: 'apoyo' }, usd2(c.importe_usd))),
       h('td', { class: 'num', 'data-rotulo': 'USD' }, h('b', null, usd2(c.importe_usd))),
-      puede('costos.cargar') && h('td', { class: 'acciones-fila', 'data-rotulo': 'Acciones' }, c.automatico ? h('span', { class: 'apoyo', title: 'Salió de un remito de insumos' }, 'Del remito')
+      puede('costos.cargar') && h('td', { class: 'acciones-fila', 'data-rotulo': 'Acciones' }, c.automatico ? h('span', { class: 'apoyo', title: c.origen === 'amortizacion' ? 'Se calcula solo desde el costo del equipo' : 'Salió de un remito de insumos' }, c.origen === 'amortizacion' ? 'Automático' : 'Del remito')
         : [h('button', { class: 'btn', type: 'button', onclick: () => formularioCosto({ costo: c, clienteFijo: null, alGuardar: recargar }) }, 'Editar'), ' ', h('button', { class: 'btn', type: 'button', onclick: () => borrar(c, recargar) }, 'Eliminar')]));
   }
   const tabla = (filas, conCliente, recargar) => h('table', { class: 'tarjetas' },

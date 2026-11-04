@@ -62,6 +62,10 @@ export default async function rutasFlota(app, { db }) {
         const prev = mias[i - 1]; if (prev.hasta && aDia(mias[i].desde) < aDia(prev.hasta)) fechas.push({ equipo_id: e.id, equipo: nombre(e), cliente: nombreCli(mias[i]), problema: `Las asignaciones se pisan: una termina el ${aDia(prev.hasta)} y la siguiente empieza el ${aDia(mias[i].desde)}.` });
       }
     }
-    return { sin_costo: sinCosto, fechas, estados, total: sinCosto.length + fechas.length + estados.length };
+    // Costos del equipo cargados de una vez a mano o por importación: con la amortización mensual contarían el equipo dos veces.
+    const manuales = await db('costos as k').join('equipos as e', 'e.id', 'k.equipo_id').join('modelos_equipo as m', 'm.id', 'e.modelo_id').leftJoin('clientes as cl', 'cl.id', 'k.cliente_id')
+      .whereNull('k.deleted_at').whereIn('k.tipo', ['amortizacion', 'equipo']).whereNot('k.origen', 'amortizacion').select('k.id', 'k.concepto', 'k.importe_usd', 'k.equipo_id', 'cl.razon_social', 'cl.nombre_comercial', 'e.numero_serie', 'm.marca', 'm.modelo');
+    const duplicados = manuales.map((k) => ({ equipo_id: k.equipo_id, equipo: `${k.marca} ${k.modelo} · ${k.numero_serie}`, cliente: nombreCli(k), problema: `Hay un costo cargado a mano ("${k.concepto}", USD ${r2(k.importe_usd)}). Si es el costo del equipo, eliminalo: ya se amortiza solo.` }));
+    return { sin_costo: sinCosto, fechas, estados, duplicados, total: sinCosto.length + fechas.length + estados.length + duplicados.length };
   });
 }

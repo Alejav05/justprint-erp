@@ -43,7 +43,7 @@ export default async function rutasCostos(app, { db }) {
       id: f.id, fecha: aDia(f.fecha), periodo: aDia(f.fecha).slice(0, 7), concepto: f.concepto, tipo: f.tipo ?? null, tipo_nombre: nombreTipo(f.tipo),
       importe: Number(f.importe), moneda: f.moneda, importe_usd: redondear(f.importe_usd), cliente_id: f.cliente_id, cliente: f.cliente_id ? (f.nombre_comercial || f.razon_social) : 'Generales (sin cliente)',
       equipo: f.numero_serie ?? null, contrato: f.contrato ?? null, ticket: f.ticket ?? null, proveedor: f.proveedor ?? null, insumo: f.insumo ?? null,
-      origen: f.origen, automatico: f.origen === 'remito', equipo_id: f.equipo_id, contrato_id: f.contrato_id, ticket_id: f.ticket_id,
+      origen: f.origen, automatico: f.origen === 'remito' || f.origen === 'amortizacion', equipo_id: f.equipo_id, contrato_id: f.contrato_id, ticket_id: f.ticket_id,
     }));
   }
 

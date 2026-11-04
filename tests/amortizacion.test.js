@@ -157,3 +157,17 @@ test('reemplazo por falla: el cliente sigue con su cuota, la flota absorbe la pÃ
   // un equipo ocupado no sirve de reemplazo
   assert.equal((await llamar('POST', `/api/equipos/${b}/reemplazar`, { nuevo_equipo_id: a, motivo: 'garantia', contador_negro: 5, nuevo_contador_negro: 0 })).statusCode, 409);
 });
+
+test('el costo del equipo cargado de una vez se da de baja al pasar a amortizaciÃ³n y la flota avisa de los nuevos', async () => {
+  const { up } = await import('../migrations/20261113_029_costo_equipo_duplicado.js'); const { entrar } = await import('./ayuda.js'); const db = ctx.db;
+  const { llamar } = await entrar(ctx.app, 'direccion@demo.local');
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente E', estado: 'activo' }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'E', tipo: 'monocromo' }))[0];
+  const e = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'DUP-1', estado: 'deposito', moneda: 'USD', costo_adquisicion: 900, costo_usd: 900 }))[0];
+  const k = (await db('costos').insert({ fecha: '2026-09-22', concepto: 'Equipo nuevo Brother', tipo: 'amortizacion', importe: 900, moneda: 'USD', importe_usd: 900, cliente_id: cli, equipo_id: e, origen: 'importacion' }))[0];
+  const ins = (await db('costos').insert({ fecha: '2026-09-22', concepto: 'Toner', tipo: 'insumo', importe: 50, moneda: 'USD', importe_usd: 50, cliente_id: cli, equipo_id: e, origen: 'importacion' }))[0];
+  assert.ok((await llamar('GET', '/api/flota/revision')).json().duplicados.some((x) => x.equipo.includes('DUP-1')));
+  await up(db);
+  assert.ok((await db('costos').where({ id: k }).first()).deleted_at, 'el costo de una vez se da de baja'); assert.equal((await db('costos').where({ id: ins }).first()).deleted_at, null, 'los insumos no se tocan');
+  assert.equal((await llamar('GET', '/api/flota/revision')).json().duplicados.some((x) => x.equipo.includes('DUP-1')), false);
+});
