@@ -28,6 +28,7 @@ export function crearEquiposNegocio(U) {
         h('li', null, h('span', null, 'Amortizado'), h('b', null, `${c.meses_amortizados} de ${c.vida_util_meses} meses · ${usd2(c.amortizado)}`)),
         h('li', null, h('span', null, 'Valor en libros'), h('b', null, usd2(c.valor_en_libros))),
         c.perdida_baja ? h('li', null, h('span', null, 'Pérdida por baja (flota)'), h('b', null, usd2(c.perdida_baja))) : null,
+        ...(c.retiros ?? []).map((r) => h('li', null, h('span', null, `Al salir de ${r.cliente}`, h('div', { class: 'apoyo' }, fecha(r.fecha))), h('b', null, `${usd2(r.valor_en_libros)} por amortizar`))),
         ...c.reparto.map((r) => h('li', null, h('span', null, `Cargado a ${r.cliente}`), h('b', null, usd2(r.usd))))))
       : h('p', { class: 'apoyo' }, 'Sin costo cargado, el equipo no suma costo a ningún negocio.');
     return h('div', { class: 'tarjeta' }, h('h2', null, 'Costo del equipo'),

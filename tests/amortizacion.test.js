@@ -171,3 +171,16 @@ test('el costo del equipo cargado de una vez se da de baja al pasar a amortizaci
   assert.ok((await db('costos').where({ id: k }).first()).deleted_at, 'el costo de una vez se da de baja'); assert.equal((await db('costos').where({ id: ins }).first()).deleted_at, null, 'los insumos no se tocan');
   assert.equal((await llamar('GET', '/api/flota/revision')).json().duplicados.some((x) => x.equipo.includes('DUP-1')), false);
 });
+
+test('al retirar un equipo queda como referencia lo que le faltaba amortizar, y el negocio expone las dos miradas', async () => {
+  const { entrar } = await import('./ayuda.js'); const { llamar } = await entrar(ctx.app, 'direccion@demo.local'); const db = ctx.db;
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente V', estado: 'activo' }))[0];
+  const con = (await db('contratos').insert({ cliente_id: cli, nombre: 'CV', estado: 'vigente', moneda: 'USD', fecha_inicio: '2026-01-01' }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'V', tipo: 'monocromo' }))[0];
+  const e = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'VAL-1', estado: 'deposito', moneda: 'USD', costo_adquisicion: 360, costo_usd: 360, vida_util_meses: 36, fecha_adquisicion: '2026-01-01' }))[0];
+  await db('asignaciones_equipo').insert({ equipo_id: e, contrato_id: con, desde: '2026-01-01', hasta: '2026-06-30', contador_inicial_negro: 0, contador_inicial_color: 0 });
+  await recalcularEquipo(db, e, { hasta: '2026-06-30' });
+  const c = (await llamar('GET', `/api/equipos/${e}/costo`)).json(); assert.equal(c.retiros.length, 1); assert.equal(c.retiros[0].valor_en_libros, 300); // 360 - 6 cuotas de 10
+  const n = (await llamar('GET', `/api/clientes/${cli}/negocio`)).json(); assert.equal(n.equipos[0].retirado.valor_en_libros, 300);
+  assert.ok(n.serie.every((s) => 'acum_recupero' in s && 'recupero' in s));
+});

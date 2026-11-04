@@ -184,10 +184,11 @@ export default async function rutasCobranzas(app, { db }) {
         const entra = mes(aDia(a.desde)); if (!esReemplazo) celda(entra).inversion += costo - acumuladoHasta(costo, vida, idx(entra) - 1);
         if (a.hasta && !fueReemplazado) { const sale = mes(aDia(a.hasta)); celda(sale).devolucion += costo - acumuladoHasta(costo, vida, idx(sale)); }
       }
+      const ultSalida = asigsCli.filter((x) => x.equipo_id === eid && x.hasta).sort((x, y) => (aDia(x.hasta) < aDia(y.hasta) ? 1 : -1))[0];
       const vigente = asigsCli.some((x) => x.equipo_id === eid && !x.hasta);
       const cargado = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion', cliente_id: id }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;
       const total = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion' }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;
-      equiposNeg.push({ equipo_id: eid, equipo: `${base.marca} ${base.modelo}`, numero_serie: base.numero_serie, vigente, costo_usd: redondear(costo), vida_util_meses: vida, amortizado_total: redondear(total), amortizado_en_este_cliente: redondear(cargado), valor_en_libros: base.estado === 'baja' ? 0 : redondear(costo - total) });
+      equiposNeg.push({ equipo_id: eid, equipo: `${base.marca} ${base.modelo}`, numero_serie: base.numero_serie, vigente, costo_usd: redondear(costo), vida_util_meses: vida, amortizado_total: redondear(total), amortizado_en_este_cliente: redondear(cargado), valor_en_libros: base.estado === 'baja' ? 0 : redondear(costo - total), retirado: ultSalida && !vigente ? { fecha: aDia(ultSalida.hasta), valor_en_libros: redondear(costo - acumuladoHasta(costo, vida, idx(mes(aDia(ultSalida.hasta))))) } : null });
     }
     const claves = [...m.keys()].sort(); const serie = []; let punto_equilibrio = null; let punto_recupero = null; let invertidoTotal = 0;
     if (claves.length) {

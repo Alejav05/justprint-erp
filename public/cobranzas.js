@@ -246,40 +246,53 @@ export function crearCobranzas(U) {
       h('p', null, 'El resultado reparte el equipo en su vida útil; el recupero cuenta el equipo entero desde que llega y devuelve a stock lo que falta amortizar si se retira.')),
       h('div', { class: 'rejilla negocio-kpis' }, ...tarjetas),
       n.equipos.length ? h('div', { class: 'tarjeta' }, h('h3', null, 'Equipos de este negocio'), h('ul', { class: 'lista' }, n.equipos.map((e) => h('li', null,
-        h('span', null, `${e.equipo} · ${e.numero_serie}`, h('div', { class: 'apoyo' }, `${e.vigente ? 'Instalado' : 'Retirado'} · costo ${usd(e.costo_usd)} · amortizado ${usd(e.amortizado_en_este_cliente)} acá`)), h('b', null, `${usd(e.valor_en_libros)} en libros`))))) : null);
+        h('span', null, `${e.equipo} · ${e.numero_serie}`, h('div', { class: 'apoyo' }, `${e.vigente ? 'Instalado' : `Retirado${e.retirado ? ` · le faltaban ${usd(e.retirado.valor_en_libros)} por amortizar al salir` : ''}`} · costo ${usd(e.costo_usd)} · amortizado ${usd(e.amortizado_en_este_cliente)} acá`)), h('b', null, `${usd(e.valor_en_libros)} en libros`))))) : null);
   }
 
-  function graficoNegocio(n) {
-    const caja = h('div', { class: 'tarjeta' }); let modo = 'acum';
+  /** Dos miradas sobre el mismo negocio: Recupero (el equipo completo desde el día uno) y Resultado (el equipo repartido en su vida útil). */
+  function graficoNegocio(nBase) {
+    const caja = h('div', { class: 'tarjeta' }); let modo = 'acum'; let vista = nBase.recupero && nBase.recupero.invertido > 0 ? 'recupero' : 'resultado';
+    // En la vista de recupero los costos incluyen el equipo entero (lo que falta amortizar) y devuelven el valor en libros de lo retirado.
+    const datos = () => (vista === 'resultado' ? nBase : { ...nBase, punto_equilibrio: nBase.recupero.mes_recupero, serie: nBase.serie.map((s) => {
+      const costoMes = s.ingresos - s.recupero; const acumCostos = s.acum_ingresos - s.acum_recupero;
+      return { ...s, egresos: costoMes, acum_egresos: acumCostos, resultado: s.recupero, acum_resultado: s.acum_recupero };
+    }) });
     const mover = h('div', { class: 'seg-chico', role: 'group', 'aria-label': 'Vista del gráfico' });
+    const vistas = h('div', { class: 'seg-chico', role: 'group', 'aria-label': 'Mirada del negocio' });
     const lienzo = h('div', { class: 'grafico' });
-    const mensaje = (() => {
+    const mensaje = () => {
+      const n = datos();
       if (!n.serie.length) return 'Todavía no hay facturas ni costos para este cliente.';
       if (n.sin_costos) return 'No hay costos cargados para este cliente, por eso no se puede calcular cuándo los ingresos superan a los costos.';
-      if (n.punto_equilibrio) return `Los ingresos superaron a los costos en ${nombreMes(n.punto_equilibrio)}.`;
-      return `Todavía no recuperó los costos: faltan ${usd(Math.abs(Math.min(0, n.totales.resultado)))} de ingresos.`;
-    })();
-    const nota = (n.facturas_sin_fecha ? `${plural(n.facturas_sin_fecha, 'factura sin fecha de emisión se ubicó', 'facturas sin fecha de emisión se ubicaron')} en su período. ` : '');
-    const ultimo = n.serie.at(-1);
+      const falta = Math.abs(Math.min(0, n.serie.at(-1).acum_resultado));
+      if (vista === 'recupero') return n.punto_equilibrio ? `Recuperaste lo invertido (equipo, insumos y mano de obra) en ${nombreMes(n.punto_equilibrio)}.` : `Todavía no recuperaste lo invertido: faltan ${usd(falta)} de ingresos.`;
+      return n.punto_equilibrio ? `Con el equipo repartido en su vida útil, los ingresos superaron a los costos en ${nombreMes(n.punto_equilibrio)}.` : `Todavía no superó los costos: faltan ${usd(falta)} de ingresos.`;
+    };
+    const nota = (nBase.facturas_sin_fecha ? `${plural(nBase.facturas_sin_fecha, 'factura sin fecha de emisión se ubicó', 'facturas sin fecha de emisión se ubicaron')} en su período. ` : '');
     const lectura = h('p', { class: 'apoyo', 'aria-live': 'polite', style: 'margin:10px 0 0;min-height:1.4em' });
+    const conclusion = h('p', { class: 'conclusion' }); const ley = h('div', { class: 'leyenda' }); const titulo = h('h2', null, '');
     const mostrar = (s) => {
-      if (modo !== 'acum' || !ultimo) { lectura.textContent = ''; return; }
+      const ultimo = datos().serie.at(-1); if (modo !== 'acum' || !ultimo) { lectura.textContent = ''; return; }
       const v = s ?? ultimo; const res = v.acum_resultado;
-      lectura.textContent = `${nombreMes(v.mes)}${s ? '' : ' (último mes)'} · ingresos ${usd(v.acum_ingresos)} · egresos ${usd(v.acum_egresos)} · resultado ${res < 0 ? '−' : ''}${usd(Math.abs(res))}`;
+      lectura.textContent = `${nombreMes(v.mes)}${s ? '' : ' (último mes)'} · ingresos ${usd(v.acum_ingresos)} · costos ${usd(v.acum_egresos)} · ${vista === 'recupero' ? 'recupero' : 'resultado'} ${res < 0 ? '−' : ''}${usd(Math.abs(res))}`;
     };
     function pintar() {
+      const n = datos();
       [...mover.children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === modo)));
+      [...vistas.children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === vista)));
+      titulo.textContent = vista === 'recupero' ? 'Recupero de inversión' : 'Resultado con el equipo amortizado';
       vaciar(lienzo).append(svgNegocio(n, modo, mostrar)); mostrar(null);
-      caja.querySelectorAll('.ley-eq').forEach((e) => { e.style.display = modo === 'acum' ? '' : 'none'; });
+      vaciar(ley).append(h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Ingresos'), h('span', null, h('i', { style: 'background:#E08A2E' }), vista === 'recupero' ? 'Costos con el equipo completo' : 'Costos con el equipo amortizado'),
+        n.punto_equilibrio && modo === 'acum' ? h('span', { class: 'ley-eq' }, h('i', { style: 'background:#2FB37A;border-radius:50%' }), vista === 'recupero' ? 'Recuperaste lo invertido' : 'Punto de equilibrio') : null);
+      conclusion.textContent = mensaje();
     }
+    [['recupero', 'Recupero'], ['resultado', 'Resultado']].forEach(([v, t]) => vistas.append(h('button', { type: 'button', 'data-v': v, onclick: () => { vista = v; pintar(); } }, t)));
     [['acum', 'Acumulado'], ['mes', 'Por mes']].forEach(([m, t]) => mover.append(h('button', { type: 'button', 'data-m': m, onclick: () => { modo = m; pintar(); } }, t)));
-    caja.append(h('div', { class: 'cab-grafico' }, h('h2', null, 'Ingresos y costos'), mover), lienzo,
-      h('div', { class: 'leyenda' }, h('span', null, h('i', { style: 'background:#0D1B2A' }), 'Ingresos'), h('span', null, h('i', { style: 'background:#E08A2E' }), 'Egresos'), n.punto_equilibrio && h('span', { class: 'ley-eq' }, h('i', { style: 'background:#2FB37A;border-radius:50%' }), 'Punto de equilibrio')),
-      lectura, h('p', { class: 'conclusion' }, mensaje), nota && h('p', { class: 'apoyo' }, nota));
+    const hayRecupero = nBase.recupero && nBase.recupero.invertido > 0;
+    caja.append(h('div', { class: 'cab-grafico' }, titulo, h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, hayRecupero ? vistas : null, mover)), lienzo, ley, lectura, conclusion, nota && h('p', { class: 'apoyo' }, nota));
     pintar(); return caja;
   }
 
-  /** Evolución del negocio. Acumulado: desde el primer mes, con las dos curvas, el área entre ellas (verde si el cliente ya dejó ganancia, naranja si todavía debe recuperar costos) y el punto exacto donde se cruzan. */
   function svgNegocio(n, modo, alMover) {
     const movil = window.innerWidth < 600; const acum = modo === 'acum';
     const serie = acum ? n.serie : n.serie.slice(movil ? -12 : -24);

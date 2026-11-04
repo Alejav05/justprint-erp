@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles } from '../lib/contexto.js';
 import { consumoPeriodo, periodoDeLectura } from '../lib/contadores.js';
-import { costoUsdDe, inicioDe, recalcularEquipo, vidaUtilDe } from '../lib/amortizacion.js';
+import { acumuladoHasta, costoUsdDe, inicioDe, mesDe as mesAmort, recalcularEquipo, vidaUtilDe } from '../lib/amortizacion.js';
 import { aUsd } from '../lib/costos.js';
 import { aDia, hoy } from '../lib/fechas.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
@@ -49,13 +49,18 @@ export default async function rutasEquiposNegocio(app, { db }) {
     const cargado = amort.reduce((t, f) => t + Number(f.importe_usd), 0);
     const vida = vidaUtilDe(e); const asigs = await db('asignaciones_equipo').where({ equipo_id: e.id }).select('desde', 'hasta');
     const inicio = inicioDe(e, asigs);
+    // Referencia: lo que le faltaba amortizar al equipo cada vez que salió de un cliente.
+    const salidas = costo ? await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('clientes as cl', 'cl.id', 'c.cliente_id').where('a.equipo_id', e.id).whereNotNull('a.hasta').orderBy('a.hasta')
+      .select('a.hasta', 'cl.razon_social', 'cl.nombre_comercial') : [];
+    const m0 = mesAmort(inicio); const idx = (p) => { const [a1, b1] = p.split('-').map(Number); const [a0, b0] = m0.split('-').map(Number); return (a1 - a0) * 12 + (b1 - b0); };
+    const retiros = salidas.map((x) => ({ cliente: x.nombre_comercial || x.razon_social, fecha: aDia(x.hasta), valor_en_libros: Math.round((costo - acumuladoHasta(costo, vida, idx(mesAmort(aDia(x.hasta))))) * 100) / 100 }));
     const porCliente = new Map();
     for (const f of amort) { const k = f.cliente_id ?? 0; const x = porCliente.get(k) ?? { cliente_id: f.cliente_id, cliente: f.cliente_id ? (f.nombre_comercial || f.razon_social) : 'Flota (depósito o taller)', usd: 0 }; x.usd += Number(f.importe_usd); porCliente.set(k, x); }
     const mesesCargados = new Set(amort.map((f) => String(aDia(f.fecha)).slice(0, 7))).size;
     return {
       costo_adquisicion: e.costo_adquisicion == null ? null : Number(e.costo_adquisicion), moneda: e.moneda, fecha_adquisicion: aDia(e.fecha_adquisicion), costo_usd: costo, vida_util_meses: vida, inicio: costo ? inicio : null,
       meses_amortizados: Math.min(vida, mesesCargados), amortizado: Math.round(cargado * 100) / 100, valor_en_libros: costo == null ? null : (e.estado === 'baja' ? 0 : Math.round((costo - cargado) * 100) / 100),
-      perdida_baja: perdida ? Number(perdida.importe_usd) : null,
+      retiros, perdida_baja: perdida ? Number(perdida.importe_usd) : null,
       cliente_actual: asig ? { id: asig.cliente_id, nombre: asig.nombre_comercial || asig.razon_social, contrato: asig.contrato, desde: aDia(asig.desde) } : null,
       reparto: [...porCliente.values()].map((x) => ({ ...x, usd: Math.round(x.usd * 100) / 100 })),
       meses: amort.map((f) => ({ mes: String(aDia(f.fecha)).slice(0, 7), usd: Number(f.importe_usd), cliente_id: f.cliente_id })),
