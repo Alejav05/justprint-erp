@@ -104,7 +104,7 @@ export default async function rutasEquipos(app, { db }) {
     // Páginas del período = diferencia entre las dos últimas lecturas (si hay).
     const [l1, l0] = lecturas;
     const periodo = l1 && l0 ? { negro: l1.contador_negro - l0.contador_negro, color: l1.contador_color - l0.contador_color, desde: l0.fecha, hasta: l1.fecha } : null;
-    const { password_hash, ...resto } = e;
+    const { password_hash, costo_adquisicion, ...resto } = e; // el costo del equipo es interno: se pide aparte con permiso de costos
     return { ...resto, asignaciones, lecturas, tickets, movimientos, periodo, puede_editar: puede(req.ctx, 'equipos.editar') };
   });
 

@@ -6,6 +6,7 @@ import { crearCrm } from './crm.js';
 import { crearContadores } from './contadores.js';
 import { crearPanelCliente } from './cliente_panel.js';
 import { crearCostos } from './costos.js';
+import { crearEquiposNegocio } from './equipos_negocio.js';
 import { crearDocumentos } from './documentos.js';
 import { crearRemitos } from './remitos.js';
 import { crearPortalAdmin } from './portal_admin.js';
@@ -684,6 +685,7 @@ async function vistaCliente(destino, id) {
   if (puede('costos.ver')) pestanas.push(['costos', 'Costos']);
   if (d.contactos) pestanas.push(['contactos', `Contactos (${d.contactos.length})`]);
   pestanas.push(['sedes', `Locales (${d.sedes.length})`]);
+  if (puede('equipos.ver')) pestanas.push(['equipos', 'Equipos']);
   if (d.contratos) pestanas.push(['contratos', `Contratos (${d.contratos.length})`]);
   if (d.contratos) pestanas.push(['documentos', 'Documentos']);
   if (puede('portal.gestionar')) pestanas.push(['portal', 'Portal']);
@@ -707,6 +709,7 @@ async function vistaCliente(destino, id) {
     portal: () => portalAdm.panel(id),
     seguimiento: () => h('div', { class: 'tarjeta' }, cargando()),
     negocio: () => cargando(),
+    equipos: () => cargando(),
     costos: () => cargando(),
     documentos: () => h('div', null, docs.panel({ clienteId: id }), puede('insumos.ver') && rem.panelCliente(id)),
     contratos: () => h('div', null, puede('contratos.editar') && h('div', { class: 'acciones', style: 'margin-bottom:12px' }, h('a', { class: 'btn btn-principal', href: `#/contratos/nuevo/${d.cliente.id}` }, '+ Nuevo contrato')),
@@ -720,6 +723,7 @@ async function vistaCliente(destino, id) {
     if (clave === 'resumen') pcl.panel(id).then((n) => panelHueco.replaceWith(n));
     if (clave === 'negocio') await cob.negocioCliente(panel, id);
     if (clave === 'costos') vaciar(panel).append(await cst.pestanaCostos(id));
+    if (clave === 'equipos') vaciar(panel).append(await eqn.pestanaEquipos(id));
     if (clave === 'seguimiento') vaciar(panel).append(await crm.pestanaSeguimiento(d));
     if (clave === 'cartera') {
       const [r, eq] = await Promise.all([api(`/api/cartera/${id}/historial`).catch(() => null), puede('cartera.asignar') ? api('/api/equipo-comercial').catch(() => ({ items: [] })) : { items: [] }]);
@@ -1239,6 +1243,7 @@ async function vistaEquipo(destino, id) {
   const e = await api(`/api/equipos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
   if (!e) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Volver a equipos'))); return; }
   const color = e.tipo === 'color'; const recargar = () => navegar();
+  const costoHueco = h('div'); eqn.tarjetaCosto(id).then((t) => { if (t) setTimeout(() => costoHueco.replaceWith(t), 0); }).catch(() => {});
   const dato = (k, v) => h('div', null, h('dt', null, k), h('dd', null, v ?? '—'));
   const ult = e.lecturas[0];
   const lectura = puede('equipos.editar') || puede('tickets.atender') ? (() => { const n = numIn('ln', 'Contador negro'); const c = color ? numIn('lc', 'Contador color') : null;
@@ -1271,6 +1276,7 @@ async function vistaEquipo(destino, id) {
       h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''} · período ${l.periodo ?? String(l.fecha).slice(0, 7)}`), puede('contadores.cargar') && h('td', null, h('button', { class: 'btn-texto', type: 'button', onclick: () => corregirLectura(l, color, recargar) }, 'Corregir fecha')))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Tickets'), e.tickets.length ? h('ul', { class: 'lista' }, e.tickets.map((t) => h('li', null, h('a', { href: `#/tickets/${t.id}` }, `${t.numero} · ${t.asunto}`), chipTicket(t.estado)))) : h('p', { class: 'apoyo' }, 'Sin tickets.'))),
     h('div', null,
+      costoHueco,
       h('div', { class: 'tarjeta etiqueta-qr' }, h('h2', null, 'Etiqueta para el equipo'), etiquetaSoporte(e), h('div', { class: 'apoyo', style: 'margin-top:8px' }, 'Autoadhesiva de 90 × 58 mm. El cliente la escanea y le llega a WhatsApp de soporte con el serie ya cargado.'),
         h('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: () => imprimirEtiquetas() }, 'Imprimir etiqueta')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Dónde estuvo'), e.asignaciones.length ? e.asignaciones.map((a) => h('div', { class: `linea ${a.hasta ? '' : 'vigente'}` }, h('b', null, a.nombre_comercial || a.razon_social),
@@ -1594,6 +1600,7 @@ const crm = crearCrm({ h, agregar, vaciar, api, usd, fecha, chip, puede, cargand
 const docs = crearDocumentos({ h, vaciar, api, fecha, chip, puede, cargando, cajon: cajonLateral, aviso: toast });
 const portalAdm = crearPortalAdmin({ h, api, fecha, chip, cargando, cajon: cajonLateral, aviso: toast });
 const rem = crearRemitos({ h, vaciar, api, fecha, cuando, chip, puede, cargando, encabezado, usd, cajon: cajonLateral, aviso: toast });
+const eqn = crearEquiposNegocio({ h, vaciar, api, fecha, chip, cargando, nombreMes, puede, aviso: toast, navegar: () => navegar() });
 const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes, puede, cajon: cajonLateral, aviso: toast });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });

@@ -146,7 +146,7 @@ export function crearCrm(U) {
         h('div', { class: 'hechos', style: 'grid-template-columns:1fr 1fr;margin-top:12px' }, h('div', null, 'Equipos', h('b', null, String(x.equipos))), h('div', null, 'Contratos', h('b', null, String(x.contratos)))),
         x.indicaciones && h('div', { class: 'apoyo', style: 'margin-top:8px;white-space:pre-line' }, x.indicaciones),
         h('div', { class: 'acciones-cajon', style: 'margin-top:10px' },
-          x.equipos > 0 && puede('equipos.ver') && h('a', { class: 'btn btn-chico', href: `#/equipos?cliente=${d.cliente.id}` }, 'Ver equipos'),
+          x.equipos > 0 && puede('equipos.ver') && h('a', { class: 'btn btn-chico', href: `#/equipos/cliente/${d.cliente.id}` }, 'Ver equipos'),
           editable && h('button', { class: 'btn btn-chico', type: 'button', onclick: () => cajon('Editar local', (c) => formSede({ inicial: x, clienteId: d.cliente.id, cerrar: c, alGuardar: alCambiar })) }, 'Editar'),
           editable && !x.es_principal && h('button', { class: 'btn btn-chico', type: 'button', onclick: (ev) => { const b = ev.currentTarget; if (!b.dataset.seguro) { b.dataset.seguro = '1'; b.textContent = 'Confirmar: eliminar'; setTimeout(() => { delete b.dataset.seguro; b.textContent = 'Eliminar'; }, 3500); return; } api(`/api/sedes/${x.id}`, { metodo: 'DELETE' }).then(() => { aviso('Local eliminado'); alCambiar(); }).catch((er) => aviso(msg(er))); } }, 'Eliminar')))))
         : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Sin locales cargados'), 'Cargá cada domicilio donde haya equipos.'));

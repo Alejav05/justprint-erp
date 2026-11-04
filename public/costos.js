@@ -12,7 +12,7 @@ export function crearCostos(U) {
     cliente_requerido: 'Elegí un cliente: los costos generales solo los carga quien ve todas las cuentas.', equipo_invalido: 'Ese equipo no existe.', contrato_invalido: 'Ese contrato no es de este cliente.',
     ticket_invalido: 'Ese ticket no es de este cliente.', costo_automatico: 'Este costo salió de un remito y no se edita: si el costo del insumo estaba mal, corregilo en el insumo.', validacion: 'Revisá los datos: falta algo o hay un número inválido.',
   };
-  const TIPOS = [['insumo', 'Insumos'], ['mano_de_obra', 'Mano de obra'], ['logistica', 'Logística'], ['amortizacion', 'Amortización'], ['otro', 'Otro']];
+  const TIPOS = [['insumo', 'Insumos'], ['mano_de_obra', 'Mano de obra'], ['logistica', 'Logística'], ['amortizacion', 'Amortización'], ['equipo', 'Equipo'], ['otro', 'Otro']];
   const campo = (rotulo, el) => h('label', { style: 'display:grid;gap:4px' }, rotulo, el);
 
   /** Formulario de alta y edición en un cajón lateral. `clienteFijo` lo usa la ficha del cliente. */

@@ -7,7 +7,7 @@ import { clientesVisibles, puedeVerCliente } from '../lib/contexto.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const redondear = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-export const TIPOS_COSTO = { mano_de_obra: 'Mano de obra', insumo: 'Insumos', logistica: 'Logística', amortizacion: 'Amortización' };
+export const TIPOS_COSTO = { mano_de_obra: 'Mano de obra', insumo: 'Insumos', logistica: 'Logística', amortizacion: 'Amortización', equipo: 'Equipo' };
 const nombreTipo = (t) => TIPOS_COSTO[t] ?? (t ? t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, ' ') : 'Sin clasificar');
 const mesDe = (p) => /^\d{4}-(0[1-9]|1[0-2])$/.test(p ?? '') ? p : null;
 const finDeMes = (p) => { const [a, m] = p.split('-').map(Number); return `${p}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, '0')}`; };
