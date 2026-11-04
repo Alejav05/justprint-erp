@@ -10,6 +10,7 @@ export const mesDe = (iso) => String(iso).slice(0, 7);
 const sig = (p) => { const [a, m] = p.split('-').map(Number); return m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`; };
 const indiceMes = (p) => { const [a, m] = p.split('-').map(Number); return a * 12 + (m - 1); };
 const diasDelMes = (p) => { const [a, m] = p.split('-').map(Number); return new Date(Date.UTC(a, m, 0)).getUTCDate(); };
+export const sumarMeses = (p, n) => { const t = indiceMes(p) + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
 const dosDig = (n) => String(n).padStart(2, '0');
 
 export const vidaUtilDe = (e) => Number(e.vida_util_meses) > 0 ? Number(e.vida_util_meses) : Number(valor('equipos.vida_util_meses')) || 36;
@@ -39,7 +40,7 @@ export async function costoUsdDe(db, e) {
 /** Quién tiene el equipo el día `s`: un { cliente_id, contrato_id } o null (flota). La asignación vale desde `desde` hasta `hasta`, ambos días inclusive; si dos se pisan, gana la más nueva. */
 const quienTiene = (asigs, s) => {
   const a = asigs.filter((x) => aDia(x.desde) <= s && (!x.hasta || s <= aDia(x.hasta))).sort((x, y) => (aDia(y.desde) < aDia(x.desde) ? -1 : 1))[0];
-  return a ? { cliente_id: a.cliente_id, contrato_id: a.contrato_id } : null;
+  return a ? { cliente_id: a.cliente_id, contrato_id: a.contrato_id, cont: a.cuota_continuada_usd != null && a.continua_hasta ? { cuota: Number(a.cuota_continuada_usd), hasta: a.continua_hasta } : null } : null;
 };
 
 /**
@@ -53,15 +54,23 @@ export function cronograma(e, asigs, costo, { hasta = hoy() } = {}) {
   for (let p = mes0; p <= fin; p = sig(p)) {
     const i = indiceMes(p) - indiceMes(mes0); if (i >= vida) break;
     const total = cuotaMes(costo, vida, i); if (total <= 0) continue;
-    const N = diasDelMes(p); const dias = new Map();
+    // Los días del primer mes anteriores al inicio no existen para el equipo: la cuota se reparte solo entre los días desde el inicio.
+    const N = diasDelMes(p); const dias = new Map(); let validos = 0;
     for (let d = 1; d <= N; d += 1) {
-      const t = quienTiene(asigs, `${p}-${dosDig(d)}`); const k = t ? `${t.cliente_id}:${t.contrato_id}` : 'flota';
-      if (!dias.has(k)) dias.set(k, { t, n: 0 }); dias.get(k).n += 1;
+      const fechaDia = `${p}-${dosDig(d)}`; if (fechaDia < inicio) continue; validos += 1;
+      const t = quienTiene(asigs, fechaDia); const sigue = !!(t?.cont && p <= t.cont.hasta); const k = t ? `${t.cliente_id}:${t.contrato_id}:${sigue ? 1 : 0}` : 'flota';
+      if (!dias.has(k)) dias.set(k, { t, n: 0, sigue }); dias.get(k).n += 1;
     }
     const partes = [...dias.values()]; const mayor = partes.reduce((m, x) => (x.n > m.n ? x : m), partes[0]);
     let resto = total;
-    for (const x of partes) if (x !== mayor) { x.importe = r2((total * x.n) / N); resto = r2(resto - x.importe); }
+    for (const x of partes) if (x !== mayor) { x.importe = r2((total * x.n) / validos); resto = r2(resto - x.importe); }
     mayor.importe = resto;
+    // Reemplazo por falla: el cliente sigue pagando la cuota del plan original y la flota absorbe la diferencia (puede ser a favor).
+    let flota = partes.find((x) => !x.t);
+    for (const x of partes.filter((y) => y.sigue)) {
+      const suyo = r2((x.t.cont.cuota * x.n) / validos); const dif = r2(x.importe - suyo); x.importe = suyo;
+      if (dif !== 0) { if (!flota) { flota = { t: null, n: 0, importe: 0 }; partes.push(flota); } flota.importe = r2(flota.importe + dif); }
+    }
     for (const x of partes) if (x.importe !== 0) filas.push({ mes: p, n: i + 1, de: vida, cliente_id: x.t?.cliente_id ?? null, contrato_id: x.t?.contrato_id ?? null, importe: x.importe });
     cargado = r2(cargado + total);
   }
@@ -80,7 +89,7 @@ export async function recalcularEquipo(db, equipoId, { hasta = hoy() } = {}) {
   return db.transaction(async (trx) => {
     await trx('costos').where({ equipo_id: e.id, origen: 'amortizacion' }).del();
     if (!costo || costo <= 0) return { filas: 0, sin_costo: true };
-    const asigs = await trx('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').where('a.equipo_id', e.id).select('a.desde', 'a.hasta', 'a.contrato_id', 'c.cliente_id');
+    const asigs = await trx('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').where('a.equipo_id', e.id).select('a.desde', 'a.hasta', 'a.contrato_id', 'a.cuota_continuada_usd', 'a.continua_hasta', 'c.cliente_id');
     const { filas, perdida } = cronograma(e, asigs, costo, { hasta });
     for (const f of filas) {
       await trx('costos').insert({ fecha: `${f.mes}-01`, concepto: concepto(e, `Amortización ${f.n}/${f.de}`), tipo: 'amortizacion', importe: f.importe, moneda: 'USD', cotizacion: null, importe_usd: f.importe,
@@ -103,4 +112,18 @@ export async function recalcularTodos(db, { hasta = hoy(), log = () => {} } = {}
 export function valorEnLibros(e, asigs, costo, p) {
   const vida = vidaUtilDe(e); const i = indiceMes(p) - indiceMes(mesDe(inicioDe(e, asigs)));
   return r2(costo - acumuladoHasta(costo, vida, i));
+}
+
+/**
+ * Lo que el cliente sigue pagando cuando su equipo se reemplaza: la cuota del plan del equipo que se va, hasta el último mes de ese plan.
+ * Si el equipo ya venía de un reemplazo vigente, hereda esa continuidad. Devuelve null si no hay nada que continuar (sin costo o plan terminado).
+ */
+export async function continuidadDe(db, e, abierta, ahora = hoy()) {
+  const mesAhora = mesDe(ahora);
+  if (abierta?.cuota_continuada_usd != null && abierta.continua_hasta && abierta.continua_hasta >= mesAhora) return { cuota: Number(abierta.cuota_continuada_usd), hasta: abierta.continua_hasta };
+  const costo = await costoUsdDe(db, e); if (!costo) return null;
+  const asigs = await db('asignaciones_equipo').where({ equipo_id: e.id }).select('desde');
+  const hasta = sumarMeses(mesDe(inicioDe(e, asigs)), vidaUtilDe(e) - 1);
+  if (hasta < mesAhora) return null;
+  return { cuota: r2(costo / vidaUtilDe(e)), hasta };
 }

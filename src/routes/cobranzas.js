@@ -172,15 +172,17 @@ export default async function rutasCobranzas(app, { db }) {
     // Recupero de inversión: cuando un equipo llega al cliente cuenta lo que le falta amortizar (entero si es nuevo) y, si se retira, ese valor en libros vuelve a stock.
     const equiposNeg = [];
     const asigsCli = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('equipos as e', 'e.id', 'a.equipo_id').join('modelos_equipo as mo', 'mo.id', 'e.modelo_id')
-      .where('c.cliente_id', id).whereNull('c.deleted_at').whereNull('e.deleted_at').select('a.equipo_id', 'a.desde', 'a.hasta', 'e.numero_serie', 'e.estado', 'mo.marca', 'mo.modelo');
+      .where('c.cliente_id', id).whereNull('c.deleted_at').whereNull('e.deleted_at').select('a.id', 'a.equipo_id', 'a.contrato_id', 'a.reemplaza_equipo_id', 'a.desde', 'a.hasta', 'e.numero_serie', 'e.estado', 'mo.marca', 'mo.modelo');
     for (const eid of [...new Set(asigsCli.map((a) => a.equipo_id))]) {
       const eq = await db('equipos').where({ id: eid }).first(); const costo = await costoUsdDe(db, eq); if (!costo) continue;
       const todas = await db('asignaciones_equipo').where({ equipo_id: eid }).select('desde', 'hasta');
       const vida = vidaUtilDe(eq); const base = asigsCli.find((a) => a.equipo_id === eid); const m0 = mesAmort(inicioDe(eq, todas));
       const idx = (p) => { const [a, b] = p.split('-').map(Number); const [a0, b0] = m0.split('-').map(Number); return (a - a0) * 12 + (b - b0); };
       for (const a of asigsCli.filter((x) => x.equipo_id === eid)) {
-        const entra = mes(aDia(a.desde)); celda(entra).inversion += costo - acumuladoHasta(costo, vida, idx(entra) - 1);
-        if (a.hasta) { const sale = mes(aDia(a.hasta)); celda(sale).devolucion += costo - acumuladoHasta(costo, vida, idx(sale)); }
+        // Un reemplazo por falla no es una inversión del cliente: ni suma el equipo nuevo ni devuelve el que se fue (lo absorbe la flota).
+        const esReemplazo = !!a.reemplaza_equipo_id; const fueReemplazado = asigsCli.some((o) => o.reemplaza_equipo_id === a.equipo_id && o.contrato_id === a.contrato_id && aDia(o.desde) === aDia(a.hasta));
+        const entra = mes(aDia(a.desde)); if (!esReemplazo) celda(entra).inversion += costo - acumuladoHasta(costo, vida, idx(entra) - 1);
+        if (a.hasta && !fueReemplazado) { const sale = mes(aDia(a.hasta)); celda(sale).devolucion += costo - acumuladoHasta(costo, vida, idx(sale)); }
       }
       const vigente = asigsCli.some((x) => x.equipo_id === eid && !x.hasta);
       const cargado = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion', cliente_id: id }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;

@@ -1,4 +1,4 @@
-import { recalcularEquipo } from '../lib/amortizacion.js';
+import { continuidadDe, recalcularEquipo } from '../lib/amortizacion.js';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
@@ -200,6 +200,43 @@ export default async function rutasEquipos(app, { db }) {
     // La amortización sigue al equipo: si falla el recálculo, el movimiento ya hecho no se pierde (se rehace solo todos los días).
     try { await recalcularEquipo(db, e.id); } catch (err) { req.log.error({ err }, 'amortización'); }
     return { ok: true };
+  });
+
+  /**
+   * Reemplazo por falla: el equipo sale del cliente y entra otro del depósito en el mismo contrato y sede, en un solo paso.
+   * El contrato no cambia y el cliente no absorbe la falla: sigue con la cuota del plan original y la diferencia la carga la flota.
+   * Sin arreglo (perdida) el equipo se da de baja; en garantía va al taller y sigue amortizando en la flota.
+   */
+  app.post('/api/equipos/:id/reemplazar', { preHandler: [auth, requerirPermiso('equipos.editar')] }, async (req, reply) => {
+    const d = z.object({ nuevo_equipo_id: z.number().int().positive(), motivo: z.enum(['perdida', 'garantia']),
+      contador_negro: z.number().int().min(0), contador_color: z.number().int().min(0).optional(), nuevo_contador_negro: z.number().int().min(0), nuevo_contador_color: z.number().int().min(0).optional(), observaciones: z.string().max(255).optional() }).parse(req.body);
+    const e = await cargarEquipo(req.ctx, { 'equipos.id': Number(req.params.id) }); if (!e) return error(reply, 404, 'no_encontrado');
+    const n = await cargarEquipo(req.ctx, { 'equipos.id': d.nuevo_equipo_id }); if (!n) return error(reply, 404, 'no_encontrado');
+    if (e.id === n.id) return error(reply, 400, 'mismo_equipo');
+    const abierta = await db('asignaciones_equipo').where({ equipo_id: e.id }).whereNull('hasta').first(); if (!abierta) return error(reply, 409, 'no_esta_instalado');
+    if (n.estado !== 'deposito' || (await db('asignaciones_equipo').where({ equipo_id: n.id }).whereNull('hasta').first())) return error(reply, 409, 'reemplazo_no_disponible');
+    for (const [eq, neg, col] of [[e, d.contador_negro, d.contador_color], [n, d.nuevo_contador_negro, d.nuevo_contador_color]]) {
+      const problema = await validarLectura(db, eq.id, eq.tipo, neg, col);
+      if (problema) return error(reply, problema.error === 'contador_menor_al_anterior' ? 409 : 400, problema.error, problema.anterior ? { anterior: problema.anterior, equipo: eq.numero_serie } : {});
+    }
+    const cont = await continuidadDe(db, e, abierta);
+    const ctxA = { usuarioId: req.ctx.id, ip: req.ip }; const motivo = d.observaciones ?? (d.motivo === 'perdida' ? 'Reemplazo por falla (sin arreglo)' : 'Reemplazo por falla (garantía)');
+    await db.transaction(async (trx) => {
+      const taller = d.motivo === 'garantia' ? ((await trx('ubicaciones').where({ tipo: 'taller' }).first()) ?? { id: (await trx('ubicaciones').insert({ nombre: 'Taller', tipo: 'taller' }))[0] }) : null;
+      await trx('asignaciones_equipo').where({ id: abierta.id }).update({ hasta: hoy(), contador_final_negro: d.contador_negro, contador_final_color: d.contador_color ?? 0 });
+      await trx('lecturas_contador').insert({ equipo_id: e.id, fecha: hoy(), contador_negro: d.contador_negro, contador_color: d.contador_color ?? 0, origen: 'tecnico', usuario_id: req.ctx.id, observaciones: 'Lectura de retiro por reemplazo' });
+      await trx('movimientos_equipo').insert({ equipo_id: e.id, ubicacion_origen_id: null, ubicacion_destino_id: taller?.id ?? null, motivo: `${motivo} · lo reemplaza ${n.numero_serie}`, usuario_id: req.ctx.id });
+      await trx('equipos').where({ id: e.id }).update(d.motivo === 'perdida' ? { estado: 'baja', fecha_baja: hoy(), updated_by: req.ctx.id, updated_at: trx.fn.now() } : { estado: 'reparacion', ubicacion_id: taller.id, updated_by: req.ctx.id, updated_at: trx.fn.now() });
+      await trx('asignaciones_equipo').insert({ equipo_id: n.id, contrato_id: abierta.contrato_id, sede_id: abierta.sede_id, desde: hoy(), contador_inicial_negro: d.nuevo_contador_negro, contador_inicial_color: d.nuevo_contador_color ?? 0,
+        cuota_continuada_usd: cont?.cuota ?? null, continua_hasta: cont?.hasta ?? null, reemplaza_equipo_id: e.id, motivo_reemplazo: d.motivo });
+      await trx('lecturas_contador').insert({ equipo_id: n.id, fecha: hoy(), contador_negro: d.nuevo_contador_negro, contador_color: d.nuevo_contador_color ?? 0, origen: 'tecnico', usuario_id: req.ctx.id, observaciones: 'Lectura de instalación (reemplazo)' });
+      await trx('movimientos_equipo').insert({ equipo_id: n.id, ubicacion_origen_id: n.ubicacion_id, ubicacion_destino_id: null, motivo: `Reemplaza a ${e.numero_serie}`, usuario_id: req.ctx.id });
+      await trx('equipos').where({ id: n.id }).update({ estado: 'instalado', ubicacion_id: null, updated_by: req.ctx.id, updated_at: trx.fn.now() });
+      await auditar(trx, ctxA, 'editar', 'equipos', e.id, { estado: e.estado }, { estado: d.motivo === 'perdida' ? 'baja' : 'reparacion', reemplazado_por: n.id });
+      await auditar(trx, ctxA, 'editar', 'equipos', n.id, { estado: n.estado }, { estado: 'instalado', reemplaza_a: e.id, contrato_id: abierta.contrato_id });
+    });
+    for (const id of [e.id, n.id]) { try { await recalcularEquipo(db, id); } catch (err) { req.log.error({ err }, 'amortización'); } }
+    return { ok: true, continua: cont };
   });
 
   // Para armar el formulario de instalación: contratos vigentes de clientes visibles.

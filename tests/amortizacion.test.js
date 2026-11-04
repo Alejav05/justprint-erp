@@ -133,3 +133,27 @@ test('migración: alinea con el contrato una instalación con un día de diferen
   assert.equal(await f(a), '2026-11-04'); assert.equal(await f(b), '2026-10-20', 'diferencia mayor a un día: no se toca');
   assert.equal(String((await db('lecturas_contador').where({ equipo_id: a }).first()).fecha).slice(0, 10), '2026-11-04');
 });
+
+test('reemplazo por falla: el cliente sigue con su cuota, la flota absorbe la pérdida y la diferencia, y el contrato no cambia', async () => {
+  const { entrar } = await import('./ayuda.js'); const { llamar } = await entrar(ctx.app, 'direccion@demo.local'); const db = ctx.db;
+  const hoyS = new Date().toISOString().slice(0, 7);
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente R', estado: 'activo' }))[0];
+  const con = (await db('contratos').insert({ cliente_id: cli, nombre: 'CR', estado: 'vigente', moneda: 'USD', fecha_inicio: '2026-01-01' }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'R', tipo: 'monocromo' }))[0];
+  const a = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'REP-A', estado: 'instalado', moneda: 'USD', costo_adquisicion: 360, costo_usd: 360, vida_util_meses: 36, fecha_adquisicion: '2026-01-01' }))[0];
+  const b = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'REP-B', estado: 'deposito', moneda: 'USD', costo_adquisicion: 720, costo_usd: 720, vida_util_meses: 36 }))[0];
+  await db('asignaciones_equipo').insert({ equipo_id: a, contrato_id: con, desde: '2026-01-01', contador_inicial_negro: 0, contador_inicial_color: 0 });
+  const r = await llamar('POST', `/api/equipos/${a}/reemplazar`, { nuevo_equipo_id: b, motivo: 'perdida', contador_negro: 100, nuevo_contador_negro: 0 });
+  assert.equal(r.statusCode, 200); assert.equal(r.json().continua.cuota, 10);
+  assert.equal((await db('equipos').where({ id: a }).first()).estado, 'baja'); assert.equal((await db('equipos').where({ id: b }).first()).estado, 'instalado');
+  const asig = await db('asignaciones_equipo').where({ equipo_id: b }).first(); assert.equal(asig.contrato_id, con); assert.equal(Number(asig.cuota_continuada_usd), 10); assert.equal(asig.reemplaza_equipo_id, a);
+  const mesB = await db('costos').where({ equipo_id: b, origen: 'amortizacion' }).where('fecha', `${hoyS}-01`);
+  const cliente = mesB.filter((k) => k.cliente_id === cli).reduce((t, k) => t + Number(k.importe_usd), 0); const flota = mesB.filter((k) => k.cliente_id === null).reduce((t, k) => t + Number(k.importe_usd), 0);
+  assert.ok(Math.abs(cliente - 10 * (mesB.length ? 1 : 0)) <= 10 + 0.01 && cliente <= 10.01, 'el cliente no paga más que su cuota original');
+  assert.ok(Math.abs(cliente + flota - 20) < 0.02, 'cliente + flota = cuota del equipo nuevo (20)');
+  const perdida = await db('costos').where({ equipo_id: a, tipo: 'perdida' }).first(); assert.equal(perdida.cliente_id, null); assert.ok(Number(perdida.importe_usd) > 0);
+  // el reemplazo no es una inversión del cliente
+  const neg = (await llamar('GET', `/api/clientes/${cli}/negocio`)).json(); assert.equal(neg.recupero.invertido, 360);
+  // un equipo ocupado no sirve de reemplazo
+  assert.equal((await llamar('POST', `/api/equipos/${b}/reemplazar`, { nuevo_equipo_id: a, motivo: 'garantia', contador_negro: 5, nuevo_contador_negro: 0 })).statusCode, 409);
+});

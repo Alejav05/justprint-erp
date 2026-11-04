@@ -1245,20 +1245,28 @@ async function vistaEquipo(destino, id) {
   const e = await api(`/api/equipos/${id}`).catch((x) => { if (x.estado === 404) return null; throw x; });
   if (!e) { destino.append(h('div', { class: 'tarjeta vacio' }, h('b', null, 'No encontramos ese equipo'), h('a', { href: '#/equipos' }, 'Volver a equipos'))); return; }
   const color = e.tipo === 'color'; const recargar = () => navegar();
-  const costoHueco = h('div'); eqn.tarjetaCosto(id).then((t) => { if (t) setTimeout(() => costoHueco.replaceWith(t), 0); }).catch(() => {});
+  const costoHueco = h('div');
   const dato = (k, v) => h('div', null, h('dt', null, k), h('dd', null, v ?? '—'));
   const ult = e.lecturas[0];
   const lectura = puede('equipos.editar') || puede('tickets.atender') ? (() => { const n = numIn('ln', 'Contador negro'); const c = color ? numIn('lc', 'Contador color') : null;
     return formularioEnLinea({ titulo: 'Registrar lectura de contadores', campos: [h('div', { class: 'dos-col' }, n, c)], boton: 'Guardar lectura',
       enviar: () => api(`/api/equipos/${id}/lecturas`, { metodo: 'POST', cuerpo: { contador_negro: Number(n.value), ...(c && c.value !== '' ? { contador_color: Number(c.value) } : {}) } }), alExito: recargar }); })() : null;
 
-  let mover = null;
+  let mover = null; let reemplazo = null;
   if (e.puede_editar && e.estado !== 'baja') {
     if (e.estado === 'instalado') {
       const n = numIn('rn', 'Contador negro'); const c = color ? numIn('rc', 'Contador color') : null;
       const dest = h('select', { 'aria-label': 'Destino' }, h('option', { value: 'deposito' }, 'Al depósito'), h('option', { value: 'reparacion' }, 'Al taller'));
       mover = formularioEnLinea({ titulo: 'Retirar del cliente', campos: [dest, h('div', { class: 'dos-col' }, n, c)], boton: 'Retirar equipo',
         enviar: () => api(`/api/equipos/${id}/mover`, { metodo: 'POST', cuerpo: { accion: 'retirar', destino: dest.value, contador_negro: Number(n.value), ...(c && c.value !== '' ? { contador_color: Number(c.value) } : {}) } }), alExito: recargar });
+      const libres = await api('/api/equipos?estado=deposito&limite=200').then((r) => r.items).catch(() => []);
+      if (libres.length && puede('costos.ver')) {
+        const nuevoSel = h('select', { required: true, 'aria-label': 'Equipo de reemplazo' }, h('option', { value: '' }, 'Elegí un equipo del depósito…'), libres.map((x) => h('option', { value: x.id }, `${x.marca} ${x.modelo} · ${x.numero_serie}`)));
+        const motivo = h('select', { 'aria-label': 'Motivo' }, h('option', { value: 'perdida' }, 'Sin arreglo: se da de baja'), h('option', { value: 'garantia' }, 'En garantía: vuelve al taller'));
+        const rn = numIn('xn', 'Contador que sale'); const rc = color ? numIn('xc', 'Color que sale') : null; const nn = numIn('yn', 'Contador del nuevo'); const nc = color ? numIn('yc', 'Color del nuevo') : null;
+        reemplazo = formularioEnLinea({ titulo: 'Reemplazar por falla', campos: [h('p', { class: 'apoyo' }, 'El contrato no cambia y el cliente no absorbe la falla: sigue con su cuota de equipo y la diferencia la carga la flota.'), nuevoSel, motivo, h('div', { class: 'dos-col' }, rn, rc), h('div', { class: 'dos-col' }, nn, nc)], boton: 'Reemplazar equipo',
+          enviar: () => api(`/api/equipos/${id}/reemplazar`, { metodo: 'POST', cuerpo: { nuevo_equipo_id: Number(nuevoSel.value), motivo: motivo.value, contador_negro: Number(rn.value), ...(rc && rc.value !== '' ? { contador_color: Number(rc.value) } : {}), nuevo_contador_negro: Number(nn.value), ...(nc && nc.value !== '' ? { nuevo_contador_color: Number(nc.value) } : {}) } }), alExito: recargar });
+      }
     } else {
       const contratos = await api('/api/equipos-ayuda/contratos');
       const sel = h('select', { required: true, 'aria-label': 'Contrato' }, h('option', { value: '' }, 'Elegí el cliente y contrato…'), contratos.map((c) => h('option', { value: c.id }, `${c.nombre_comercial || c.razon_social} · ${c.nombre}`)));
@@ -1274,7 +1282,7 @@ async function vistaEquipo(destino, id) {
         dato('Cliente', e.cliente_id ? h('a', { href: `#/clientes/${e.cliente_id}` }, e.nombre_comercial || e.razon_social) : (e.ubicacion ?? '—')), dato('Sede', e.sede), dato('Contrato', e.contrato),
         dato('Última lectura', ult ? `${ult.contador_negro}${color ? ` / ${ult.contador_color}` : ''} · ${fecha(ult.fecha)}` : '—'),
         dato('Páginas entre las dos últimas', e.periodo ? `${e.periodo.negro}${color ? ` negro / ${e.periodo.color} color` : ''}` : '—'))),
-      lectura, mover,
+      lectura, mover, reemplazo,
       h('div', { class: 'tarjeta' }, h('h2', null, 'Lecturas de contadores'), e.lecturas.length ? h('table', null, h('tbody', null, e.lecturas.map((l) => h('tr', null, h('td', null, fecha(l.fecha)), h('td', { class: 'num' }, `${l.contador_negro}${color ? ` / ${l.contador_color}` : ''}`), h('td', { class: 'apoyo' }, `${l.origen}${l.usuario ? ` · ${l.usuario}` : ''} · período ${l.periodo ?? String(l.fecha).slice(0, 7)}`), puede('contadores.cargar') && h('td', null, h('button', { class: 'btn-texto', type: 'button', onclick: () => corregirLectura(l, color, recargar) }, 'Corregir fecha')))))) : h('p', { class: 'apoyo' }, 'Todavía no hay lecturas.')),
       h('div', { class: 'tarjeta' }, h('h2', null, 'Tickets'), e.tickets.length ? h('ul', { class: 'lista' }, e.tickets.map((t) => h('li', null, h('a', { href: `#/tickets/${t.id}` }, `${t.numero} · ${t.asunto}`), chipTicket(t.estado)))) : h('p', { class: 'apoyo' }, 'Sin tickets.'))),
     h('div', null,
@@ -1284,6 +1292,7 @@ async function vistaEquipo(destino, id) {
       h('div', { class: 'tarjeta' }, h('h2', null, 'Dónde estuvo'), e.asignaciones.length ? e.asignaciones.map((a) => h('div', { class: `linea ${a.hasta ? '' : 'vigente'}` }, h('b', null, a.nombre_comercial || a.razon_social),
         h('div', { class: 'apoyo' }, `${fecha(a.desde)} → ${a.hasta ? fecha(a.hasta) : 'hoy'}${a.sede ? ` · ${a.sede}` : ''}`), h('div', { class: 'apoyo' }, `Contador inicial ${a.contador_inicial_negro}${a.contador_final_negro != null ? ` · final ${a.contador_final_negro}` : ''}`)))
         : h('p', { class: 'apoyo' }, 'Nunca estuvo instalado.'), e.movimientos.map((m) => h('div', { class: 'apoyo' }, `${fecha(m.fecha)} · ${m.motivo ?? 'Movimiento'}${m.usuario ? ` (${m.usuario})` : ''}`))))));
+  eqn.tarjetaCosto(id).then((t) => { if (t) costoHueco.replaceWith(t); }).catch(() => {}); // el hueco ya está en pantalla
 }
 
 async function vistaInsumos(destino) {
