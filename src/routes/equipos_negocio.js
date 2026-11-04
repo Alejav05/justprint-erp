@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles } from '../lib/contexto.js';
 import { consumoPeriodo, periodoDeLectura } from '../lib/contadores.js';
+import { costoUsdDe, inicioDe, recalcularEquipo, vidaUtilDe } from '../lib/amortizacion.js';
 import { aUsd } from '../lib/costos.js';
 import { aDia, hoy } from '../lib/fechas.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
@@ -17,55 +18,48 @@ export default async function rutasEquiposNegocio(app, { db }) {
   const verEquipos = [auth, requerirPermiso('equipos.ver')];
   const cargaCosto = [auth, requerirPermiso('equipos.ver'), requerirPermiso('costos.cargar')];
 
-  /** Costo de adquisición del equipo (dato interno: solo lo ve quien tiene permiso de costos). */
+  /** Costo de adquisición del equipo (dato interno: solo lo ve quien tiene permiso de costos). Al guardarlo se fija el costo en USD y la vida útil, y se recalcula la amortización. */
   app.patch('/api/equipos/:id/costo', { preHandler: cargaCosto }, async (req, reply) => {
     const d = z.object({ costo_adquisicion: z.number().min(0).max(1e9).nullable(), moneda: z.enum(['USD', 'ARS']).default('USD'), fecha_adquisicion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).parse(req.body);
     const e = await db('equipos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first(); if (!e) return error(reply, 404, 'no_encontrado');
-    const cambios = { costo_adquisicion: d.costo_adquisicion, moneda: d.moneda, ...(d.fecha_adquisicion !== undefined ? { fecha_adquisicion: d.fecha_adquisicion } : {}) };
+    const fecha = d.fecha_adquisicion !== undefined ? d.fecha_adquisicion : aDia(e.fecha_adquisicion);
+    let costoUsd = null;
+    if (d.costo_adquisicion != null && d.costo_adquisicion > 0) {
+      const conv = await aUsd(db, d.costo_adquisicion, d.moneda, fecha ?? hoy()); if (!conv) return error(reply, 400, 'sin_cotizacion');
+      costoUsd = conv.usd;
+    }
+    const cambios = { costo_adquisicion: d.costo_adquisicion, moneda: d.moneda, costo_usd: costoUsd, vida_util_meses: e.vida_util_meses ?? vidaUtilDe({}), ...(d.fecha_adquisicion !== undefined ? { fecha_adquisicion: d.fecha_adquisicion } : {}) };
     await db.transaction(async (trx) => {
       await trx('equipos').where({ id: e.id }).update({ ...cambios, updated_by: req.ctx.id, updated_at: trx.fn.now() });
       await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'equipos', e.id, { costo_adquisicion: e.costo_adquisicion, moneda: e.moneda }, cambios);
     });
-    return { ok: true };
+    await recalcularEquipo(db, e.id);
+    return { ok: true, costo_usd: costoUsd };
   });
 
-  /** Lo ya imputado al negocio de un cliente por este equipo, y el cliente/contrato donde está hoy. */
-  async function estadoCosto(equipoId) {
-    const asig = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('clientes as cl', 'cl.id', 'c.cliente_id')
-      .where('a.equipo_id', equipoId).whereNull('a.hasta').select('a.desde', 'c.id as contrato_id', 'c.nombre as contrato', 'cl.id as cliente_id', 'cl.razon_social', 'cl.nombre_comercial').first();
-    const imputaciones = await db('costos as k').leftJoin('clientes as cl', 'cl.id', 'k.cliente_id').where({ 'k.equipo_id': equipoId, 'k.origen': 'equipo' }).whereNull('k.deleted_at')
-      .orderBy('k.fecha', 'desc').select('k.id', 'k.fecha', 'k.importe_usd', 'k.cliente_id', 'cl.razon_social', 'cl.nombre_comercial');
-    return { asig, imputaciones };
-  }
-
+  /** Costo del equipo, su amortización mes a mes (quién la cargó) y lo que falta amortizar. */
   app.get('/api/equipos/:id/costo', { preHandler: [auth, requerirPermiso('equipos.ver'), requerirPermiso('costos.ver')] }, async (req, reply) => {
     const e = await db('equipos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first(); if (!e) return error(reply, 404, 'no_encontrado');
-    const { asig, imputaciones } = await estadoCosto(e.id);
+    const asig = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('clientes as cl', 'cl.id', 'c.cliente_id')
+      .where('a.equipo_id', e.id).whereNull('a.hasta').select('a.desde', 'c.id as contrato_id', 'c.nombre as contrato', 'cl.id as cliente_id', 'cl.razon_social', 'cl.nombre_comercial').first();
+    const costo = await costoUsdDe(db, e);
+    const filas = await db('costos as k').leftJoin('clientes as cl', 'cl.id', 'k.cliente_id').where({ 'k.equipo_id': e.id, 'k.origen': 'amortizacion' }).whereNull('k.deleted_at').orderBy('k.fecha')
+      .select('k.fecha', 'k.tipo', 'k.importe_usd', 'k.cliente_id', 'cl.razon_social', 'cl.nombre_comercial');
+    const amort = filas.filter((f) => f.tipo === 'amortizacion'); const perdida = filas.find((f) => f.tipo === 'perdida');
+    const cargado = amort.reduce((t, f) => t + Number(f.importe_usd), 0);
+    const vida = vidaUtilDe(e); const asigs = await db('asignaciones_equipo').where({ equipo_id: e.id }).select('desde', 'hasta');
+    const inicio = inicioDe(e, asigs);
+    const porCliente = new Map();
+    for (const f of amort) { const k = f.cliente_id ?? 0; const x = porCliente.get(k) ?? { cliente_id: f.cliente_id, cliente: f.cliente_id ? (f.nombre_comercial || f.razon_social) : 'Flota (depósito o taller)', usd: 0 }; x.usd += Number(f.importe_usd); porCliente.set(k, x); }
+    const mesesCargados = new Set(amort.map((f) => String(aDia(f.fecha)).slice(0, 7))).size;
     return {
-      costo_adquisicion: e.costo_adquisicion == null ? null : Number(e.costo_adquisicion), moneda: e.moneda, fecha_adquisicion: aDia(e.fecha_adquisicion),
+      costo_adquisicion: e.costo_adquisicion == null ? null : Number(e.costo_adquisicion), moneda: e.moneda, fecha_adquisicion: aDia(e.fecha_adquisicion), costo_usd: costo, vida_util_meses: vida, inicio: costo ? inicio : null,
+      meses_amortizados: Math.min(vida, mesesCargados), amortizado: Math.round(cargado * 100) / 100, valor_en_libros: costo == null ? null : (e.estado === 'baja' ? 0 : Math.round((costo - cargado) * 100) / 100),
+      perdida_baja: perdida ? Number(perdida.importe_usd) : null,
       cliente_actual: asig ? { id: asig.cliente_id, nombre: asig.nombre_comercial || asig.razon_social, contrato: asig.contrato, desde: aDia(asig.desde) } : null,
-      imputaciones: imputaciones.map((i) => ({ id: i.id, fecha: aDia(i.fecha), usd: Number(i.importe_usd), cliente_id: i.cliente_id, cliente: i.nombre_comercial || i.razon_social })),
+      reparto: [...porCliente.values()].map((x) => ({ ...x, usd: Math.round(x.usd * 100) / 100 })),
+      meses: amort.map((f) => ({ mes: String(aDia(f.fecha)).slice(0, 7), usd: Number(f.importe_usd), cliente_id: f.cliente_id })),
     };
-  });
-
-  /** Carga el costo del equipo al negocio del cliente donde está instalado (una vez por cliente). Queda como costo "Equipo", en la fecha de la instalación. */
-  app.post('/api/equipos/:id/imputar-costo', { preHandler: cargaCosto }, async (req, reply) => {
-    const e = await db('equipos as e').join('modelos_equipo as m', 'm.id', 'e.modelo_id').where('e.id', Number(req.params.id)).whereNull('e.deleted_at').select('e.*', 'm.marca', 'm.modelo').first();
-    if (!e) return error(reply, 404, 'no_encontrado');
-    if (e.costo_adquisicion == null || Number(e.costo_adquisicion) <= 0) return error(reply, 409, 'sin_costo');
-    const { asig, imputaciones } = await estadoCosto(e.id);
-    if (!asig) return error(reply, 409, 'sin_cliente');
-    const v = await clientesVisibles(db, req.ctx); if (v !== null && !v.includes(asig.cliente_id)) return error(reply, 404, 'no_encontrado');
-    if (imputaciones.some((i) => i.cliente_id === asig.cliente_id)) return error(reply, 409, 'ya_imputado');
-    const fecha = aDia(asig.desde) > hoy() ? hoy() : aDia(asig.desde);
-    const conv = await aUsd(db, Number(e.costo_adquisicion), e.moneda, fecha); if (!conv) return error(reply, 400, 'sin_cotizacion');
-    const id = await db.transaction(async (trx) => {
-      const [nuevo] = await trx('costos').insert({ fecha, concepto: `Equipo ${e.marca} ${e.modelo} · ${e.numero_serie}`.slice(0, 200), tipo: 'equipo', importe: Number(e.costo_adquisicion), moneda: e.moneda, cotizacion: conv.cotizacion, importe_usd: conv.usd,
-        cliente_id: asig.cliente_id, equipo_id: e.id, contrato_id: asig.contrato_id, origen: 'equipo', created_by: req.ctx.id, updated_by: req.ctx.id });
-      await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'crear', 'costos', nuevo, null, { cliente_id: asig.cliente_id, equipo_id: e.id, importe_usd: conv.usd, origen: 'equipo' });
-      return nuevo;
-    });
-    return reply.code(201).send({ id, usd: conv.usd });
   });
 
   /**

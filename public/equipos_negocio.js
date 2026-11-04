@@ -20,22 +20,52 @@ export function crearEquiposNegocio(U) {
       try { await api(`/api/equipos/${equipoId}/costo`, { metodo: 'PATCH', cuerpo: { costo_adquisicion: importe.value === '' ? null : Number(importe.value), moneda: moneda.value, fecha_adquisicion: fadq.value || null } }); aviso('Costo guardado'); navegar(); }
       catch (e) { err.textContent = ERR[e.datos?.error] ?? 'No se pudo guardar. Revisá el importe.'; err.classList.remove('oculto'); guardar.disabled = false; }
     });
-    const yaImputado = c.cliente_actual && c.imputaciones.some((i) => i.cliente_id === c.cliente_actual.id);
-    const imputar = c.costo_adquisicion > 0 && c.cliente_actual && !yaImputado && edita && (() => {
-      const b = h('button', { class: 'btn btn-principal', type: 'button' }, `Cargar al negocio de ${c.cliente_actual.nombre}`);
-      b.addEventListener('click', async () => {
-        b.disabled = true; err.classList.add('oculto');
-        try { const r = await api(`/api/equipos/${equipoId}/imputar-costo`, { metodo: 'POST' }); aviso(`Cargado: ${usd2(r.usd)} al negocio del cliente`); navegar(); }
-        catch (e) { err.textContent = ERR[e.datos?.error] ?? 'No se pudo cargar el costo.'; err.classList.remove('oculto'); b.disabled = false; }
-      });
-      return b;
-    })();
+    const llevaCosto = c.costo_usd != null && c.costo_usd > 0;
+    const pct = llevaCosto ? Math.min(100, Math.round((c.meses_amortizados / c.vida_util_meses) * 100)) : 0;
+    const estado = llevaCosto ? h('div', { class: 'amort' },
+      h('div', { class: 'barra-amort', role: 'img', 'aria-label': `${c.meses_amortizados} de ${c.vida_util_meses} meses amortizados` }, h('i', { style: `width:${pct}%` })),
+      h('ul', { class: 'lista' },
+        h('li', null, h('span', null, 'Amortizado'), h('b', null, `${c.meses_amortizados} de ${c.vida_util_meses} meses · ${usd2(c.amortizado)}`)),
+        h('li', null, h('span', null, 'Valor en libros'), h('b', null, usd2(c.valor_en_libros))),
+        c.perdida_baja ? h('li', null, h('span', null, 'Pérdida por baja (flota)'), h('b', null, usd2(c.perdida_baja))) : null,
+        ...c.reparto.map((r) => h('li', null, h('span', null, `Cargado a ${r.cliente}`), h('b', null, usd2(r.usd))))))
+      : h('p', { class: 'apoyo' }, 'Sin costo cargado, el equipo no suma costo a ningún negocio.');
     return h('div', { class: 'tarjeta' }, h('h2', null, 'Costo del equipo'),
       edita ? h('div', { class: 'dos-col', style: 'margin-bottom:8px' }, importe, moneda) : h('p', null, c.costo_adquisicion == null ? 'Sin cargar' : (c.moneda === 'ARS' ? `$ ${num(c.costo_adquisicion)}` : usd2(c.costo_adquisicion))),
       edita && h('div', { class: 'campo' }, h('label', null, 'Fecha de compra'), fadq),
-      c.imputaciones.length ? h('ul', { class: 'lista' }, c.imputaciones.map((i) => h('li', null, h('span', null, `Cargado a ${i.cliente}`, h('div', { class: 'apoyo' }, fecha(i.fecha))), h('b', null, usd2(i.usd))))) : h('p', { class: 'apoyo' }, 'Todavía no está cargado en el negocio de ningún cliente.'),
-      err, edita && h('div', { class: 'acciones' }, guardar, imputar || null),
-      h('p', { class: 'apoyo' }, 'Al cargarlo, el costo entra al negocio del cliente donde está instalado, en la fecha de la instalación. Es el punto de partida para ver cuándo se recupera.'));
+      err, edita && h('div', { class: 'acciones' }, guardar),
+      estado,
+      h('p', { class: 'apoyo' }, `El costo se reparte en ${c.vida_util_meses} meses y cada mes lo carga quien tiene el equipo; en depósito o taller, la flota. Arranca en la fecha de compra o de la primera instalación.`));
+  }
+
+  /* ---------- flota ---------- */
+  async function vistaFlota(destino) {
+    const cuerpo = h('div'); let mes = null;
+    const sel = h('input', { type: 'month', 'aria-label': 'Mes' });
+    const cargar = async () => {
+      vaciar(cuerpo).append(cargando());
+      const [d, rev] = await Promise.all([api(`/api/flota${mes ? `?mes=${mes}` : ''}`), api('/api/flota/revision').catch(() => null)]);
+      mes = d.mes; sel.value = d.mes;
+      const kpi = (r, v, nota) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, r), h('div', { class: 'valor' }, v), nota && h('div', { class: 'nota' }, nota));
+      const max = Math.max(1, ...d.serie.map((x) => x.usd));
+      const barras = h('div', { class: 'flota-barras', role: 'img', 'aria-label': 'Costo de flota de los últimos 12 meses' }, d.serie.map((x) => h('div', { class: 'flota-col', title: `${nombreMes(x.mes)}: ${usd2(x.usd)}` }, h('i', { style: `height:${Math.round((x.usd / max) * 100)}%` }), h('span', null, nombreMes(x.mes).slice(0, 3)))));
+      const grupos = (rev ? [['sin_costo', 'Equipos sin costo cargado', 'No suman costo a ningún negocio hasta que les cargues el valor.', (x) => h('span', null, x.equipo, h('div', { class: 'apoyo' }, x.cliente ? `En ${x.cliente}` : x.estado))],
+        ['fechas', 'Fechas que no cierran', 'La amortización arranca en la fecha de instalación o de compra: conviene que sean las reales.', (x) => h('span', null, x.equipo, h('div', { class: 'apoyo' }, `${x.cliente ? `${x.cliente} · ` : ''}${x.problema}`))],
+        ['estados', 'Estados que no coinciden', 'El estado del equipo y su asignación tienen que decir lo mismo.', (x) => h('span', null, x.equipo, h('div', { class: 'apoyo' }, x.problema))]] : []);
+      vaciar(cuerpo).append(
+        h('div', { class: 'rejilla negocio-kpis' }, kpi('Costo de flota del mes', usd2(d.total), 'Se suma al costo total del negocio, aparte de los clientes'), kpi('Equipos sin cliente', `${d.equipos_deposito} + ${d.equipos_taller}`, 'En depósito y en taller: siguen amortizando mientras esperan'), kpi('Pérdidas del mes', usd2(d.perdidas), 'Bajas con valor por amortizar')),
+        h('div', { class: 'tarjeta' }, h('h2', null, 'Últimos 12 meses'), barras),
+        h('div', { class: 'tarjeta' }, h('h2', null, `Detalle de ${nombreMes(d.mes)}`),
+          d.detalle.length ? h('ul', { class: 'lista' }, d.detalle.map((x) => h('li', null, h('span', null, x.concepto, h('div', { class: 'apoyo' }, x.tipo === 'perdida' ? `Baja del ${fecha(x.fecha)}` : (x.estado === 'reparacion' ? 'En taller' : x.estado === 'deposito' ? 'En depósito' : 'Mes sin cliente'))), h('b', null, usd2(x.usd)))))
+            : h('p', { class: 'apoyo' }, 'Este mes la flota no cargó costos.')),
+        rev ? h('div', { class: 'carril' }, h('h2', null, 'Control de datos'), h('p', null, rev.total ? `${rev.total} cosas para revisar antes de confiar en la amortización.` : 'Todo en orden: costos, fechas y estados cierran.')) : null,
+        ...grupos.filter(([k]) => rev[k].length).map(([k, t, ayuda, fila]) => h('div', { class: 'tarjeta' }, h('h3', null, `${t} (${rev[k].length})`), h('p', { class: 'apoyo' }, ayuda),
+          h('ul', { class: 'lista' }, rev[k].map((x) => h('li', null, fila(x), h('a', { href: `#/equipos/${x.equipo_id}` }, 'Abrir'))))))
+      );
+    };
+    sel.addEventListener('change', () => { if (sel.value) { mes = sel.value; cargar().catch(() => vaciar(cuerpo).append(h('div', { class: 'error' }, 'No se pudo cargar la flota.'))); } });
+    vaciar(destino).append(h('div', { class: 'encabezado' }, h('div', null, h('h1', null, 'Flota'), h('p', null, 'Lo que cuestan los equipos que no están en ningún cliente.')), sel), cuerpo);
+    await cargar().catch(() => vaciar(cuerpo).append(h('div', { class: 'error' }, 'No se pudo cargar la flota.')));
   }
 
   /* ---------- evolutivo ---------- */
@@ -116,5 +146,5 @@ export function crearEquiposNegocio(U) {
     return caja;
   }
 
-  return { tarjetaCosto, pestanaEquipos };
+  return { tarjetaCosto, pestanaEquipos, vistaFlota };
 }

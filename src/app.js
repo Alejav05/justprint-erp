@@ -29,6 +29,7 @@ import rutasContratos from './routes/contratos.js';
 import { cargarAjustes, moduloDeUrl, modulosOcultos } from './lib/ajustes_sistema.js';
 import rutasAjustes from './routes/ajustes.js';
 import rutasEquiposNegocio from './routes/equipos_negocio.js';
+import rutasFlota from './routes/flota.js';
 import rutasTablerosAreas from './routes/tableros_areas.js';
 import rutasAlertas from './routes/alertas.js';
 import { asegurarReglas } from './lib/alertas.js';
@@ -103,6 +104,7 @@ export async function crearApp({ db, logger = false } = {}) {
   await app.register(rutasLeads, { db });
   await app.register(rutasAjustes, { db });
   await app.register(rutasEquiposNegocio, { db });
+  await app.register(rutasFlota, { db });
   await app.register(rutasTablerosAreas, { db });
   await app.register(rutasAlertas, { db });
   await asegurarReglas(db).catch(() => {});

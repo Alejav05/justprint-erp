@@ -104,7 +104,7 @@ export default async function rutasCostos(app, { db }) {
   async function editable(ctx, id, reply) {
     const k = await db('costos').where({ id }).whereNull('deleted_at').first();
     if (!k || (k.cliente_id ? !(await puedeVerCliente(db, ctx, k.cliente_id)) : (await clientesVisibles(db, ctx)) !== null)) { reply.code(404).send({ error: 'no_encontrado' }); return null; }
-    if (k.origen === 'remito') { reply.code(409).send({ error: 'costo_automatico' }); return null; }
+    if (k.origen === 'remito' || k.origen === 'amortizacion') { reply.code(409).send({ error: 'costo_automatico' }); return null; }
     return k;
   }
 

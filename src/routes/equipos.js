@@ -1,3 +1,4 @@
+import { recalcularEquipo } from '../lib/amortizacion.js';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
@@ -191,11 +192,13 @@ export default async function rutasEquipos(app, { db }) {
     } else {
       if (abierta) return error(reply, 409, 'retirar_primero');
       await db.transaction(async (trx) => {
-        await trx('equipos').where({ id: e.id }).update({ estado: 'baja', updated_by: req.ctx.id, updated_at: trx.fn.now() });
+        await trx('equipos').where({ id: e.id }).update({ estado: 'baja', fecha_baja: hoy(), updated_by: req.ctx.id, updated_at: trx.fn.now() });
         await trx('movimientos_equipo').insert({ equipo_id: e.id, motivo: `Baja: ${d.motivo}`, usuario_id: req.ctx.id });
         await auditar(trx, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'equipos', e.id, { estado: e.estado }, { estado: 'baja', motivo: d.motivo });
       });
     }
+    // La amortización sigue al equipo: si falla el recálculo, el movimiento ya hecho no se pierde (se rehace solo todos los días).
+    try { await recalcularEquipo(db, e.id); } catch (err) { req.log.error({ err }, 'amortización'); }
     return { ok: true };
   });
 

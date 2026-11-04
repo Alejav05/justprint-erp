@@ -2,13 +2,14 @@
 export const MODULOS = [
   ['clientes', 'Clientes', ['/api/clientes', '/api/cartera']], ['contratos', 'Contratos', ['/api/contratos', '/api/documentos']], ['hunting', 'Hunting', ['/api/leads']], ['tickets', 'Tickets', ['/api/tickets']], ['servicio', 'Tablero de servicio', ['/api/tableros/servicio']],
   ['equipos', 'Equipos', ['/api/equipos']], ['contadores', 'Contadores', ['/api/contadores']], ['insumos', 'Insumos', ['/api/insumos', '/api/remitos']], ['facturacion', 'Facturación', ['/api/facturas', '/api/facturacion', '/api/cobros', '/api/ipc']],
-  ['cobranzas', 'Cobranzas', ['/api/cobranzas']], ['costos', 'Costos', ['/api/costos']],
+  ['cobranzas', 'Cobranzas', ['/api/cobranzas']], ['costos', 'Costos', ['/api/costos', '/api/flota']],
 ];
 
 export const DEFINICIONES = [
   { clave: 'cobranzas.plazo_defecto_dias', grupo: 'Cobranzas', titulo: 'Plazo de pago por defecto', ayuda: 'Días que se dan para pagar cuando el contrato no tiene plazo propio.', tipo: 'entero', defecto: 15, min: 0, max: 365, unidad: 'días' },
   { clave: 'cobranzas.gracia_dias', grupo: 'Cobranzas', titulo: 'Días de gracia (semáforo amarillo)', ayuda: 'Cuántos días después del vencimiento la factura queda en amarillo antes de pasar a rojo.', tipo: 'entero', defecto: 15, min: 0, max: 120, unidad: 'días' },
   { clave: 'ipc.meses_ajuste', grupo: 'Contratos en pesos', titulo: 'Cada cuántos meses se ajusta', ayuda: 'Se usa para mostrar la fecha del próximo ajuste. El ajuste siempre lo valida y carga una persona.', tipo: 'entero', defecto: 3, min: 1, max: 24, unidad: 'meses' },
+  { clave: 'equipos.vida_util_meses', grupo: 'Equipos', titulo: 'Vida útil para amortizar', ayuda: 'En cuántos meses se amortiza el costo de cada equipo. Se fija al cargar el costo del equipo; cambiarlo no toca los equipos ya cargados.', tipo: 'entero', defecto: 36, min: 6, max: 120, unidad: 'meses' },
   { clave: 'marca.slogan', grupo: 'Marca', titulo: 'Eslogan', ayuda: 'Aparece en la pantalla de ingreso.', tipo: 'texto', defecto: 'En cada página, en cada proyecto', max: 80 },
   { clave: 'marca.empresa', grupo: 'Marca', titulo: 'Razón social facturante', ayuda: 'Se muestra al pie de la pantalla de ingreso.', tipo: 'texto', defecto: 'Europa Haus S.A.S.', max: 80 },
   { clave: 'modulos.ocultos', grupo: 'Módulos', titulo: 'Módulos ocultos', ayuda: 'Un módulo oculto desaparece del menú y deja de responder para todos.', tipo: 'lista', defecto: [], opciones: MODULOS.map(([k]) => k) },

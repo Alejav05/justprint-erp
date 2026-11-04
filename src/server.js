@@ -3,6 +3,7 @@ import { crearDb } from './db.js';
 import { crearApp } from './app.js';
 import { sincronizarSiguiente } from './lib/feriados.js';
 import { sincronizarCotizacionSegura } from './lib/cotizacion.js';
+import { recalcularTodos } from './lib/amortizacion.js';
 import { ejecutarAlertas } from './lib/alertas.js';
 import { prepararBase } from './lib/arranque.js';
 
@@ -27,6 +28,11 @@ async function main() {
   // Cotización del dólar BNA: al arrancar y cada 6 horas.
   sincronizarCotizacionSegura(db, log);
   setInterval(() => sincronizarCotizacionSegura(db, log), 6 * 3600 * 1000).unref();
+
+  // Amortización de equipos: se recalcula al arrancar y todos los días (el mes nuevo suma su cuota; cubre equipos cargados por importación).
+  const amortizar = () => recalcularTodos(db, { log }).catch((e) => app.log.error({ err: e }, 'amortizacion'));
+  setTimeout(amortizar, 20 * 1000).unref();
+  setInterval(amortizar, 24 * 3600 * 1000).unref();
 
   // Alertas: se evalúan cada 15 minutos. Un mismo caso no se repite antes de la frecuencia de su regla.
   const correrAlertas = () => ejecutarAlertas(db).catch((e) => app.log.error({ err: e }, 'alertas'));

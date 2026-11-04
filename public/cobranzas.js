@@ -217,6 +217,7 @@ export function crearCobranzas(U) {
       nodo.append(h('div', { class: 'carril' }, h('h2', null, 'Rentabilidad'), h('p', null, 'Lo facturado contra lo que costó, mes a mes. No depende de si ya se cobró.')),
         h('div', { class: 'rejilla negocio-kpis' }, kpi('Ingresos (facturado)', usd(t.ingresos), n.ingresos_sin_comprobante > 0 ? `USD netos · incluye ${usd(n.ingresos_sin_comprobante)} sin comprobante` : 'USD netos'), kpi('Egresos (costos)', usd(t.egresos), n.sin_costos ? 'Sin costos cargados' : null),
           kpi('Resultado', `${t.resultado < 0 ? '−' : ''}${usd(Math.abs(t.resultado))}`, null, col), kpi('Margen', t.margen == null ? '—' : `${String(t.margen).replace('.', ',')} %`, null, col)));
+      nodo.append(bloqueRecupero(n));
       nodo.append(graficoNegocio(n));
     }
     if (pc) {
@@ -228,6 +229,24 @@ export function crearCobranzas(U) {
       })) : h('div', { class: 'tarjeta vacio' }, h('b', null, 'Está al día'), 'No tiene facturas pendientes de cobro.'));
     } else if (!n) nodo.append(h('div', { class: 'tarjeta vacio' }, 'No hay información de cobranzas para mostrar.'));
     vaciar(destino).append(nodo);
+  }
+
+  /** Resultado del mes (con el equipo amortizado) y recupero de inversión (con el equipo completo). */
+  function bloqueRecupero(n) {
+    const u = n.serie.at(-1); if (!u) return h('div');
+    const mesAct = u; const r = n.recupero; const signo = (v) => `${v < 0 ? '−' : ''}${usd(Math.abs(v))}`;
+    const kpi = (rot, v, nota, c) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, rot), h('div', { class: `valor ${c ?? ''}` }, v), nota && h('div', { class: 'nota' }, nota));
+    const tarjetas = [kpi(`Resultado de ${nombreMes(mesAct.mes)}`, signo(mesAct.resultado), mesAct.amortizacion ? `Con ${usd(mesAct.amortizacion)} de amortización del equipo` : 'Sin amortización de equipo este mes', mesAct.resultado >= 0 ? 'pos' : 'neg')];
+    if (r.invertido > 0) {
+      tarjetas.push(h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, 'Recupero de inversión'), h('div', { class: `valor ${r.acumulado >= 0 ? 'pos' : 'neg'}` }, signo(r.acumulado)),
+        h('div', { class: 'barra-amort', role: 'img', 'aria-label': `${r.porcentaje}% recuperado` }, h('i', { style: `width:${r.porcentaje ?? 0}%` })),
+        h('div', { class: 'nota' }, r.mes_recupero ? `Recuperado en ${nombreMes(r.mes_recupero)}` : `${r.porcentaje} % recuperado de ${usd(r.invertido)} invertidos`)));
+    } else tarjetas.push(kpi('Recupero de inversión', '—', 'Sin equipos con costo cargado en este cliente'));
+    return h('div', null, h('div', { class: 'carril' }, h('h2', null, 'Resultado y recupero'),
+      h('p', null, 'El resultado reparte el equipo en su vida útil; el recupero cuenta el equipo entero desde que llega y devuelve a stock lo que falta amortizar si se retira.')),
+      h('div', { class: 'rejilla negocio-kpis' }, ...tarjetas),
+      n.equipos.length ? h('div', { class: 'tarjeta' }, h('h3', null, 'Equipos de este negocio'), h('ul', { class: 'lista' }, n.equipos.map((e) => h('li', null,
+        h('span', null, `${e.equipo} · ${e.numero_serie}`, h('div', { class: 'apoyo' }, `${e.vigente ? 'Instalado' : 'Retirado'} · costo ${usd(e.costo_usd)} · amortizado ${usd(e.amortizado_en_este_cliente)} acá`)), h('b', null, `${usd(e.valor_en_libros)} en libros`))))) : null);
   }
 
   function graficoNegocio(n) {

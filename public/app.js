@@ -84,6 +84,7 @@ const ICONOS = {
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   costos: 'M3 6h18M3 12h18M3 18h12M19 15v6M16 18h6',
   'ajustes-ipc': 'M4 18l5-6 4 3 7-9M15 6h5v5',
+  flota: 'M3 17h18M5 17V9l7-4 7 4v8M9 17v-5h6v5',
   cobranzas: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M15 9.5c-.6-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5',
   conformidades: 'M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.3 6.8 19.1l1-5.8L3.5 9.2l5.9-.9zM9.5 12.2l1.7 1.7 3.3-3.4',
   usuarios: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
@@ -114,6 +115,7 @@ const MENU = [
   { ruta: 'cobranzas', texto: 'Cobranzas', alguno: ['cobranzas.gestionar', 'cobranzas.escaladas'] },
   { ruta: 'ajustes-ipc', texto: 'Ajustes por IPC', permiso: 'importes.ver' },
   { ruta: 'costos', texto: 'Costos', permiso: 'costos.ver' },
+  { ruta: 'flota', texto: 'Flota', permiso: 'costos.ver' },
   { grupo: 'Sistema' },
   { ruta: 'usuarios', texto: 'Usuarios', permiso: 'usuarios.administrar' },
   { ruta: 'alertas', texto: 'Alertas', permiso: 'alertas.configurar' },
@@ -1656,6 +1658,7 @@ async function navegar() {
       else await vistaFacturacion(nuevo, param);
     } else if (ruta === 'costos' && puede('costos.ver')) await cst.vistaCostos(nuevo);
     else if (ruta === 'ajustes-ipc' && puede('importes.ver')) await vistaAjustesIpc(nuevo);
+    else if (ruta === 'flota' && puede('costos.ver')) await eqn.vistaFlota(nuevo);
     else if (ruta === 'cobranzas' && (puede('cobranzas.gestionar') || puede('cobranzas.escaladas'))) await cob.vistaCobranzas(nuevo);
     else if (ruta === 'configuracion' && puede('sistema.configurar')) await conf.vistaConfiguracion(nuevo, param);
     else if (ruta === 'usuarios' && puede('usuarios.administrar')) await (param ? vistaUsuario(nuevo, param) : vistaUsuarios(nuevo));

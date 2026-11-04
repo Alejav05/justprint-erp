@@ -449,3 +449,10 @@ canvas.firma-grande.firmando{border-style:solid;border-color:var(--cian-os)}
 .hr-hechos b{font-weight:600;word-break:break-word}
 .hr-sub{display:block;margin:12px 0 8px;font-size:11px;font-weight:700;letter-spacing:.08em;color:#7C8B96}
 @media (max-width:600px){.hr-hechos{grid-template-columns:1fr}}
+.barra-amort{height:10px;background:#E6EDF1;border-radius:6px;overflow:hidden;margin:12px 0 8px}
+.barra-amort i{display:block;height:100%;background:#12B5CB}
+.amort{margin-top:14px}
+.flota-barras{display:flex;align-items:flex-end;gap:6px;height:140px;margin-top:10px}
+.flota-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}
+.flota-col i{display:block;width:100%;max-width:28px;background:#7A8793;border-radius:4px 4px 0 0;min-height:2px}
+.flota-col span{font-size:11px;color:#5B6B78;margin-top:4px}

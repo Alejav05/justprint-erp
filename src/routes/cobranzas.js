@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles, puede } from '../lib/contexto.js';
+import { acumuladoHasta, costoUsdDe, inicioDe, mesDe as mesAmort, vidaUtilDe } from '../lib/amortizacion.js';
 import { aDia, hoy } from '../lib/fechas.js';
 import { gracia, plazoDe, plazoDefecto, semaforo, sumarDias } from '../lib/cobranzas.js';
 import { redondear } from '../lib/liquidacion.js';
@@ -161,28 +162,49 @@ export default async function rutasCobranzas(app, { db }) {
     const mes = (iso) => String(iso).slice(0, 7);
     const fact = await db('facturas').where({ cliente_id: id }).whereNull('deleted_at').whereIn('estado', ['emitida', 'cobrada_parcial', 'cobrada']);
     const costos = await db('costos').where({ cliente_id: id }).whereNull('deleted_at');
-    const m = new Map(); const celda = (k) => { if (!m.has(k)) m.set(k, { mes: k, ingresos: 0, egresos: 0, sin_comprobante: 0 }); return m.get(k); };
+    const m = new Map(); const celda = (k) => { if (!m.has(k)) m.set(k, { mes: k, ingresos: 0, egresos: 0, amort: 0, inversion: 0, devolucion: 0, sin_comprobante: 0 }); return m.get(k); };
     let sinFecha = 0;
     for (const f of fact) {
       const usd = Number(f.neto_usd ?? 0); const emi = aDia(f.fecha_emision); if (!emi) sinFecha += 1;
       const c = celda(emi ? mes(emi) : f.periodo); c.ingresos += usd; if (!f.entidad_facturante_id) c.sin_comprobante += usd; // sin comprobante también es ingreso del negocio
     }
-    for (const k of costos) celda(mes(aDia(k.fecha))).egresos += Number(k.importe_usd ?? 0);
-    const claves = [...m.keys()].sort(); const serie = []; let punto_equilibrio = null;
+    for (const k of costos) { const c = celda(mes(aDia(k.fecha))); const u = Number(k.importe_usd ?? 0); c.egresos += u; if (k.origen === 'amortizacion') c.amort += u; }
+    // Recupero de inversión: cuando un equipo llega al cliente cuenta lo que le falta amortizar (entero si es nuevo) y, si se retira, ese valor en libros vuelve a stock.
+    const equiposNeg = [];
+    const asigsCli = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id').join('equipos as e', 'e.id', 'a.equipo_id').join('modelos_equipo as mo', 'mo.id', 'e.modelo_id')
+      .where('c.cliente_id', id).whereNull('c.deleted_at').whereNull('e.deleted_at').select('a.equipo_id', 'a.desde', 'a.hasta', 'e.numero_serie', 'e.estado', 'mo.marca', 'mo.modelo');
+    for (const eid of [...new Set(asigsCli.map((a) => a.equipo_id))]) {
+      const eq = await db('equipos').where({ id: eid }).first(); const costo = await costoUsdDe(db, eq); if (!costo) continue;
+      const todas = await db('asignaciones_equipo').where({ equipo_id: eid }).select('desde', 'hasta');
+      const vida = vidaUtilDe(eq); const base = asigsCli.find((a) => a.equipo_id === eid); const m0 = mesAmort(inicioDe(eq, todas));
+      const idx = (p) => { const [a, b] = p.split('-').map(Number); const [a0, b0] = m0.split('-').map(Number); return (a - a0) * 12 + (b - b0); };
+      for (const a of asigsCli.filter((x) => x.equipo_id === eid)) {
+        const entra = mes(aDia(a.desde)); celda(entra).inversion += costo - acumuladoHasta(costo, vida, idx(entra) - 1);
+        if (a.hasta) { const sale = mes(aDia(a.hasta)); celda(sale).devolucion += costo - acumuladoHasta(costo, vida, idx(sale)); }
+      }
+      const vigente = asigsCli.some((x) => x.equipo_id === eid && !x.hasta);
+      const cargado = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion', cliente_id: id }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;
+      const total = (await db('costos').where({ equipo_id: eid, origen: 'amortizacion', tipo: 'amortizacion' }).whereNull('deleted_at').sum({ t: 'importe_usd' }).first()).t ?? 0;
+      equiposNeg.push({ equipo_id: eid, equipo: `${base.marca} ${base.modelo}`, numero_serie: base.numero_serie, vigente, costo_usd: redondear(costo), vida_util_meses: vida, amortizado_total: redondear(total), amortizado_en_este_cliente: redondear(cargado), valor_en_libros: base.estado === 'baja' ? 0 : redondear(costo - total) });
+    }
+    const claves = [...m.keys()].sort(); const serie = []; let punto_equilibrio = null; let punto_recupero = null; let invertidoTotal = 0;
     if (claves.length) {
-      let [y, mm] = claves[0].split('-').map(Number); const fin = hoy().slice(0, 7); let ai = 0; let ae = 0; let eq = null;
+      let [y, mm] = claves[0].split('-').map(Number); const fin = hoy().slice(0, 7); let ai = 0; let ae = 0; let eq = null; let ar = 0; let invertido = 0; let rec = null;
       for (;;) {
-        const k = `${y}-${String(mm).padStart(2, '0')}`; const c = m.get(k) ?? { mes: k, ingresos: 0, egresos: 0, sin_comprobante: 0 };
+        const k = `${y}-${String(mm).padStart(2, '0')}`; const c = m.get(k) ?? { mes: k, ingresos: 0, egresos: 0, amort: 0, inversion: 0, devolucion: 0, sin_comprobante: 0 };
         ai += c.ingresos; ae += c.egresos; if (eq === null && ae > 0 && ai > ae) eq = k;
-        serie.push({ mes: k, ingresos: redondear(c.ingresos), egresos: redondear(c.egresos), resultado: redondear(c.ingresos - c.egresos), acum_ingresos: redondear(ai), acum_egresos: redondear(ae), acum_resultado: redondear(ai - ae), sin_comprobante: redondear(c.sin_comprobante) });
+        const op = c.egresos - c.amort; ar += c.ingresos - op - c.inversion + c.devolucion; invertido += c.inversion; if (rec === null && invertido > 0 && ar >= 0) rec = k;
+        serie.push({ mes: k, ingresos: redondear(c.ingresos), egresos: redondear(c.egresos), resultado: redondear(c.ingresos - c.egresos), acum_ingresos: redondear(ai), acum_egresos: redondear(ae), acum_resultado: redondear(ai - ae), sin_comprobante: redondear(c.sin_comprobante),
+          amortizacion: redondear(c.amort), inversion: redondear(c.inversion), devolucion: redondear(c.devolucion), recupero: redondear(c.ingresos - op - c.inversion + c.devolucion), acum_recupero: redondear(ar) });
         if (k >= fin && k >= claves.at(-1)) break; mm += 1; if (mm > 12) { mm = 1; y += 1; }
       }
-      punto_equilibrio = eq;
+      punto_equilibrio = eq; punto_recupero = rec; invertidoTotal = invertido;
     }
     const pend = await abiertas(req.ctx, { cliente_id: id });
     const tot = serie.at(-1) ?? { acum_ingresos: 0, acum_egresos: 0, acum_resultado: 0 };
     const sinEgresos = costos.length === 0;
-    return { moneda: 'USD', neto: true, serie, punto_equilibrio,
+    const ult = serie.at(-1); const recupero = { invertido: redondear(invertidoTotal), acumulado: ult ? ult.acum_recupero : 0, porcentaje: invertidoTotal > 0 && ult ? Math.max(0, Math.min(100, Math.round(((invertidoTotal + ult.acum_recupero) / invertidoTotal) * 100))) : null, mes_recupero: punto_recupero };
+    return { moneda: 'USD', neto: true, serie, punto_equilibrio, recupero, equipos: equiposNeg,
       totales: { ingresos: tot.acum_ingresos, egresos: tot.acum_egresos, resultado: tot.acum_resultado, margen: tot.acum_ingresos > 0 ? Math.round((tot.acum_resultado / tot.acum_ingresos) * 1000) / 10 : null },
       sin_costos: sinEgresos, facturas_sin_fecha: sinFecha, ingresos_sin_comprobante: redondear(serie.reduce((t, x) => t + x.sin_comprobante, 0)),
       por_cobrar: { usd: redondear(pend.reduce((s, i) => s + i.saldo_usd, 0)), facturas: pend.length, rojas: pend.filter((i) => i.color === 'rojo').length, amarillas: pend.filter((i) => i.color === 'amarillo').length, detalle: pend } };

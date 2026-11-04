@@ -18,17 +18,23 @@ before(async () => {
 });
 after(async () => { await ctx.cerrar(); });
 
-test('el costo del equipo se carga, se imputa una sola vez al negocio del cliente y es interno', async () => {
+test('el costo del equipo se carga, se amortiza mes a mes en el negocio del cliente y es interno', async () => {
   const { llamar } = await entrar(ctx.app, 'direccion@demo.local');
-  assert.equal((await llamar('POST', `/api/equipos/${equipo}/imputar-costo`)).statusCode, 409); // todavía sin costo
-  assert.equal((await llamar('PATCH', `/api/equipos/${equipo}/costo`, { costo_adquisicion: 600, moneda: 'USD' })).statusCode, 200);
+  assert.equal((await llamar('POST', `/api/equipos/${equipo}/imputar-costo`)).statusCode, 404); // el cargo de una vez ya no existe
+  assert.equal((await llamar('PATCH', `/api/equipos/${equipo}/costo`, { costo_adquisicion: 720, moneda: 'USD' })).statusCode, 200);
   assert.equal((await llamar('GET', `/api/equipos/${equipo}`)).json().costo_adquisicion, undefined, 'la ficha del equipo no trae el costo');
-  assert.equal((await llamar('GET', `/api/equipos/${equipo}/costo`)).json().costo_adquisicion, 600);
-  const r = await llamar('POST', `/api/equipos/${equipo}/imputar-costo`); assert.equal(r.statusCode, 201); assert.equal(r.json().usd, 600);
-  const k = await ctx.db('costos').where({ equipo_id: equipo, origen: 'equipo' }).first();
-  assert.equal(k.cliente_id, cliente); assert.equal(k.contrato_id, contrato); assert.equal(k.tipo, 'equipo'); assert.equal(Number(k.importe_usd), 600);
-  assert.equal((await llamar('POST', `/api/equipos/${equipo}/imputar-costo`)).json().error, 'ya_imputado');
-  const neg = (await llamar('GET', `/api/clientes/${cliente}/negocio`)).json(); assert.equal(neg.totales.egresos, 600);
+  const c = (await llamar('GET', `/api/equipos/${equipo}/costo`)).json();
+  assert.equal(c.costo_adquisicion, 720); assert.equal(c.vida_util_meses, 36); assert.equal(c.meses_amortizados, 4); assert.equal(c.amortizado, 80); assert.equal(c.valor_en_libros, 640);
+  const ks = await ctx.db('costos').where({ equipo_id: equipo, origen: 'amortizacion' });
+  assert.equal(ks.length, 4); assert.ok(ks.every((k) => k.cliente_id === cliente && k.contrato_id === contrato && k.tipo === 'amortizacion' && Number(k.importe_usd) === 20));
+  const neg = (await llamar('GET', `/api/clientes/${cliente}/negocio`)).json(); assert.equal(neg.totales.egresos, 80);
+  assert.equal(neg.recupero.invertido, 720); assert.equal(neg.equipos.length, 1); assert.equal(neg.equipos[0].valor_en_libros, 640); assert.equal(neg.equipos[0].amortizado_en_este_cliente, 80);
+  assert.equal(neg.serie.find((x) => x.mes === mes(3)).inversion, 720); assert.equal(neg.serie.at(-1).acum_recupero, -720 - 0 + 0 + (neg.totales.ingresos - (neg.totales.egresos - 80)) , 'recupero = ingresos - costos operativos - equipo');
+  // retirado a los 2 meses, vuelve a stock su valor en libros
+  await ctx.db('asignaciones_equipo').where({ equipo_id: equipo }).update({ hasta: `${mes(2)}-28` });
+  const neg2 = (await llamar('GET', `/api/clientes/${cliente}/negocio`)).json(); assert.equal(neg2.serie.find((x) => x.mes === mes(2)).devolucion, 680); // 720 - 2 cuotas de 20
+  await ctx.db('asignaciones_equipo').where({ equipo_id: equipo }).update({ hasta: null });
+  assert.equal((await llamar('PATCH', `/api/costos/${ks[0].id}`, { fecha: hoy(), concepto: 'x', tipo: 'otro', importe: 1, moneda: 'USD' })).statusCode, 409, 'la amortización no se edita a mano');
 });
 
 test('en pesos el costo se convierte con la cotización; sin permiso de costos no se ve ni se carga', async () => {
@@ -36,7 +42,7 @@ test('en pesos el costo se convierte con la cotización; sin permiso de costos n
   const e2 = (await db('equipos').insert({ modelo_id: modelo, numero_serie: 'TEST-0002', estado: 'instalado' }))[0];
   await db('asignaciones_equipo').insert({ equipo_id: e2, contrato_id: contrato, sede_id: sede, desde: `${mes(1)}-01`, contador_inicial_negro: 0, contador_inicial_color: 0 });
   await llamar('PATCH', `/api/equipos/${e2}/costo`, { costo_adquisicion: 300000, moneda: 'ARS' });
-  assert.equal((await llamar('POST', `/api/equipos/${e2}/imputar-costo`)).json().usd, 200);
+  assert.equal((await llamar('GET', `/api/equipos/${e2}/costo`)).json().costo_usd, 200);
   const tec = await entrar(ctx.app, 'matias@demo.local');
   assert.equal((await tec.llamar('GET', `/api/equipos/${equipo}/costo`)).statusCode, 403);
   assert.equal((await tec.llamar('PATCH', `/api/equipos/${equipo}/costo`, { costo_adquisicion: 1, moneda: 'USD' })).statusCode, 403);
