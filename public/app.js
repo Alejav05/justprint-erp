@@ -95,7 +95,7 @@ const ICONOS = {
 };
 const icono = (n) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: ICONOS[n] }));
 
-const VERSION_CLIENTE = '2026.11.04.5'; // debe coincidir con src/version.js (hay una prueba que lo controla)
+const VERSION_CLIENTE = '2026.11.04.6'; // debe coincidir con src/version.js (hay una prueba que lo controla)
 const MENU = [
   { ruta: 'inicio', texto: 'Inicio' },
   { ruta: 'notificaciones', texto: 'Notificaciones' },

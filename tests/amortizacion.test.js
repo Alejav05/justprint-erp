@@ -228,3 +228,13 @@ test('la versión del servidor y la del navegador coinciden, y el código se rev
   assert.equal((await ctx.app.inject({ method: 'GET', url: '/api/salud' })).json().version, VERSION);
   assert.match((await ctx.app.inject({ method: 'GET', url: '/app.js' })).headers['cache-control'], /max-age=0/); // el código se revalida siempre
 });
+
+test('un costo cargado a mano como amortización del equipo también se puede pasar a accesorio', async () => {
+  const { entrar } = await import('./ayuda.js'); const { llamar } = await entrar(ctx.app, 'direccion@demo.local'); const db = ctx.db;
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente H', estado: 'activo' }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'H', tipo: 'monocromo' }))[0];
+  const e = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'ACC-2', estado: 'deposito', moneda: 'USD', costo_adquisicion: 300, costo_usd: 300 }))[0];
+  const k = (await db('costos').insert({ fecha: '2026-01-05', concepto: 'Bandeja', tipo: 'amortizacion', importe: 40, moneda: 'USD', importe_usd: 40, cliente_id: cli, equipo_id: e, origen: 'manual' }))[0];
+  assert.equal((await llamar('POST', `/api/costos/${k}/pasar-a-accesorio`)).statusCode, 200);
+  assert.equal((await llamar('GET', `/api/equipos/${e}/costo`)).json().costo_usd, 340);
+});

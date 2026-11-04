@@ -127,7 +127,7 @@ export default async function rutasCostos(app, { db }) {
     const k = await db('costos').where({ id: Number(req.params.id) }).whereNull('deleted_at').first();
     if (!k || (k.cliente_id ? !(await puedeVerCliente(db, req.ctx, k.cliente_id)) : (await clientesVisibles(db, req.ctx)) !== null)) return reply.code(404).send({ error: 'no_encontrado' });
     if (!k.equipo_id) return reply.code(409).send({ error: 'sin_equipo' });
-    if (k.origen === 'amortizacion' || ['amortizacion', 'equipo'].includes(k.tipo)) return reply.code(409).send({ error: 'no_aplica' });
+    if (k.origen === 'amortizacion') return reply.code(409).send({ error: 'no_aplica' }); // la amortización automática no se reclasifica
     const e = await db('equipos').where({ id: k.equipo_id }).whereNull('deleted_at').first(); if (!e) return reply.code(404).send({ error: 'no_encontrado' });
     if (e.costo_adquisicion == null || Number(e.costo_adquisicion) <= 0) return reply.code(409).send({ error: 'equipo_sin_costo' });
     const monto = e.moneda === 'USD' ? Number(k.importe_usd) : (k.moneda === e.moneda ? Number(k.importe) : null);
