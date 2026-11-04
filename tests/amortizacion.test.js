@@ -116,3 +116,20 @@ test('mover instalar, retirar y dar de baja recalcula la amortización solo', as
   assert.equal((await llamar('POST', `/api/equipos/${e}/mover`, { accion: 'baja', motivo: 'Sin arreglo' })).statusCode, 200);
   const p = await k().where({ tipo: 'perdida' }); assert.equal(p.length, 1); assert.equal(p[0].cliente_id, null); assert.equal(Number(p[0].importe_usd), 350);
 });
+
+test('migración: alinea con el contrato una instalación con un día de diferencia, y no toca otras', async () => {
+  const { up } = await import('../migrations/20261111_027_alinear_instalaciones.js'); const db = ctx.db;
+  const cli = (await db('clientes').insert({ razon_social: 'Cliente D', estado: 'activo' }))[0];
+  const con = (await db('contratos').insert({ cliente_id: cli, nombre: 'CD', estado: 'vigente', moneda: 'USD', fecha_inicio: '2026-11-04' }))[0];
+  const mod = (await db('modelos_equipo').insert({ marca: 'Brother', modelo: 'X', tipo: 'monocromo' }))[0];
+  const a = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'ALI-1', estado: 'instalado', moneda: 'USD' }))[0];
+  const b = (await db('equipos').insert({ modelo_id: mod, numero_serie: 'ALI-2', estado: 'instalado', moneda: 'USD' }))[0];
+  for (const [e, d] of [[a, '2026-11-03'], [b, '2026-10-20']]) {
+    await db('asignaciones_equipo').insert({ equipo_id: e, contrato_id: con, desde: d, contador_inicial_negro: 0, contador_inicial_color: 0 });
+    await db('lecturas_contador').insert({ equipo_id: e, fecha: d, periodo: d.slice(0, 7), contador_negro: 0, contador_color: 0, origen: 'tecnico' });
+  }
+  await up(db);
+  const f = async (e) => String((await db('asignaciones_equipo').where({ equipo_id: e }).first()).desde).slice(0, 10);
+  assert.equal(await f(a), '2026-11-04'); assert.equal(await f(b), '2026-10-20', 'diferencia mayor a un día: no se toca');
+  assert.equal(String((await db('lecturas_contador').where({ equipo_id: a }).first()).fecha).slice(0, 10), '2026-11-04');
+});
