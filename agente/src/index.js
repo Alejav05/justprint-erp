@@ -125,6 +125,8 @@ async function main() {
   }
 }
 
+const ESTADOS = { aprobada: 'cargada en el ERP', a_revisar: 'quedó a revisar en el ERP', rechazada: 'rechazada', no_registrado: 'no es un equipo de JustPrint de este cliente', prueba: 'prueba' };
+
 /** Con doble clic (sin comando) se abre un menú y la ventana espera antes de cerrarse. */
 async function menu() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -135,16 +137,25 @@ async function menu() {
     for (;;) {
       const cfg = leerConfig();
       console.log(cfg.token ? `Conectado a ${cfg.erp_url} (token …${cfg.token.slice(-6)})` : 'Todavía no está configurado: elegí 1 primero (o 2 para solo buscar impresoras).');
-      console.log('\n  1. Configurar (dirección del ERP y token)\n  2. Buscar impresoras y ver sus contadores\n  3. Probar contra el ERP (toma de prueba, no factura)\n  4. Diagnóstico de una impresora (para confirmar negro y color)\n  5. Instalar la toma automática de fin de mes\n  6. Ver ayuda de comandos\n  0. Salir\n');
+      console.log('\n  1. Configurar (dirección del ERP y token)\n  2. Buscar impresoras y ver sus contadores\n  3. Probar contra el ERP (toma de prueba, no factura)\n  4. Tomar ahora y mandar al ERP (lectura real del período)\n  5. Diagnóstico de una impresora (para confirmar negro y color)\n  6. Instalar la toma automática de fin de mes\n  7. Ver ayuda de comandos\n  0. Salir\n');
       const op = await preguntar('Opción: ');
       try {
         if (op === '0' || op === '') break;
         if (op === '1') await configurar({}, preguntar);
         else if (op === '2') tabla(await relevar(cfg));
         else if (op === '3') { const r = await crearErp(cfg).config(); console.log(`ERP OK: ${r.cliente}, esperamos ${r.equipos.length} equipos.`); const t = await tomar(cfg, { prueba: true }); tabla(t.equipos); if (t.faltan.length) console.log(`Faltan: ${t.faltan.map((e) => e.serie).join(', ')}`); }
-        else if (op === '4') await diagnostico(await preguntar('IP de la impresora: '), cfg);
-        else if (op === '5') { instalarTarea(); console.log('Listo: la PC va a tomar los contadores sola a fin de mes.'); }
-        else if (op === '6') console.log(AYUDA);
+        else if (op === '4') {
+          const r = await crearErp(cfg).config();
+          const per = r.corte.periodo;
+          if (!per) console.log(`Atención: hoy (${r.hoy}) no es fecha de corte. La lectura va a quedar "a revisar" en el ERP.`);
+          if (/^s/i.test(await preguntar(`Se carga como lectura real${per ? ` de ${per}` : ''} para ${r.cliente}. ¿Seguís? (s/n): `))) {
+            const t = await tomar(cfg, { forzar: true }); tabla(t.equipos);
+            for (const x of t.resultados) console.log(`  ${x.serie ?? x.ip}: ${ESTADOS[x.estado] ?? x.estado}${x.motivo ? ` (${x.motivo.replace(/_/g, ' ')})` : ''}`);
+          }
+        }
+        else if (op === '5') await diagnostico(await preguntar('IP de la impresora: '), cfg);
+        else if (op === '6') { instalarTarea(); console.log('Listo: la PC va a tomar los contadores sola a fin de mes.'); }
+        else if (op === '7') console.log(AYUDA);
       } catch (e) {
         console.log(`\nNo se pudo: ${e.message}${/schtasks|Acceso denegado|Access is denied/i.test(e.message) ? ' (para instalar, abrí el programa con clic derecho > Ejecutar como administrador)' : ''}`);
       }
