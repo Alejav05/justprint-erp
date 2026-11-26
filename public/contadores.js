@@ -18,6 +18,7 @@ export function crearContadores(U) {
   const ESTADO = { completo: ['Completo', 'ok'], parcial: ['Faltan algunos', 'aviso'], pendiente: ['Sin cargar', 'malo'] };
 
   async function vistaContadores(destino, periodoParam, clienteParam) {
+    if (periodoParam === 'agentes') return vistaAgentes(destino);
     const clienteId = /^\d+$/.test(clienteParam ?? '') ? clienteParam : null;
     const periodo = /^\d{4}-\d{2}$/.test(periodoParam ?? '') ? periodoParam : periodoSugerido();
     const puedeCargar = puede('contadores.cargar');
@@ -26,12 +27,16 @@ export function crearContadores(U) {
     const origen = h('select', { 'aria-label': 'Quién informó' }, [['tecnico', 'Técnico'], ['cliente', 'Cliente']].map(([v, t]) => h('option', { value: v }, t)));
     const buscar = h('input', { type: 'search', placeholder: 'Buscar cliente', 'aria-label': 'Buscar cliente' });
     let soloPendientes = false;
+    const avisoRevisar = h('div');
+    api('/api/contadores/recibidas').then((r) => { if (r.length) avisoRevisar.append(h('div', { class: 'tarjeta', role: 'status', style: 'margin:16px 0;display:flex;gap:12px;align-items:center;justify-content:space-between' }, h('span', null, h('b', null, `${r.length} ${r.length === 1 ? 'lectura automática espera' : 'lecturas automáticas esperan'} revisión. `), 'Hasta que alguien las apruebe no cuentan para la factura.'), h('a', { class: 'btn', href: '#/contadores/agentes' }, 'Revisar'))); }).catch(() => {});
     const zona = h('div'); const resumen = h('div'); const barra = h('div', { class: 'barra-guardar' }); const problemas = h('div');
     const cambios = new Map(); // equipo_id -> { negro, color, fila }
     let datos = null; const errores = new Map(); const equipoPorId = new Map(); const facturadoPorEquipo = new Map();
 
     agregar(destino, [
-      encabezado('Contadores', 'Toma mensual por cliente. Se carga a fin de mes o la primera semana del siguiente y alimenta la factura de ese mes.'),
+      encabezado('Contadores', 'Toma mensual por cliente. Se carga a fin de mes o la primera semana del siguiente y alimenta la factura de ese mes.',
+        h('a', { class: 'btn', href: '#/contadores/agentes' }, 'Toma automática')),
+      avisoRevisar,
       h('div', { class: 'tarjeta herramientas', style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end' },
         h('label', null, 'Período a facturar ', per),
         puedeCargar && h('label', null, 'Fecha de la lectura ', fechaLectura),
@@ -60,14 +65,14 @@ export function crearContadores(U) {
         const sucio = v.negro !== null && (v.negro !== (e.actual?.negro ?? null) || (e.tipo === 'color' && v.color !== (e.actual?.color ?? null)));
         const k = clasificar(e, v.negro === null ? null : v);
         const largo = !sucio && e.consumo?.meses > 1 ? h('div', { class: 'apoyo' }, `${e.consumo.meses} meses`) : null;
-        vaciar(consumo).append(k ? h('span', { class: k.menor ? 'neg' : '' }, e.tipo === 'color' ? `${num(k.negro)} / ${num(k.color)}` : num(k.negro)) : '—', largo);
+        vaciar(consumo).append(k ? h('span', { class: k.menor ? 'neg' : '' }, e.tipo === 'color' ? `${num(k.negro)} / ${num(k.color)}` : num(k.negro)) : '—', ...(largo ? [largo] : []));
         vaciar(estadoTd);
         const err = errores.get(e.equipo_id);
         if (err) estadoTd.append(chip('No se guardó', 'malo'), h('div', { class: 'apoyo neg', role: 'alert' }, err));
         else if (k?.menor) estadoTd.append(chip('Menor al anterior', 'malo'));
         else if (sucio) estadoTd.append(chip(e.actual ? 'Corrección sin guardar' : 'Sin guardar', 'aviso'));
         else if (e.actual) {
-          estadoTd.append(chip('Cargado', 'ok'), h('div', { class: 'apoyo' }, `${fecha(e.actual.fecha)} · ${e.actual.origen === 'cliente' ? 'informó el cliente' : e.actual.usuario ?? 'técnico'}`));
+          estadoTd.append(chip('Cargado', 'ok'), h('div', { class: 'apoyo' }, `${fecha(e.actual.fecha)} · ${e.actual.origen === 'cliente' ? 'informó el cliente' : e.actual.origen === 'automatica' ? (e.actual.usuario ? `agente, aprobó ${e.actual.usuario}` : 'agente automático') : e.actual.usuario ?? 'técnico'}`));
           if (e.alerta === 'cero') estadoTd.append(h('div', { class: 'apoyo neg' }, 'Consumo 0: revisá si el equipo está parado.'));
           if (e.alerta === 'alto') estadoTd.append(h('div', { class: 'apoyo neg' }, `Consumo muy por encima de lo habitual (${num(e.promedio)} páginas).`));
         } else {
@@ -157,6 +162,113 @@ export function crearContadores(U) {
     per.addEventListener('change', () => { if (per.value) { location.hash = `#/contadores/${per.value}${clienteId ? `/${clienteId}` : ''}`; } });
     buscar.addEventListener('input', () => datos && pintar());
     await cargar();
+  }
+
+
+  const MOTIVO = {
+    consumo_alto: 'Consumo muy por encima del habitual', consumo_cero: 'Consumo en cero', contador_menor_al_anterior: 'El contador es menor que el anterior',
+    contador_mayor_al_siguiente: 'Es mayor que una lectura posterior', fuera_de_fecha_de_corte: 'Tomada a mitad de mes, fuera del corte', faltan_contadores: 'El equipo no informó negro y color',
+    equipo_de_otro_cliente: 'El número de serie es de un equipo de otro cliente', ya_tiene_lectura_manual: 'Ya había una lectura cargada a mano', serie_desconocida: 'Número de serie que no es nuestro', sin_numero_de_serie: 'El equipo no informó número de serie',
+  };
+  const ERR_REV = { no_esta_a_revisar: 'Ya fue revisada.', equipo_no_corresponde: 'El equipo no es de este cliente: rechazala y revisá la ficha.', equipo_no_disponible: 'Ese equipo ya no está en un contrato vigente.',
+    contador_menor_al_anterior: 'Queda por debajo de una lectura anterior. Corregí los números o rechazala.', contador_mayor_al_siguiente: 'Queda por encima de una lectura posterior. Corregí los números o rechazala.',
+    ya_tiene_lectura_manual: 'El período ya tiene una lectura cargada a mano.', faltan_contadores: 'Faltan contadores: cargalos antes de aprobar.' };
+  const hace = (iso) => { if (!iso) return 'Nunca'; const t = new Date(String(iso).replace(' ', 'T') + (String(iso).includes('Z') ? '' : 'Z')).getTime(); const min = Math.round((Date.now() - t) / 60000);
+    return min < 60 ? `Hace ${Math.max(1, min)} min` : min < 1440 ? `Hace ${Math.round(min / 60)} h` : `Hace ${Math.round(min / 1440)} días`; };
+
+  async function vistaAgentes(destino) {
+    const puedeAdministrar = puede('contadores.agentes'); const puedeRevisar = puede('contadores.cargar');
+    const bandeja = h('div'); const lista = h('div'); const alta = h('div');
+    agregar(destino, [
+      encabezado('Toma automática de contadores', 'Un agente instalado en la red de cada cliente lee los contadores por SNMP a fin de mes y los manda acá. Las lecturas normales entran solas; las dudosas esperan revisión.',
+        h('a', { class: 'btn', href: '#/contadores' }, 'Volver a Contadores')),
+      bandeja, lista, alta]);
+
+    async function pintarBandeja() {
+      vaciar(bandeja).append(cargando());
+      const filas = await api('/api/contadores/recibidas').catch(() => null);
+      vaciar(bandeja);
+      if (!filas) { bandeja.append(h('div', { class: 'vacio' }, 'No se pudo cargar la bandeja.')); return; }
+      if (!filas.length) { bandeja.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'A revisar'), h('p', { class: 'apoyo' }, 'No hay lecturas automáticas esperando revisión.'))); return; }
+      bandeja.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, `A revisar (${filas.length})`),
+        h('table', null, h('thead', null, h('tr', null, ['Cliente', 'Equipo', 'Leído', 'Última cargada', 'Motivo', ''].map((t) => h('th', null, t)))),
+          h('tbody', null, filas.map((f) => {
+            const color = f.tipo === 'color';
+            const inN = h('input', { type: 'number', min: '0', value: f.contador_negro ?? '', placeholder: 'Negro', 'aria-label': 'Contador negro', style: 'width:110px', disabled: !puedeRevisar });
+            const inC = color ? h('input', { type: 'number', min: '0', value: f.contador_color ?? '', placeholder: 'Color', 'aria-label': 'Contador color', style: 'width:110px', disabled: !puedeRevisar }) : null;
+            const err = h('div', { class: 'error oculto', role: 'alert' });
+            const accion = async (ruta, cuerpo) => {
+              err.classList.add('oculto');
+              try { await api(ruta, { metodo: 'POST', cuerpo }); aviso('Listo'); await pintarBandeja(); } catch (e) { if (e.message === 'sesion') return; err.textContent = ERR_REV[e.message] ?? 'No se pudo guardar.'; err.classList.remove('oculto'); }
+            };
+            const corregido = () => ({ contador_negro: Number(inN.value), ...(color ? { contador_color: Number(inC.value) } : {}) });
+            const cambio = () => Number(inN.value) !== f.contador_negro || (color && Number(inC.value) !== f.contador_color);
+            const u = f.ultima_del_equipo;
+            return h('tr', null,
+              h('td', { 'data-rotulo': 'Cliente' }, h('b', null, f.cliente), h('div', { class: 'apoyo' }, `${f.agente} · ${fecha(f.fecha)}${f.periodo ? ` · período ${f.periodo}` : ''}`)),
+              h('td', { 'data-rotulo': 'Equipo' }, f.serie_equipo ?? f.numero_serie ?? '—', h('div', { class: 'apoyo' }, [f.marca_equipo ? `${f.marca_equipo} ${f.modelo_equipo}` : f.modelo, f.ip].filter(Boolean).join(' · '))),
+              h('td', { 'data-rotulo': 'Leído' }, h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' }, inN, inC), f.contador_total != null && h('div', { class: 'apoyo' }, `Total informado ${num(f.contador_total)}`)),
+              h('td', { 'data-rotulo': 'Última cargada', class: 'num' }, u ? `${num(u.negro)}${color ? ` / ${num(u.color)}` : ''}` : '—', u && h('div', { class: 'apoyo' }, `${fecha(u.fecha)} · ${u.origen}`)),
+              h('td', { 'data-rotulo': 'Motivo' }, chip(MOTIVO[f.motivo] ?? f.motivo, 'aviso')),
+              h('td', null, puedeRevisar && h('div', { style: 'display:flex;gap:6px' },
+                h('button', { type: 'button', class: 'btn btn-principal', onclick: () => accion(`/api/contadores/recibidas/${f.id}/aprobar`, cambio() ? corregido() : {}) }, 'Aprobar'),
+                h('button', { type: 'button', class: 'btn', onclick: () => accion(`/api/contadores/recibidas/${f.id}/rechazar`, {}) }, 'Rechazar')), err));
+          })))));
+    }
+
+    async function pintarLista() {
+      vaciar(lista).append(cargando());
+      const agentes = await api('/api/contadores/agentes').catch(() => null);
+      vaciar(lista);
+      if (!agentes) { lista.append(h('div', { class: 'vacio' }, 'No se pudieron cargar los agentes.')); return; }
+      lista.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Agentes instalados'),
+        agentes.length ? h('table', null, h('thead', null, h('tr', null, ['Cliente', 'Agente', 'Última conexión', 'Lecturas', ''].map((t) => h('th', null, t)))),
+          h('tbody', null, agentes.map((a) => h('tr', null,
+            h('td', { 'data-rotulo': 'Cliente' }, h('b', null, a.cliente)),
+            h('td', { 'data-rotulo': 'Agente' }, a.nombre, h('div', { class: 'apoyo' }, [a.equipo_host, a.version && `v${a.version}`, `token …${a.token_pista}`].filter(Boolean).join(' · '))),
+            h('td', { 'data-rotulo': 'Última conexión' }, a.activo ? hace(a.ultima_conexion) : chip('Desactivado', 'malo'), a.ultima_ip && h('div', { class: 'apoyo' }, a.ultima_ip)),
+            h('td', { 'data-rotulo': 'Lecturas' }, `${a.lecturas.aprobada ?? 0} aprobadas`, (a.lecturas.a_revisar ?? 0) ? h('div', null, chip(`${a.lecturas.a_revisar} a revisar`, 'aviso')) : null),
+            h('td', null, puedeAdministrar && h('div', { style: 'display:flex;gap:6px' },
+              h('button', { type: 'button', class: 'btn-texto', onclick: async () => {
+                if (!confirm('El token actual deja de funcionar en el acto. Vas a tener que cargar el nuevo en el agente. ¿Seguís?')) return;
+                const r = await api(`/api/contadores/agentes/${a.id}/token`, { metodo: 'POST' }).catch(() => null);
+                if (r) mostrarToken(a.cliente, a.nombre, r.token);
+              } }, 'Nuevo token'),
+              h('button', { type: 'button', class: 'btn-texto', onclick: async () => { await api(`/api/contadores/agentes/${a.id}`, { metodo: 'PATCH', cuerpo: { activo: !a.activo } }).catch(() => null); pintarLista(); } }, a.activo ? 'Desactivar' : 'Activar')))))))
+          : h('p', { class: 'apoyo' }, 'Todavía no hay agentes. Dá de alta uno por cliente (o por sede, si tienen redes separadas).')));
+    }
+
+    function mostrarToken(cliente, nombre, token) {
+      const campo = h('input', { type: 'text', readonly: true, value: token, style: 'width:100%;font-family:monospace', 'aria-label': 'Token del agente' });
+      vaciar(alta).append(h('div', { class: 'tarjeta', role: 'alert', style: 'margin-top:16px' },
+        h('h2', null, `Token de ${nombre} · ${cliente}`),
+        h('p', null, 'Copialo ahora: no se vuelve a mostrar. En la PC del cliente, al instalar el agente, pegalo cuando lo pida (o usá ', h('code', null, 'agente-contadores configurar'), ').'),
+        campo, h('div', { style: 'margin-top:8px' }, h('button', { type: 'button', class: 'btn', onclick: () => { campo.select(); navigator.clipboard?.writeText(token); aviso('Token copiado'); } }, 'Copiar'),
+          ' ', h('button', { type: 'button', class: 'btn-texto', onclick: () => { vaciar(alta); pintarAlta(); } }, 'Listo, ya lo copié'))));
+      pintarLista();
+    }
+
+    function pintarAlta() {
+      if (!puedeAdministrar) return;
+      const buscarCli = h('input', { type: 'search', placeholder: 'Buscar cliente', 'aria-label': 'Cliente', list: 'agente-clientes', autocomplete: 'off' });
+      const opciones = h('datalist', { id: 'agente-clientes' }); let clientes = [];
+      const nombreAg = h('input', { type: 'text', maxlength: '120', placeholder: 'Ej.: Oficina central', 'aria-label': 'Nombre del agente' });
+      const err = h('div', { class: 'error oculto', role: 'alert' });
+      buscarCli.addEventListener('input', async () => {
+        const q = buscarCli.value.trim(); if (q.length < 2) return;
+        const r = await api(`/api/clientes?estado=activo&limite=20&q=${encodeURIComponent(q)}`).catch(() => null); if (!r) return;
+        clientes = r.clientes; vaciar(opciones).append(...clientes.map((c) => h('option', { value: c.nombre_comercial || c.razon_social })));
+      });
+      vaciar(alta).append(h('form', { class: 'tarjeta formulario', style: 'margin-top:16px', onsubmit: async (ev) => {
+        ev.preventDefault(); err.classList.add('oculto');
+        const c = clientes.find((x) => (x.nombre_comercial || x.razon_social) === buscarCli.value);
+        if (!c) { err.textContent = 'Elegí el cliente de la lista.'; err.classList.remove('oculto'); return; }
+        try { const r = await api('/api/contadores/agentes', { metodo: 'POST', cuerpo: { cliente_id: c.id, nombre: nombreAg.value.trim() || 'Agente' } }); mostrarToken(buscarCli.value, nombreAg.value.trim() || 'Agente', r.token); } catch (e) { if (e.message === 'sesion') return; err.textContent = 'No se pudo dar de alta.'; err.classList.remove('oculto'); }
+      } }, h('h2', null, 'Nuevo agente'), h('div', { class: 'dos-col' }, h('label', null, 'Cliente ', buscarCli, opciones), h('label', null, 'Nombre ', nombreAg)), err,
+        h('button', { class: 'btn btn-principal', type: 'submit' }, 'Dar de alta y generar token')));
+    }
+
+    await Promise.all([pintarBandeja(), pintarLista()]); pintarAlta();
   }
 
   return { vistaContadores };

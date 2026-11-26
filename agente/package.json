@@ -1,0 +1,21 @@
+{
+  "name": "justprint-agente-contadores",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agente que toma los contadores de las impresoras de un cliente por SNMP y los manda al ERP de JustPrint",
+  "engines": { "node": ">=20" },
+  "bin": { "agente-contadores": "src/index.js" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test \"test/*.test.js\"",
+    "empaquetar": "node scripts/empaquetar.js"
+  },
+  "dependencies": {
+    "net-snmp": "^3.29.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6"
+  }
+}
