@@ -61,5 +61,5 @@ test('el agente toma las impresoras del cliente y el ERP las valida', { skip: !h
   const otra = await tomar(cfg, { ahora: new Date(2026, 10, 30), fetchFn: fetchErp });
   assert.equal(otra.omitida, 'completa');
   const agentes = (await tec.llamar('GET', '/api/contadores/agentes')).json();
-  assert.equal(agentes[0].version, '1.0.0');
+  assert.equal(agentes[0].version, '1.1.0');
 });

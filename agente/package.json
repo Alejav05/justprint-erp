@@ -1,6 +1,6 @@
 {
   "name": "justprint-agente-contadores",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Agente que toma los contadores de las impresoras de un cliente por SNMP y los manda al ERP de JustPrint",
