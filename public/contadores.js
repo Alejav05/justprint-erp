@@ -178,11 +178,11 @@ export function crearContadores(U) {
 
   async function vistaAgentes(destino) {
     const puedeAdministrar = puede('contadores.agentes'); const puedeRevisar = puede('contadores.cargar');
-    const bandeja = h('div'); const lista = h('div'); const alta = h('div');
+    const bandeja = h('div'); const lista = h('div'); const alta = h('div'); const recibidas = h('div');
     agregar(destino, [
       encabezado('Toma automática de contadores', 'Un agente instalado en la red de cada cliente lee los contadores por SNMP a fin de mes y los manda acá. Las lecturas normales entran solas; las dudosas esperan revisión.',
         h('a', { class: 'btn', href: '#/contadores' }, 'Volver a Contadores')),
-      bandeja, lista, alta]);
+      bandeja, lista, recibidas, alta]);
 
     async function pintarBandeja() {
       vaciar(bandeja).append(cargando());
@@ -199,7 +199,7 @@ export function crearContadores(U) {
             const err = h('div', { class: 'error oculto', role: 'alert' });
             const accion = async (ruta, cuerpo) => {
               err.classList.add('oculto');
-              try { await api(ruta, { metodo: 'POST', cuerpo }); aviso('Listo'); await pintarBandeja(); } catch (e) { if (e.message === 'sesion') return; err.textContent = ERR_REV[e.message] ?? 'No se pudo guardar.'; err.classList.remove('oculto'); }
+              try { await api(ruta, { metodo: 'POST', cuerpo }); aviso('Listo'); await Promise.all([pintarBandeja(), pintarRecibidas()]); } catch (e) { if (e.message === 'sesion') return; err.textContent = ERR_REV[e.message] ?? 'No se pudo guardar.'; err.classList.remove('oculto'); }
             };
             const corregido = () => ({ contador_negro: Number(inN.value), ...(color ? { contador_color: Number(inC.value) } : {}) });
             const cambio = () => Number(inN.value) !== f.contador_negro || (color && Number(inC.value) !== f.contador_color);
@@ -216,6 +216,27 @@ export function crearContadores(U) {
           })))));
     }
 
+    const ESTADO_REC = { aprobada: ['Cargada', 'ok'], a_revisar: ['A revisar', 'aviso'], rechazada: ['Rechazada', 'malo'], no_registrado: ['No es nuestro', 'mudo'], prueba: ['Prueba', 'mudo'] };
+    async function pintarRecibidas() {
+      const filas = await api('/api/contadores/recibidas?estado=todas').catch(() => null);
+      vaciar(recibidas);
+      if (!filas) return;
+      const ultimas = filas.slice(0, 30);
+      recibidas.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Últimas lecturas recibidas'),
+        ultimas.length ? h('table', null, h('thead', null, h('tr', null, ['Recibida', 'Cliente', 'Equipo', 'Negro', 'Color', 'Estado'].map((t) => h('th', null, t)))),
+          h('tbody', null, ultimas.map((f) => {
+            const [txt, tipo] = ESTADO_REC[f.estado] ?? [f.estado, 'mudo'];
+            return h('tr', null,
+              h('td', { 'data-rotulo': 'Recibida' }, fecha(f.fecha), h('div', { class: 'apoyo' }, f.periodo ? `período ${f.periodo}` : 'sin período')),
+              h('td', { 'data-rotulo': 'Cliente' }, f.cliente, h('div', { class: 'apoyo' }, f.agente)),
+              h('td', { 'data-rotulo': 'Equipo' }, f.serie_equipo ?? f.numero_serie ?? '—', h('div', { class: 'apoyo' }, [f.marca_equipo ? `${f.marca_equipo} ${f.modelo_equipo}` : f.modelo, f.ip].filter(Boolean).join(' · '))),
+              h('td', { 'data-rotulo': 'Negro', class: 'num' }, f.contador_negro != null ? num(f.contador_negro) : '—'),
+              h('td', { 'data-rotulo': 'Color', class: 'num' }, f.contador_color != null ? num(f.contador_color) : '—'),
+              h('td', { 'data-rotulo': 'Estado' }, chip(txt, tipo), f.motivo && h('div', { class: 'apoyo' }, MOTIVO[f.motivo] ?? f.motivo)));
+          })))
+          : h('p', { class: 'apoyo' }, 'Todavía no llegó ninguna lectura. Con "Probar" en el agente aparece acá como prueba.')));
+    }
+
     async function pintarLista() {
       vaciar(lista).append(cargando());
       const agentes = await api('/api/contadores/agentes').catch(() => null);
@@ -227,7 +248,7 @@ export function crearContadores(U) {
             h('td', { 'data-rotulo': 'Cliente' }, h('b', null, a.cliente)),
             h('td', { 'data-rotulo': 'Agente' }, a.nombre, h('div', { class: 'apoyo' }, [a.equipo_host, a.version && `v${a.version}`, `token …${a.token_pista}`].filter(Boolean).join(' · '))),
             h('td', { 'data-rotulo': 'Última conexión' }, a.activo ? hace(a.ultima_conexion) : chip('Desactivado', 'malo'), a.ultima_ip && h('div', { class: 'apoyo' }, a.ultima_ip)),
-            h('td', { 'data-rotulo': 'Lecturas' }, `${a.lecturas.aprobada ?? 0} aprobadas`, (a.lecturas.a_revisar ?? 0) ? h('div', null, chip(`${a.lecturas.a_revisar} a revisar`, 'aviso')) : null),
+            h('td', { 'data-rotulo': 'Lecturas' }, `${a.lecturas.aprobada ?? 0} cargadas${a.lecturas.prueba ? ` · ${a.lecturas.prueba} de prueba` : ''}`, (a.lecturas.a_revisar ?? 0) ? h('div', null, chip(`${a.lecturas.a_revisar} a revisar`, 'aviso')) : null),
             h('td', null, puedeAdministrar && h('div', { style: 'display:flex;gap:6px' },
               h('button', { type: 'button', class: 'btn-texto', onclick: async () => {
                 if (!confirm('El token actual deja de funcionar en el acto. Vas a tener que cargar el nuevo en el agente. ¿Seguís?')) return;
@@ -270,7 +291,7 @@ export function crearContadores(U) {
         h('button', { class: 'btn btn-principal', type: 'submit' }, 'Dar de alta y generar token')));
     }
 
-    await Promise.all([pintarBandeja(), pintarLista(), pintarAlta()]);
+    await Promise.all([pintarBandeja(), pintarLista(), pintarRecibidas(), pintarAlta()]);
   }
 
   return { vistaContadores };
