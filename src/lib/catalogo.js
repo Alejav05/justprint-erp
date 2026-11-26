@@ -38,6 +38,7 @@ export const PERMISOS = [
   ['encuestas.ver', 'servicio', 'Ver las encuestas de satisfacción y el ranking de atención'],
   ['contadores.ver', 'servicio', 'Ver la toma mensual de contadores'],
   ['contadores.cargar', 'servicio', 'Cargar los contadores del mes'],
+  ['contadores.agentes', 'servicio', 'Dar de alta y administrar los agentes que toman contadores en los clientes'],
   ['equipos.ver', 'equipos', 'Ver equipos y su historial'],
   ['equipos.editar', 'equipos', 'Crear y editar equipos'],
   ['insumos.ver', 'insumos', 'Ver insumos y stock'],
@@ -70,7 +71,7 @@ export const ROLES = {
   head_atencion: {
     descripcion: 'Líder de atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'tickets.atender',
-      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar'],
+      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes'],
   },
   atencion: {
     descripcion: 'Atención al cliente',
@@ -80,7 +81,7 @@ export const ROLES = {
   head_tecnico: {
     descripcion: 'Líder del área técnica',
     permisos: ['clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'tickets.asignar', 'partes.editar',
-      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar'],
+      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes'],
   },
   tecnico: {
     descripcion: 'Técnico de servicio',
