@@ -35,6 +35,11 @@ export async function equiposDelCliente(db, clienteId, periodo) {
     .select('a.equipo_id', 'a.desde', 'a.contador_inicial_negro', 'a.contador_inicial_color', 'e.numero_serie', 'm.marca', 'm.modelo', 'm.tipo');
 }
 
+/** Las lecturas que se cargan al instalar o retirar un equipo marcan el arranque o el cierre, no son la toma del mes. */
+export const esLecturaDeMovimiento = (l) => /^Lectura de (instalación|retiro)/i.test(l.observaciones ?? '');
+/** La toma del período: la última lectura del período que no sea de instalación o retiro. */
+const tomaDelPeriodo = (ls, periodo) => ls.filter((x) => x.per === periodo && !esLecturaDeMovimiento(x)).at(-1);
+
 async function lecturasDe(db, equipoId) {
   return (await db('lecturas_contador').where({ equipo_id: equipoId }).orderBy('fecha').orderBy('id')).map((x) => ({ ...x, fecha: aDia(x.fecha), per: periodoDeLectura(x) }));
 }
@@ -45,7 +50,7 @@ async function lecturasDe(db, equipoId) {
  */
 export async function grabarLectura(db, { eq, periodo, fecha, negro, color, observaciones, usuarioId = null, ip = null, permitirBajar = false }) {
   const todas = await lecturasDe(db, eq.equipo_id);
-  const existente = todas.filter((x) => x.per === periodo).at(-1);
+  const existente = tomaDelPeriodo(todas, periodo);
   if (existente && existente.origen !== 'automatica') return { error: 'ya_tiene_lectura_manual' };
   // Reemplazar la automática del período por una menor solo vale como corrección explícita de una persona.
   if (existente && !permitirBajar && (negro < existente.contador_negro || color < existente.contador_color)) return { error: 'contador_menor_al_anterior' };
@@ -119,7 +124,7 @@ export async function procesarLectura(db, agente, l, { fecha, prueba = false, ip
   if (!c) return guardar('a_revisar', 'faltan_contadores');
 
   const ls = await lecturasDe(db, eq.equipo_id);
-  const existente = ls.filter((x) => x.per === periodo).at(-1);
+  const existente = tomaDelPeriodo(ls, periodo);
   if (existente && existente.origen !== 'automatica') return guardar('rechazada', 'ya_tiene_lectura_manual');
   // Una toma posterior del mismo período reemplaza a la anterior automática, pero nunca para atrás.
   if (existente && (c.negro < existente.contador_negro || c.color < existente.contador_color)) return guardar('a_revisar', 'contador_menor_al_anterior');
