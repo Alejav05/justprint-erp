@@ -152,3 +152,36 @@ export async function aprobarRecibida(db, la, { usuarioId, ip, negro, color }) {
   await auditar(db, { usuarioId, ip }, 'editar', 'lecturas_agente', la.id, { estado: la.estado, motivo: la.motivo }, { estado: 'aprobada', lectura_id: r.lectura_id });
   return { lectura_id: r.lectura_id };
 }
+
+/**
+ * Impresoras que el agente encontró en la red del cliente y que no son de JustPrint, una por equipo (número de serie,
+ * o IP si no informa serie), con lo último que se leyó y un volumen mensual estimado entre la primera y la última toma.
+ * `filas` son lecturas_agente en estado 'no_registrado', con `cliente_id` y `cliente`.
+ */
+export function parqueAjeno(filas) {
+  const grupos = new Map();
+  for (const f of filas) {
+    const serie = normalizarSerie(f.numero_serie);
+    const k = `${f.cliente_id}|${serie || `ip:${f.ip ?? f.id}`}`;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push({ ...f, fecha: aDia(f.fecha) });
+  }
+  const paginas = (x) => x.contador_total ?? (x.contador_negro != null ? x.contador_negro + (x.contador_color ?? 0) : null);
+  const dias = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+  return [...grupos.values()].map((ls) => {
+    ls.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.id - b.id));
+    const ult = ls.at(-1); const conPag = ls.filter((x) => paginas(x) != null);
+    const pri = conPag[0]; const fin = conPag.at(-1);
+    // Con menos de 20 días entre tomas el promedio no dice mucho.
+    const d = pri && fin ? dias(pri.fecha, fin.fecha) : 0;
+    const porMes = d >= 20 && paginas(fin) >= paginas(pri) ? Math.round(((paginas(fin) - paginas(pri)) / d) * 30) : null;
+    return {
+      cliente_id: ult.cliente_id, cliente: ult.cliente, agente: ult.agente,
+      marca: [...ls].reverse().find((x) => x.marca)?.marca ?? null, modelo: [...ls].reverse().find((x) => x.modelo)?.modelo ?? null,
+      numero_serie: ult.numero_serie ?? null, ip: ult.ip ?? null,
+      visto_primero: ls[0].fecha, visto_ultimo: ult.fecha, tomas: ls.length,
+      contador_negro: ult.contador_negro, contador_color: ult.contador_color, contador_total: paginas(ult),
+      paginas_por_mes: porMes,
+    };
+  }).sort((a, b) => a.cliente.localeCompare(b.cliente, 'es') || String(a.marca ?? '~').localeCompare(String(b.marca ?? '~')) || String(a.modelo).localeCompare(String(b.modelo)));
+}
