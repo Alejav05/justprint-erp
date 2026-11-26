@@ -116,6 +116,21 @@ test('una toma de mitad de mes queda a revisar; se aprueba o se rechaza a mano',
   assert.equal((await tec.llamar('GET', '/api/contadores/recibidas')).json().length, 0);
 });
 
+test('la lectura de instalación o de retiro del mismo período no frena al agente: su toma entra como lectura nueva', async () => {
+  fijarHoy('2026-12-29T15:00:00Z');
+  // El técnico cargó la lectura de instalación unos días antes del cierre (sin período, como lo hace Equipos).
+  const [inst] = await ctx.db('lecturas_contador').insert({ equipo_id: equipo, fecha: '2026-12-26', contador_negro: 2000, contador_color: 300, origen: 'tecnico', observaciones: 'Lectura de instalación' });
+  const r = await enviar([{ serie: 'PRUEBA-003', negro: 2100, color: 350 }]);
+  assert.equal(r.json().resultados[0].estado, 'aprobada', r.body); assert.equal(r.json().resultados[0].periodo, '2026-12');
+  const dic = await ctx.db('lecturas_contador').where({ equipo_id: equipo }).where('fecha', '>=', '2026-12-01').orderBy('id');
+  assert.equal(dic.length, 2, 'la de instalación queda como estaba');
+  assert.equal(dic[0].id, inst); assert.equal(dic[0].contador_negro, 2000);
+  assert.equal(dic[1].origen, 'automatica'); assert.equal(dic[1].contador_negro, 2100);
+  // Por debajo de la de instalación no puede entrar sola.
+  const baja = await enviar([{ serie: 'PRUEBA-003', negro: 1990, color: 350 }]);
+  assert.equal(baja.json().resultados[0].estado, 'a_revisar');
+});
+
 test('un agente desactivado o con token renovado deja de entrar', async () => {
   fijarHoy('2026-11-28T15:00:00Z');
   const dir = await entrar(ctx.app, 'direccion@demo.local');
