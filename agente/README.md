@@ -45,7 +45,7 @@ SNMP v2c activado con la comunidad de lectura `public` (es lo que viene de fábr
 | HP | MIB de HP (`total-mono-page-count` / `total-color-page-count`) | A confirmar en un equipo real |
 | Lexmark | MIB de Lexmark (`pgMono` / `pgColor`) | A confirmar en un equipo real |
 | Konica Minolta | Copias + impresiones, negro y color (dos variantes según la generación del bizhub) | A confirmar en un equipo real |
-| Brother | Solo el total estándar. Sirve para los monocromo; los color quedan a revisar hasta confirmar el OID | A confirmar en un equipo real |
+| Brother | Bloque binario brInfoCounter (0x01 negro, 0x02 color, 0x00 total). Los monocromo usan el total | A confirmar en un equipo real |
 
 Para cualquier equipo nuevo, o para confirmar los de la tabla, en la PC del cliente:
 ```

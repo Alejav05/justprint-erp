@@ -1,6 +1,6 @@
 // Lectura SNMP de una impresora: datos estándar + contadores según la marca.
 import snmp from 'net-snmp';
-import { ESTANDAR, PERFILES, detectarMarca } from './perfiles.js';
+import { ESTANDAR, PERFILES, detectarMarca, leerBloqueBrother } from './perfiles.js';
 
 const VERSIONES = { 1: snmp.Version1, '2c': snmp.Version2c };
 
@@ -10,8 +10,9 @@ function abrir(ip, op) {
   });
 }
 
-const valor = (vb) => {
+const valor = (vb, crudo = false) => {
   if (snmp.isVarbindError(vb)) return undefined;
+  if (crudo) return vb.value;
   const v = vb.value;
   if (Buffer.isBuffer(v)) return v.toString('latin1').replace(/\0+$/g, '').trim();
   if (typeof v === 'bigint') return Number(v);
@@ -19,17 +20,17 @@ const valor = (vb) => {
 };
 
 /** GET de varios OID. Devuelve { oid: valor } solo con los que respondieron. Si el equipo no responde, rechaza. */
-export function obtener(ip, oids, op = {}) {
+export function obtener(ip, oids, op = {}, crudo = false) {
   if (!oids.length) return Promise.resolve({});
   return new Promise((resolve, reject) => {
     const s = abrir(ip, op);
     s.on('error', () => {});
     s.get(oids, (err, vbs) => {
-      if (!err) { s.close(); const r = {}; vbs.forEach((vb, i) => { const v = valor(vb); if (v !== undefined && v !== null) r[oids[i]] = v; }); resolve(r); return; }
+      if (!err) { s.close(); const r = {}; vbs.forEach((vb, i) => { const v = valor(vb, crudo); if (v !== undefined && v !== null) r[oids[i]] = v; }); resolve(r); return; }
       // SNMPv1 o equipos que cortan todo el pedido si falta un OID: se reintenta de a uno.
       if (err instanceof snmp.RequestFailedError && oids.length > 1) {
         s.close();
-        Promise.all(oids.map((o) => obtener(ip, [o], op).catch(() => ({})))).then((partes) => resolve(Object.assign({}, ...partes)));
+        Promise.all(oids.map((o) => obtener(ip, [o], op, crudo).catch(() => ({})))).then((partes) => resolve(Object.assign({}, ...partes)));
         return;
       }
       s.close();
@@ -44,7 +45,9 @@ export function recorrer(ip, raiz, op = {}) {
   return new Promise((resolve) => {
     const s = abrir(ip, op); const r = {};
     s.on('error', () => {});
-    s.subtree(raiz, 20, (vbs) => { for (const vb of vbs) { const v = valor(vb); if (v !== undefined) r[vb.oid] = v; } }, () => { s.close(); resolve(r); });
+    // Los bloques binarios (como los contadores de Brother) se muestran en hexadecimal para poder leerlos.
+    const mostrar = (vb) => (Buffer.isBuffer(vb.value) && vb.value.some((b) => (b < 32 && b !== 0 && b !== 10 && b !== 13) || b > 126) ? `hex:${vb.value.toString('hex')}` : valor(vb));
+    s.subtree(raiz, 20, (vbs) => { for (const vb of vbs) { if (snmp.isVarbindError(vb)) continue; const v = mostrar(vb); if (v !== undefined) r[vb.oid] = v; } }, () => { s.close(); resolve(r); });
   });
 }
 
@@ -80,7 +83,18 @@ export async function leerEquipo(ip, op = {}) {
     const oids = [...new Set([...oidsDe(p.negro), ...oidsDe(p.color), ...oidsDe(p.total), ...(p.serie ? [p.serie] : [])])];
     r = await obtener(ip, oids, op).catch(() => ({}));
   }
-  const negro = p ? resolver(p.negro, r) : null; const color = p ? resolver(p.color, r) : null; const totalMarca = p ? resolver(p.total, r) : null;
+  let negro = p ? resolver(p.negro, r) : null; let color = p ? resolver(p.color, r) : null; let totalMarca = p ? resolver(p.total, r) : null;
+  if (p?.bloque) {
+    // Bloque binario (Brother): se prueba cada OID hasta que uno traiga registros.
+    for (const o of p.bloque.oids) {
+      const crudo = await obtener(ip, [o], op, true).catch(() => ({}));
+      const reg = leerBloqueBrother(crudo[o]);
+      if (!Object.keys(reg).length) continue;
+      const de = (cod) => (cod != null && reg[cod] != null ? { valor: reg[cod], oids: [`${o}#0x${cod.toString(16).padStart(2, '0')}`] } : null);
+      negro = negro ?? de(p.bloque.negro); color = color ?? de(p.bloque.color); totalMarca = totalMarca ?? de(p.bloque.total);
+      break;
+    }
+  }
   const total = totalMarca?.valor ?? numero(e.total);
   return {
     ip,

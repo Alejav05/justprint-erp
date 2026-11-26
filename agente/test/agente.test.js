@@ -7,7 +7,7 @@ import path from 'node:path';
 process.env.JP_AGENTE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'jp-agente-'));
 const { simularImpresora } = await import('./simulador.js');
 const { leerEquipo } = await import('../src/snmp.js');
-const { detectarMarca } = await import('../src/perfiles.js');
+const { detectarMarca, leerBloqueBrother } = await import('../src/perfiles.js');
 const { expandirCidr, redesLocales, direccionesARecorrer } = await import('../src/red.js');
 const { enVentana, tomar } = await import('../src/toma.js');
 const { leerPendientes } = await import('../src/config.js');
@@ -22,6 +22,9 @@ export const IMPRESORAS = {
   '127.0.0.4': { ...STD('KONICA MINOLTA bizhub C300i', '1.3.6.1.4.1.18334.1.2.1', 'KONICA MINOLTA bizhub C300i', 'A9K1021000123', 50000),
     '1.3.6.1.4.1.18334.1.1.1.5.7.2.1.5.1.1': 10000, '1.3.6.1.4.1.18334.1.1.1.5.7.2.1.5.1.2': 25000, '1.3.6.1.4.1.18334.1.1.1.5.7.2.1.5.2.1': 5000, '1.3.6.1.4.1.18334.1.1.1.5.7.2.1.5.2.2': 10000 },
   '127.0.0.5': STD('Brother NC-8300h', '1.3.6.1.4.1.2435.2.3.9.1', 'Brother HL-L5100DN series', 'E78901A2N345678', 4321),
+  // Brother color: los contadores vienen en el bloque binario brInfoCounter (ejemplo publicado de una MFC-L8650CDW).
+  '127.0.0.7': { ...STD('Brother NC-8200w', '1.3.6.1.4.1.2435.2.3.9.1', 'Brother MFC-L8650CDW series', 'E7777C1N000111', 8698),
+    '1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.10.0': Buffer.from('000104000021fa01010400000e2a020104000013ffffffd0ffffffff', 'hex') },
   // Un equipo que no es impresora: responde SNMP pero no la Printer-MIB.
   '127.0.0.6': { '1.3.6.1.2.1.1.1.0': 'Switch', '1.3.6.1.2.1.1.2.0': '1.3.6.1.4.1.9.1.1' },
 };
@@ -40,12 +43,20 @@ test('lee negro y color según la marca', async () => {
   const km = await leerEquipo('127.0.0.4', op);
   assert.deepEqual([km.marca, km.negro, km.color, km.total], ['Konica Minolta', 35000, 15000, 50000], 'prueba la segunda variante de OID y suma copias + impresiones');
   const br = await leerEquipo('127.0.0.5', op);
-  assert.deepEqual([br.marca, br.negro, br.color, br.total], ['Brother', null, null, 4321], 'Brother: total estándar');
+  assert.deepEqual([br.marca, br.negro, br.color, br.total], ['Brother', null, null, 4321], 'Brother monocromo sin bloque: total estándar');
+  const bc = await leerEquipo('127.0.0.7', op);
+  assert.deepEqual([bc.marca, bc.negro, bc.color, bc.total], ['Brother', 3626, 5072, 8698], 'Brother color: negro y color del bloque binario');
 });
 
 test('lo que no es una impresora, o no responde, se ignora', async () => {
   assert.equal(await leerEquipo('127.0.0.6', op), null);
   assert.equal(await leerEquipo('127.0.0.9', op), null);
+});
+
+test('el bloque de contadores de Brother se lee aunque traiga separadores FF FF FF', () => {
+  assert.deepEqual(leerBloqueBrother(Buffer.from('0001040000ffffff fb2bffffffff'.replace(/ /g, ''), 'hex')), { 0: 64299 }, 'DCP-7065DN (monocromo)');
+  assert.deepEqual(leerBloqueBrother(Buffer.from('000104000021fa01010400000e2a020104000013ffffffd0ffffffff', 'hex')), { 0: 8698, 1: 3626, 2: 5072 });
+  assert.deepEqual(leerBloqueBrother('no es un bloque'), {});
 });
 
 test('la marca se detecta por sysObjectID o por la descripción', () => {

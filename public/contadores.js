@@ -248,27 +248,29 @@ export function crearContadores(U) {
       pintarLista();
     }
 
-    function pintarAlta() {
+    async function pintarAlta() {
       if (!puedeAdministrar) return;
-      const buscarCli = h('input', { type: 'search', placeholder: 'Buscar cliente', 'aria-label': 'Cliente', list: 'agente-clientes', autocomplete: 'off' });
-      const opciones = h('datalist', { id: 'agente-clientes' }); let clientes = [];
+      // Todos los clientes que no están inactivos, ordenados por nombre (la API entrega de a 100).
+      let clientes = []; let pagina = 1;
+      for (;;) {
+        const r = await api(`/api/clientes?limite=100&pagina=${pagina}`).catch(() => null); if (!r) break;
+        clientes.push(...r.clientes); if (clientes.length >= r.total || !r.clientes.length) break; pagina += 1;
+      }
+      clientes = clientes.filter((c) => c.estado !== 'inactivo').sort((a, b) => (a.nombre_comercial || a.razon_social).localeCompare(b.nombre_comercial || b.razon_social, 'es'));
+      const selCli = h('select', { 'aria-label': 'Cliente' }, h('option', { value: '' }, 'Elegí un cliente'), clientes.map((c) => h('option', { value: String(c.id) }, c.nombre_comercial || c.razon_social)));
       const nombreAg = h('input', { type: 'text', maxlength: '120', placeholder: 'Ej.: Oficina central', 'aria-label': 'Nombre del agente' });
       const err = h('div', { class: 'error oculto', role: 'alert' });
-      buscarCli.addEventListener('input', async () => {
-        const q = buscarCli.value.trim(); if (q.length < 2) return;
-        const r = await api(`/api/clientes?estado=activo&limite=20&q=${encodeURIComponent(q)}`).catch(() => null); if (!r) return;
-        clientes = r.clientes; vaciar(opciones).append(...clientes.map((c) => h('option', { value: c.nombre_comercial || c.razon_social })));
-      });
       vaciar(alta).append(h('form', { class: 'tarjeta formulario', style: 'margin-top:16px', onsubmit: async (ev) => {
         ev.preventDefault(); err.classList.add('oculto');
-        const c = clientes.find((x) => (x.nombre_comercial || x.razon_social) === buscarCli.value);
-        if (!c) { err.textContent = 'Elegí el cliente de la lista.'; err.classList.remove('oculto'); return; }
-        try { const r = await api('/api/contadores/agentes', { metodo: 'POST', cuerpo: { cliente_id: c.id, nombre: nombreAg.value.trim() || 'Agente' } }); mostrarToken(buscarCli.value, nombreAg.value.trim() || 'Agente', r.token); } catch (e) { if (e.message === 'sesion') return; err.textContent = 'No se pudo dar de alta.'; err.classList.remove('oculto'); }
-      } }, h('h2', null, 'Nuevo agente'), h('div', { class: 'dos-col' }, h('label', null, 'Cliente ', buscarCli, opciones), h('label', null, 'Nombre ', nombreAg)), err,
+        const c = clientes.find((x) => String(x.id) === selCli.value);
+        if (!c) { err.textContent = 'Elegí el cliente.'; err.classList.remove('oculto'); return; }
+        const nombre = nombreAg.value.trim() || 'Agente';
+        try { const r = await api('/api/contadores/agentes', { metodo: 'POST', cuerpo: { cliente_id: c.id, nombre } }); mostrarToken(c.nombre_comercial || c.razon_social, nombre, r.token); } catch (e) { if (e.message === 'sesion') return; err.textContent = 'No se pudo dar de alta.'; err.classList.remove('oculto'); }
+      } }, h('h2', null, 'Nuevo agente'), h('div', { class: 'dos-col' }, h('label', null, 'Cliente ', selCli), h('label', null, 'Nombre ', nombreAg)), err,
         h('button', { class: 'btn btn-principal', type: 'submit' }, 'Dar de alta y generar token')));
     }
 
-    await Promise.all([pintarBandeja(), pintarLista()]); pintarAlta();
+    await Promise.all([pintarBandeja(), pintarLista(), pintarAlta()]);
   }
 
   return { vistaContadores };

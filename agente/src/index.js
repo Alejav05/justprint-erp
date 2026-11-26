@@ -42,6 +42,9 @@ function tabla(equipos) {
   console.table(equipos.map((e) => ({ IP: e.ip, Marca: e.marca ?? '?', Modelo: e.modelo ?? '', Serie: e.serie ?? '', Negro: e.negro ?? '', Color: e.color ?? '', Total: e.total ?? '' })));
 }
 
+export const ERP_POR_DEFECTO = 'https://erp.justprint.com.ar';
+const SIN_REDES = /^(0|no|ninguna|-)?$/i;
+
 async function configurar(o, preguntarCon = null) {
   const c = leerConfig();
   const preguntar = !o.url && !o.token;
@@ -49,15 +52,26 @@ async function configurar(o, preguntarCon = null) {
     const rl = preguntarCon ? null : readline.createInterface({ input: process.stdin, output: process.stdout });
     const q = preguntarCon ?? ((t) => rl.question(t));
     const p = async (t, def) => (await q(`${t}${def ? ` [${def}]` : ''}: `)).trim() || def;
-    o.url = await p('Dirección del ERP', c.erp_url || 'https://');
-    o.token = await p('Token del agente (lo genera el ERP en Contadores › Toma automática)', c.token ? '(sin cambios)' : '');
+    console.log('Enter deja el valor que está entre corchetes.');
+    o.url = await p('Dirección del ERP', c.erp_url || ERP_POR_DEFECTO);
+    // Si pegaron el token en la dirección, se acomoda solo.
+    if (/^jpa_/.test(o.url)) { o.token = o.url; o.url = c.erp_url || ERP_POR_DEFECTO; console.log(`Eso es el token: lo guardo como token y uso ${o.url} como dirección.`); }
+    else o.token = await p('Token del agente (lo genera el ERP en Contadores › Toma automática)', c.token ? '(sin cambios)' : '');
     if (o.token === '(sin cambios)') delete o.token;
-    o.redes = await p('Redes a recorrer, separadas por coma (vacío = las de esta PC)', c.redes.join(',')) ?? '';
+    o.redes = await p('Redes a recorrer, separadas por coma (Enter = las de esta PC)', c.redes.join(',') || '') ?? '';
     rl?.close();
   }
-  if (o.url) c.erp_url = String(o.url).replace(/\/+$/, '');
-  if (o.token) c.token = String(o.token).trim();
-  if (o.redes !== undefined) { c.redes = lista(o.redes); c.redes.forEach(expandirCidr); }
+  if (o.url) {
+    const u = String(o.url).trim().replace(/\/+$/, '');
+    if (!/^https?:\/\/[^\s/]+/i.test(u)) throw new Error(`"${u}" no es una dirección. Tiene que ser como ${ERP_POR_DEFECTO}`);
+    c.erp_url = u;
+  }
+  if (o.token) {
+    const t = String(o.token).trim();
+    if (!/^jpa_[A-Za-z0-9_-]{20,}$/.test(t)) throw new Error('El token no tiene el formato esperado (empieza con jpa_). Copialo de nuevo desde el ERP.');
+    c.token = t;
+  }
+  if (o.redes !== undefined) { c.redes = SIN_REDES.test(String(o.redes).trim()) ? [] : lista(o.redes); c.redes.forEach(expandirCidr); }
   if (o.ips !== undefined) { c.ips = lista(o.ips); const mal = c.ips.filter((x) => !esIpv4(x)); if (mal.length) throw new Error(`IP inválida: ${mal.join(', ')}`); }
   if (o.comunidad) c.snmp.comunidad = String(o.comunidad);
   guardarConfig(c);
@@ -79,7 +93,7 @@ async function diagnostico(ip, cfg) {
       const r = await recorrer(ip, raiz, op);
       const filas = Object.entries(r); if (!filas.length) continue;
       console.log(`\n[${grupo}] ${raiz}`);
-      for (const [oid, v] of filas.slice(0, 80)) console.log(`  ${oid} = ${typeof v === 'string' ? JSON.stringify(v.slice(0, 80)) : v}`);
+      for (const [oid, v] of filas.slice(0, 80)) console.log(`  ${oid} = ${typeof v === 'string' ? (v.startsWith('hex:') ? v : JSON.stringify(v.slice(0, 80))) : v}`);
     }
   }
   console.log('\nCompará estos números con la hoja de contadores que imprime el equipo para saber cuál es negro y cuál color.');
