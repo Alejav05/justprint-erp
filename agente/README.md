@@ -13,6 +13,9 @@ Programa que se instala en **una PC de cada cliente**. A fin de mes busca las im
 
 ## Instalación en un cliente (Windows)
 
+Lo más simple: **doble clic en `agente-contadores.exe`** abre un menú (configurar, buscar impresoras, probar, diagnóstico, instalar la toma automática). Para instalar la toma automática hay que abrirlo con *clic derecho › Ejecutar como administrador*. Lo mismo por consola:
+
+
 1. En el ERP: **Contadores › Toma automática › Nuevo agente**. Elegí el cliente, poné un nombre (por ejemplo "Recepción") y copiá el token. Se muestra una sola vez.
 2. Copiá `agente-contadores.exe` a la PC del cliente, en `C:\Program Files\JustPrint\` (cualquier PC que quede prendida y esté en la misma red que las impresoras).
 3. Abrí una consola **como administrador** en esa carpeta y corré:

@@ -42,17 +42,18 @@ function tabla(equipos) {
   console.table(equipos.map((e) => ({ IP: e.ip, Marca: e.marca ?? '?', Modelo: e.modelo ?? '', Serie: e.serie ?? '', Negro: e.negro ?? '', Color: e.color ?? '', Total: e.total ?? '' })));
 }
 
-async function configurar(o) {
+async function configurar(o, preguntarCon = null) {
   const c = leerConfig();
   const preguntar = !o.url && !o.token;
   if (preguntar) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const p = async (t, def) => (await rl.question(`${t}${def ? ` [${def}]` : ''}: `)).trim() || def;
+    const rl = preguntarCon ? null : readline.createInterface({ input: process.stdin, output: process.stdout });
+    const q = preguntarCon ?? ((t) => rl.question(t));
+    const p = async (t, def) => (await q(`${t}${def ? ` [${def}]` : ''}: `)).trim() || def;
     o.url = await p('Dirección del ERP', c.erp_url || 'https://');
     o.token = await p('Token del agente (lo genera el ERP en Contadores › Toma automática)', c.token ? '(sin cambios)' : '');
     if (o.token === '(sin cambios)') delete o.token;
     o.redes = await p('Redes a recorrer, separadas por coma (vacío = las de esta PC)', c.redes.join(',')) ?? '';
-    rl.close();
+    rl?.close();
   }
   if (o.url) c.erp_url = String(o.url).replace(/\/+$/, '');
   if (o.token) c.token = String(o.token).trim();
@@ -105,8 +106,37 @@ async function main() {
     case 'desinstalar': desinstalarTarea(); console.log('Tarea borrada.'); return;
     case 'estado': console.log({ ...cfg, token: cfg.token ? `…${cfg.token.slice(-6)}` : '(sin token)' }, `\nPendientes de envío: ${leerPendientes().length}`); return;
     case '--version': case 'version': console.log(VERSION); return;
-    default: console.log(AYUDA);
+    case 'ayuda': case '--help': case '-h': console.log(AYUDA); return;
+    default: return menu();
   }
+}
+
+/** Con doble clic (sin comando) se abre un menú y la ventana espera antes de cerrarse. */
+async function menu() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  let cerrado = false; rl.on('close', () => { cerrado = true; });
+  const preguntar = (t) => (cerrado ? Promise.resolve('0') : rl.question(t).then((x) => x.trim()));
+  console.log(`\nJustPrint · Toma de contadores v${VERSION}\n`);
+  try {
+    for (;;) {
+      const cfg = leerConfig();
+      console.log(cfg.token ? `Conectado a ${cfg.erp_url} (token …${cfg.token.slice(-6)})` : 'Todavía no está configurado: elegí 1 primero (o 2 para solo buscar impresoras).');
+      console.log('\n  1. Configurar (dirección del ERP y token)\n  2. Buscar impresoras y ver sus contadores\n  3. Probar contra el ERP (toma de prueba, no factura)\n  4. Diagnóstico de una impresora (para confirmar negro y color)\n  5. Instalar la toma automática de fin de mes\n  6. Ver ayuda de comandos\n  0. Salir\n');
+      const op = await preguntar('Opción: ');
+      try {
+        if (op === '0' || op === '') break;
+        if (op === '1') await configurar({}, preguntar);
+        else if (op === '2') tabla(await relevar(cfg));
+        else if (op === '3') { const r = await crearErp(cfg).config(); console.log(`ERP OK: ${r.cliente}, esperamos ${r.equipos.length} equipos.`); const t = await tomar(cfg, { prueba: true }); tabla(t.equipos); if (t.faltan.length) console.log(`Faltan: ${t.faltan.map((e) => e.serie).join(', ')}`); }
+        else if (op === '4') await diagnostico(await preguntar('IP de la impresora: '), cfg);
+        else if (op === '5') { instalarTarea(); console.log('Listo: la PC va a tomar los contadores sola a fin de mes.'); }
+        else if (op === '6') console.log(AYUDA);
+      } catch (e) {
+        console.log(`\nNo se pudo: ${e.message}${/schtasks|Acceso denegado|Access is denied/i.test(e.message) ? ' (para instalar, abrí el programa con clic derecho > Ejecutar como administrador)' : ''}`);
+      }
+      console.log('');
+    }
+  } finally { if (!cerrado) rl.close(); }
 }
 
 main().catch((e) => {
