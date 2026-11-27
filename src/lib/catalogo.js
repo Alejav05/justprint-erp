@@ -39,6 +39,7 @@ export const PERMISOS = [
   ['contadores.ver', 'servicio', 'Ver la toma mensual de contadores'],
   ['contadores.cargar', 'servicio', 'Cargar los contadores del mes'],
   ['contadores.agentes', 'servicio', 'Dar de alta y administrar los agentes que toman contadores en los clientes'],
+  ['monitoreo.ver', 'servicio', 'Ver el monitoreo diario de los equipos: insumos, errores y conexión'],
   ['equipos.ver', 'equipos', 'Ver equipos y su historial'],
   ['equipos.editar', 'equipos', 'Crear y editar equipos'],
   ['insumos.ver', 'insumos', 'Ver insumos y stock'],
@@ -71,22 +72,22 @@ export const ROLES = {
   head_atencion: {
     descripcion: 'Líder de atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'tickets.atender',
-      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes'],
+      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes', 'monitoreo.ver'],
   },
   atencion: {
     descripcion: 'Atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'insumos.ver',
-      'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar'],
+      'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar', 'monitoreo.ver'],
   },
   head_tecnico: {
     descripcion: 'Líder del área técnica',
     permisos: ['clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'tickets.asignar', 'partes.editar',
-      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes'],
+      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes', 'monitoreo.ver'],
   },
   tecnico: {
     descripcion: 'Técnico de servicio',
     permisos: ['tableros.servicio', 'encuestas.ver', 'clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'partes.editar', 'remitos.crear',
-      'insumos.ver', 'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar'],
+      'insumos.ver', 'insumos.mover', 'equipos.ver', 'contadores.ver', 'contadores.cargar', 'monitoreo.ver'],
   },
   facturacion: {
     descripcion: 'Facturación y cobranzas',

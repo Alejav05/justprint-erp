@@ -4,6 +4,7 @@ import { crearConfiguracion } from './configuracion.js';
 import { crearContratos } from './contratos.js';
 import { crearCrm } from './crm.js';
 import { crearContadores } from './contadores.js';
+import { crearMonitoreo } from './monitoreo.js';
 import { crearPanelCliente } from './cliente_panel.js';
 import { crearCostos } from './costos.js';
 import { crearEquiposNegocio } from './equipos_negocio.js';
@@ -78,6 +79,7 @@ const ICONOS = {
   servicio: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   tickets: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z',
   contadores: 'M4 18a8 8 0 1 1 16 0M12 18l4-6M12 18h.01',
+  monitoreo: 'M3 12h4l3-8 4 16 3-8h4',
   equipos: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z',
   remitos: 'M6 3h9l4 4v14H6zM14 3v5h5M9 14l2 2 4-4',
   insumos: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
@@ -95,7 +97,7 @@ const ICONOS = {
 };
 const icono = (n) => h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, h('path', { d: ICONOS[n] }));
 
-const VERSION_CLIENTE = '2026.11.04.6'; // debe coincidir con src/version.js (hay una prueba que lo controla)
+const VERSION_CLIENTE = '2026.11.27.1'; // debe coincidir con src/version.js (hay una prueba que lo controla)
 const MENU = [
   { ruta: 'inicio', texto: 'Inicio' },
   { ruta: 'notificaciones', texto: 'Notificaciones' },
@@ -108,6 +110,7 @@ const MENU = [
   { ruta: 'conformidades', texto: 'Conformidades', permiso: 'encuestas.ver' },
   { ruta: 'servicio', texto: 'Tablero de servicio', permiso: 'tableros.servicio' },
   { ruta: 'equipos', texto: 'Equipos', permiso: 'equipos.ver' },
+  { ruta: 'monitoreo', texto: 'Monitoreo', permiso: 'monitoreo.ver' },
   { ruta: 'contadores', texto: 'Contadores', permiso: 'contadores.ver' },
   { ruta: 'insumos', texto: 'Insumos', permiso: 'insumos.ver' },
   { ruta: 'remitos', texto: 'Remitos', permiso: 'insumos.ver' },
@@ -1618,6 +1621,7 @@ const eqn = crearEquiposNegocio({ h, vaciar, api, fecha, chip, cargando, nombreM
 const cst = crearCostos({ h, agregar, vaciar, api, usd, fecha, chip, cargando, encabezado, nombreMes, puede, cajon: cajonLateral, aviso: toast });
 const pcl = crearPanelCliente({ h, vaciar, api, usd, fecha, chip, puede, cargando, kpiTarjeta, graficoFacturacion: grafico, mesCorto, cajon: cajonLateral, chipTicket });
 const cnt = crearContadores({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
+const mon = crearMonitoreo({ h, agregar, vaciar, api, chip, puede, cargando, encabezado, aviso: toast, fecha });
 const ctr = crearContratos({ documentos: (o) => docs.panel(o), cajon: cajonLateral, aviso: toast, h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, encabezado, estado, proximoAjuste, panelAjuste, plazoContrato: (c) => cob.plazoContrato(c), navegar: () => navegar() });
 const cob = crearCobranzas({ h, agregar, vaciar, api, usd, usd2, monto, fecha, chip, puede, cargando, falla, encabezado, estado, nombreMes, mesCorto });
 
@@ -1634,6 +1638,7 @@ async function navegar() {
     else if (ruta === 'hunting' && puede('leads.ver')) await crm.vistaHunting(nuevo);
     else if (ruta === 'contratos' && puede('contratos.ver')) await (param === 'nuevo' ? ctr.vistaNuevoContrato(nuevo, sub) : param ? ctr.vistaContrato(nuevo, param) : ctr.vistaContratos(nuevo));
     else if (ruta === 'contadores' && puede('contadores.ver')) await cnt.vistaContadores(nuevo, param, sub);
+    else if (ruta === 'monitoreo' && puede('monitoreo.ver')) await mon.vistaMonitoreo(nuevo);
     else if (ruta === 'tickets' && puede('tickets.ver')) {
       if (param === 'nuevo' && puede('tickets.crear')) await vistaNuevoTicket(nuevo);
       else if (param && sub === 'cierre') await vistaCierre(nuevo, param);
