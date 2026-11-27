@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { auditar } from '../lib/audit.js';
 import { clientesVisibles, puedeVerCliente } from '../lib/contexto.js';
 import { aDia, hoy, json } from '../lib/fechas.js';
-import { aprobarRecibida, CORTE_DESDE_DIA, CORTE_HASTA_DIA, equiposDelCliente, hashToken, nuevoToken, periodoDeCorte, procesarLectura } from '../lib/agentes.js';
+import { aprobarRecibida, parqueAjeno, CORTE_DESDE_DIA, CORTE_HASTA_DIA, equiposDelCliente, hashToken, nuevoToken, periodoDeCorte, procesarLectura } from '../lib/agentes.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
 
 const ahoraSql = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -139,6 +139,19 @@ export default async function rutasAgentes(app, { db }) {
     const ult = new Map();
     if (ids.length) for (const l of await db('lecturas_contador').whereIn('equipo_id', ids).orderBy('fecha').orderBy('id')) ult.set(l.equipo_id, { fecha: aDia(l.fecha), negro: l.contador_negro, color: l.contador_color, periodo: l.periodo, origen: l.origen });
     return filas.map((f) => ({ ...f, fecha: aDia(f.fecha), cliente: f.nombre_comercial || f.razon_social, ultima_del_equipo: f.equipo_id ? ult.get(f.equipo_id) ?? null : null }));
+  });
+
+  /** Impresoras de los clientes que no son de JustPrint (propias o de otro proveedor), según lo que encontraron los agentes. */
+  app.get('/api/contadores/parque', { preHandler: [auth, requerirPermiso('contadores.ver')] }, async (req) => {
+    const q = z.object({ cliente: z.coerce.number().int().positive().optional() }).parse(req.query);
+    const v = await clientesVisibles(db, req.ctx);
+    const s = db('lecturas_agente as l').join('agentes_contadores as a', 'a.id', 'l.agente_id').join('clientes as c', 'c.id', 'a.cliente_id')
+      .where('l.estado', 'no_registrado').whereNull('a.deleted_at')
+      .select('l.id', 'l.numero_serie', 'l.ip', 'l.marca', 'l.modelo', 'l.contador_negro', 'l.contador_color', 'l.contador_total', 'l.fecha',
+        'a.nombre as agente', 'a.cliente_id', 'c.razon_social', 'c.nombre_comercial');
+    if (q.cliente) s.where('a.cliente_id', q.cliente);
+    if (v) s.whereIn('a.cliente_id', v.length ? v : [0]);
+    return parqueAjeno((await s).map((f) => ({ ...f, cliente: f.nombre_comercial || f.razon_social })));
   });
 
   async function recibidaVisible(req) {

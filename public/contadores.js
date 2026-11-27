@@ -178,11 +178,11 @@ export function crearContadores(U) {
 
   async function vistaAgentes(destino) {
     const puedeAdministrar = puede('contadores.agentes'); const puedeRevisar = puede('contadores.cargar');
-    const bandeja = h('div'); const lista = h('div'); const alta = h('div'); const recibidas = h('div');
+    const bandeja = h('div'); const lista = h('div'); const alta = h('div'); const recibidas = h('div'); const parque = h('div');
     agregar(destino, [
       encabezado('Toma automática de contadores', 'Un agente instalado en la red de cada cliente lee los contadores por SNMP a fin de mes y los manda acá. Las lecturas normales entran solas; las dudosas esperan revisión.',
         h('a', { class: 'btn', href: '#/contadores' }, 'Volver a Contadores')),
-      bandeja, lista, recibidas, alta]);
+      bandeja, lista, parque, recibidas, alta]);
 
     async function pintarBandeja() {
       vaciar(bandeja).append(cargando());
@@ -235,6 +235,33 @@ export function crearContadores(U) {
               h('td', { 'data-rotulo': 'Estado' }, chip(txt, tipo), f.motivo && h('div', { class: 'apoyo' }, MOTIVO[f.motivo] ?? f.motivo)));
           })))
           : h('p', { class: 'apoyo' }, 'Todavía no llegó ninguna lectura. Con "Probar" en el agente aparece acá como prueba.')));
+    }
+
+    async function pintarParque() {
+      const filas = await api('/api/contadores/parque').catch(() => null);
+      vaciar(parque);
+      if (!filas) return;
+      const csv = () => {
+        const cols = [['Cliente', 'cliente'], ['Marca', 'marca'], ['Modelo', 'modelo'], ['Serie', 'numero_serie'], ['IP', 'ip'], ['Visto por primera vez', 'visto_primero'], ['Visto por última vez', 'visto_ultimo'], ['Contador negro', 'contador_negro'], ['Contador color', 'contador_color'], ['Contador total', 'contador_total'], ['Páginas por mes (estimado)', 'paginas_por_mes']];
+        const esc = (v) => (v == null ? '' : /[";\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+        const txt = [cols.map((c) => c[0]), ...filas.map((f) => cols.map((c) => f[c[1]]))].map((r) => r.map(esc).join(';')).join('\r\n');
+        const a = h('a', { href: URL.createObjectURL(new Blob(['\ufeff' + txt], { type: 'text/csv;charset=utf-8' })), download: `equipos-no-justprint-${new Date().toISOString().slice(0, 10)}.csv` });
+        document.body.append(a); a.click(); a.remove();
+      };
+      parque.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' },
+        h('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap' }, h('h2', null, `Otras impresoras en los clientes (${filas.length})`),
+          filas.length ? h('button', { type: 'button', class: 'btn', onclick: csv }, 'Descargar planilla') : null),
+        h('p', { class: 'apoyo' }, 'Equipos que el agente encontró en la red del cliente y que no son de JustPrint: propios del cliente o de otro proveedor. El volumen por mes se estima entre la primera y la última toma (hace falta casi un mes de diferencia).'),
+        filas.length ? h('table', null, h('thead', null, h('tr', null, ['Cliente', 'Equipo', 'Serie / IP', 'Visto', 'Contador', 'Páginas por mes'].map((t) => h('th', null, t)))),
+          h('tbody', null, filas.map((f) => h('tr', null,
+            h('td', { 'data-rotulo': 'Cliente' }, h('b', null, f.cliente), h('div', { class: 'apoyo' }, f.agente)),
+            h('td', { 'data-rotulo': 'Equipo' }, f.marca ?? 'Marca no reconocida', h('div', { class: 'apoyo' }, f.modelo ?? '')),
+            h('td', { 'data-rotulo': 'Serie / IP' }, f.numero_serie ?? '—', h('div', { class: 'apoyo' }, f.ip ?? '')),
+            h('td', { 'data-rotulo': 'Visto' }, fecha(f.visto_ultimo), h('div', { class: 'apoyo' }, f.tomas > 1 ? `${f.tomas} tomas desde ${fecha(f.visto_primero)}` : 'una toma')),
+            h('td', { 'data-rotulo': 'Contador', class: 'num' }, f.contador_total != null ? num(f.contador_total) : '—',
+              f.contador_color != null && f.contador_negro != null && h('div', { class: 'apoyo' }, `${num(f.contador_negro)} negro · ${num(f.contador_color)} color`)),
+            h('td', { 'data-rotulo': 'Páginas por mes', class: 'num' }, f.paginas_por_mes != null ? num(f.paginas_por_mes) : h('span', { class: 'apoyo' }, 'falta otra toma'))))))
+          : h('p', { class: 'apoyo' }, 'Todavía no apareció ninguna. Se completa sola con cada toma del agente.')));
     }
 
     async function pintarLista() {
@@ -291,7 +318,7 @@ export function crearContadores(U) {
         h('button', { class: 'btn btn-principal', type: 'submit' }, 'Dar de alta y generar token')));
     }
 
-    await Promise.all([pintarBandeja(), pintarLista(), pintarRecibidas(), pintarAlta()]);
+    await Promise.all([pintarBandeja(), pintarLista(), pintarParque(), pintarRecibidas(), pintarAlta()]);
   }
 
   return { vistaContadores };

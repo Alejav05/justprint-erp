@@ -131,6 +131,21 @@ test('la lectura de instalación o de retiro del mismo período no frena al agen
   assert.equal(baja.json().resultados[0].estado, 'a_revisar');
 });
 
+test('las impresoras que no son de JustPrint arman el parque del cliente, con el volumen estimado entre tomas', async () => {
+  fijarHoy('2026-12-30T15:00:00Z');
+  await enviar([{ serie: 'xyz-999', ip: '192.168.1.61', marca: 'HP', modelo: 'LaserJet M404', total: 3050 }, { ip: '192.168.1.70', modelo: 'Impresora sin serie', total: 10 }]);
+  const tec = await entrar(ctx.app, 'matias@demo.local');
+  const r = await tec.llamar('GET', '/api/contadores/parque');
+  assert.equal(r.statusCode, 200, r.body);
+  const hp = r.json().find((x) => x.numero_serie === 'xyz-999');
+  assert.ok(hp, 'agrupa por serie aunque venga escrita distinto');
+  assert.equal(hp.tomas, 2); assert.equal(hp.marca, 'HP'); assert.equal(hp.visto_primero, '2026-10-29'); assert.equal(hp.contador_total, 3050);
+  assert.equal(hp.paginas_por_mes, Math.round((3000 / 62) * 30));
+  const sinSerie = r.json().find((x) => x.ip === '192.168.1.70');
+  assert.equal(sinSerie.paginas_por_mes, null, 'con una sola toma no se estima');
+  assert.ok(!r.json().some((x) => x.numero_serie === 'PRUEBA-003'), 'los equipos de JustPrint no aparecen');
+});
+
 test('un agente desactivado o con token renovado deja de entrar', async () => {
   fijarHoy('2026-11-28T15:00:00Z');
   const dir = await entrar(ctx.app, 'direccion@demo.local');
