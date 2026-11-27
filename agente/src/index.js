@@ -39,7 +39,7 @@ const lista = (v) => (typeof v === 'string' ? v.split(',').map((x) => x.trim()).
 
 function tabla(equipos) {
   if (!equipos.length) { console.log('No se encontró ninguna impresora.'); return; }
-  console.table(equipos.map((e) => ({ IP: e.ip, Marca: e.marca ?? '?', Modelo: e.modelo ?? '', Serie: e.serie ?? '', Negro: e.negro ?? '', Color: e.color ?? '', Total: e.total ?? '' })));
+  console.table(equipos.map((e) => ({ IP: e.ip, Marca: e.marca ?? '?', Modelo: e.modelo ?? '', Tipo: e.es_color == null ? '?' : e.es_color ? 'color' : 'mono', Serie: e.serie ?? '', Negro: e.negro ?? '', Color: e.color ?? '', Total: e.total ?? '' })));
 }
 
 export const ERP_POR_DEFECTO = 'https://erp.justprint.com.ar';

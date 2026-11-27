@@ -131,9 +131,10 @@ test('la lectura de instalación o de retiro del mismo período no frena al agen
   assert.equal(baja.json().resultados[0].estado, 'a_revisar');
 });
 
+const sinSerie0 = (r) => r.json().find((x) => x.ip === '192.168.1.70');
 test('las impresoras que no son de JustPrint arman el parque del cliente, con el volumen estimado entre tomas', async () => {
   fijarHoy('2026-12-30T15:00:00Z');
-  await enviar([{ serie: 'xyz-999', ip: '192.168.1.61', marca: 'HP', modelo: 'LaserJet M404', total: 3050 }, { ip: '192.168.1.70', modelo: 'Impresora sin serie', total: 10 }]);
+  await enviar([{ serie: 'xyz-999', ip: '192.168.1.61', marca: 'HP', modelo: 'LaserJet M404', total: 3050, es_color: false }, { ip: '192.168.1.70', modelo: 'Impresora sin serie', total: 10 }]);
   const tec = await entrar(ctx.app, 'matias@demo.local');
   const r = await tec.llamar('GET', '/api/contadores/parque');
   assert.equal(r.statusCode, 200, r.body);
@@ -141,6 +142,8 @@ test('las impresoras que no son de JustPrint arman el parque del cliente, con el
   assert.ok(hp, 'agrupa por serie aunque venga escrita distinto');
   assert.equal(hp.tomas, 2); assert.equal(hp.marca, 'HP'); assert.equal(hp.visto_primero, '2026-10-29'); assert.equal(hp.contador_total, 3050);
   assert.equal(hp.paginas_por_mes, Math.round((3000 / 62) * 30));
+  assert.equal(hp.es_color, false, 'el agente informó que es monocromo');
+  assert.equal(sinSerie0(r).es_color, null, 'sin datos no se adivina');
   assert.ok(hp.equipos_justprint >= 1, 'cuenta los equipos nuestros del cliente');
   const sinSerie = r.json().find((x) => x.ip === '192.168.1.70');
   assert.equal(sinSerie.paginas_por_mes, null, 'con una sola toma no se estima');

@@ -133,3 +133,14 @@ test('la tarea programada de Windows corre a diario y recupera las corridas perd
   assert.match(x, /<UserId>S-1-5-18<\/UserId>/);
   assert.match(x, /<Arguments>tarea<\/Arguments>/);
 });
+
+test('color o monocromo: por los colorantes, si no por los insumos y si no por el contador color', async () => {
+  const { esColor } = await import('../src/snmp.js');
+  assert.equal(esColor(['black', 'cyan', 'magenta', 'yellow']), true);
+  assert.equal(esColor(['black']), false);
+  assert.equal(esColor([], ['Black Toner Cartridge', 'Drum Unit']), false);
+  assert.equal(esColor([], ['Cyan Toner', 'Black Toner']), true);
+  assert.equal(esColor([], [], 1200), true);
+  assert.equal(esColor([], [], 0), null);
+  assert.equal(esColor([], ['Waste toner box']), false);
+});

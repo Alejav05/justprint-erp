@@ -63,7 +63,7 @@ export async function tomar(cfg, { forzar = false, prueba = false, fetchFn, ahor
   if (faltan.length) log(`No respondieron (¿apagados o en otra red?): ${faltan.map((e) => `${e.serie} ${e.marca} ${e.modelo}`).join(' · ')}`);
   if (!equipos.length) return { equipos, faltan, resultados: [] };
 
-  const lecturas = equipos.map(({ ip, marca, modelo, serie, negro, color, total, extra }) => ({ ip, marca: marca ?? undefined, modelo: modelo ?? undefined, serie, negro, color, total, extra }));
+  const lecturas = equipos.map(({ ip, marca, modelo, serie, negro, color, total, es_color, extra }) => ({ ip, marca: marca ?? undefined, modelo: modelo ?? undefined, serie, negro, color, total, es_color, extra }));
   const tomada_en = hoyLocal(ahora);
   let resultados = [];
   try {

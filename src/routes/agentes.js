@@ -47,7 +47,7 @@ export default async function rutasAgentes(app, { db }) {
     lecturas: z.array(z.object({
       serie: z.string().trim().max(80).nullable().optional(), ip: z.string().max(64).optional(),
       marca: z.string().max(60).optional(), modelo: z.string().max(120).optional(),
-      negro: contador, color: contador, total: contador, extra: z.record(z.string(), z.unknown()).optional(),
+      negro: contador, color: contador, total: contador, es_color: z.boolean().nullable().optional(), extra: z.record(z.string(), z.unknown()).optional(),
     })).min(1).max(500),
   });
 
@@ -147,7 +147,7 @@ export default async function rutasAgentes(app, { db }) {
     const v = await clientesVisibles(db, req.ctx);
     const s = db('lecturas_agente as l').join('agentes_contadores as a', 'a.id', 'l.agente_id').join('clientes as c', 'c.id', 'a.cliente_id')
       .where('l.estado', 'no_registrado').whereNull('a.deleted_at')
-      .select('l.id', 'l.numero_serie', 'l.ip', 'l.marca', 'l.modelo', 'l.contador_negro', 'l.contador_color', 'l.contador_total', 'l.fecha',
+      .select('l.id', 'l.numero_serie', 'l.ip', 'l.marca', 'l.modelo', 'l.contador_negro', 'l.contador_color', 'l.contador_total', 'l.fecha', 'l.datos',
         'a.nombre as agente', 'a.cliente_id', 'c.razon_social', 'c.nombre_comercial');
     if (q.cliente) s.where('a.cliente_id', q.cliente);
     if (v) s.whereIn('a.cliente_id', v.length ? v : [0]);
