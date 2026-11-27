@@ -19,6 +19,7 @@ export function crearContadores(U) {
 
   async function vistaContadores(destino, periodoParam, clienteParam) {
     if (periodoParam === 'agentes') return vistaAgentes(destino);
+    if (periodoParam === 'otras') return vistaOtras(destino);
     const clienteId = /^\d+$/.test(clienteParam ?? '') ? clienteParam : null;
     const periodo = /^\d{4}-\d{2}$/.test(periodoParam ?? '') ? periodoParam : periodoSugerido();
     const puedeCargar = puede('contadores.cargar');
@@ -221,7 +222,7 @@ export function crearContadores(U) {
       const filas = await api('/api/contadores/recibidas?estado=todas').catch(() => null);
       vaciar(recibidas);
       if (!filas) return;
-      const ultimas = filas.slice(0, 30);
+      const ultimas = filas.filter((f) => f.estado !== 'no_registrado').slice(0, 30);
       recibidas.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' }, h('h2', null, 'Últimas lecturas recibidas'),
         ultimas.length ? h('table', null, h('thead', null, h('tr', null, ['Recibida', 'Cliente', 'Equipo', 'Negro', 'Color', 'Estado'].map((t) => h('th', null, t)))),
           h('tbody', null, ultimas.map((f) => {
@@ -240,28 +241,12 @@ export function crearContadores(U) {
     async function pintarParque() {
       const filas = await api('/api/contadores/parque').catch(() => null);
       vaciar(parque);
-      if (!filas) return;
-      const csv = () => {
-        const cols = [['Cliente', 'cliente'], ['Marca', 'marca'], ['Modelo', 'modelo'], ['Serie', 'numero_serie'], ['IP', 'ip'], ['Visto por primera vez', 'visto_primero'], ['Visto por última vez', 'visto_ultimo'], ['Contador negro', 'contador_negro'], ['Contador color', 'contador_color'], ['Contador total', 'contador_total'], ['Páginas por mes (estimado)', 'paginas_por_mes']];
-        const esc = (v) => (v == null ? '' : /[";\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-        const txt = [cols.map((c) => c[0]), ...filas.map((f) => cols.map((c) => f[c[1]]))].map((r) => r.map(esc).join(';')).join('\r\n');
-        const a = h('a', { href: URL.createObjectURL(new Blob(['\ufeff' + txt], { type: 'text/csv;charset=utf-8' })), download: `equipos-no-justprint-${new Date().toISOString().slice(0, 10)}.csv` });
-        document.body.append(a); a.click(); a.remove();
-      };
-      parque.append(h('div', { class: 'tarjeta', style: 'margin-top:16px' },
-        h('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap' }, h('h2', null, `Otras impresoras en los clientes (${filas.length})`),
-          filas.length ? h('button', { type: 'button', class: 'btn', onclick: csv }, 'Descargar planilla') : null),
-        h('p', { class: 'apoyo' }, 'Equipos que el agente encontró en la red del cliente y que no son de JustPrint: propios del cliente o de otro proveedor. El volumen por mes se estima entre la primera y la última toma (hace falta casi un mes de diferencia).'),
-        filas.length ? h('table', null, h('thead', null, h('tr', null, ['Cliente', 'Equipo', 'Serie / IP', 'Visto', 'Contador', 'Páginas por mes'].map((t) => h('th', null, t)))),
-          h('tbody', null, filas.map((f) => h('tr', null,
-            h('td', { 'data-rotulo': 'Cliente' }, h('b', null, f.cliente), h('div', { class: 'apoyo' }, f.agente)),
-            h('td', { 'data-rotulo': 'Equipo' }, f.marca ?? 'Marca no reconocida', h('div', { class: 'apoyo' }, f.modelo ?? '')),
-            h('td', { 'data-rotulo': 'Serie / IP' }, f.numero_serie ?? '—', h('div', { class: 'apoyo' }, f.ip ?? '')),
-            h('td', { 'data-rotulo': 'Visto' }, fecha(f.visto_ultimo), h('div', { class: 'apoyo' }, f.tomas > 1 ? `${f.tomas} tomas desde ${fecha(f.visto_primero)}` : 'una toma')),
-            h('td', { 'data-rotulo': 'Contador', class: 'num' }, f.contador_total != null ? num(f.contador_total) : '—',
-              f.contador_color != null && f.contador_negro != null && h('div', { class: 'apoyo' }, `${num(f.contador_negro)} negro · ${num(f.contador_color)} color`)),
-            h('td', { 'data-rotulo': 'Páginas por mes', class: 'num' }, f.paginas_por_mes != null ? num(f.paginas_por_mes) : h('span', { class: 'apoyo' }, 'falta otra toma'))))))
-          : h('p', { class: 'apoyo' }, 'Todavía no apareció ninguna. Se completa sola con cada toma del agente.')));
+      if (!filas?.length) return;
+      const clientes = new Set(filas.map((f) => f.cliente_id)).size;
+      parque.append(h('div', { class: 'tarjeta', style: 'margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap' },
+        h('div', null, h('h2', { style: 'margin:0' }, 'Otras impresoras en los clientes'),
+          h('p', { class: 'apoyo', style: 'margin:4px 0 0' }, `Los agentes encontraron ${filas.length} ${filas.length === 1 ? 'equipo' : 'equipos'} que no son de JustPrint en ${clientes} ${clientes === 1 ? 'cliente' : 'clientes'}.`)),
+        h('a', { class: 'btn', href: '#/contadores/otras' }, 'Ver por cliente')));
     }
 
     async function pintarLista() {
@@ -319,6 +304,104 @@ export function crearContadores(U) {
     }
 
     await Promise.all([pintarBandeja(), pintarLista(), pintarParque(), pintarRecibidas(), pintarAlta()]);
+  }
+
+  /** Impresoras de los clientes que no son de JustPrint, agrupadas por cliente, para ofrecerles el servicio. */
+  async function vistaOtras(destino) {
+    const ALTO = 5000;
+    const cuerpo = h('div');
+    agregar(destino, [encabezado('Otras impresoras en los clientes', 'Equipos que los agentes encontraron en la red de cada cliente y que no son de JustPrint: propios del cliente o de otro proveedor. Los clientes que más imprimen aparecen primero.',
+      h('a', { class: 'btn', href: '#/contadores/agentes' }, 'Volver a Toma automática')), cuerpo]);
+    cuerpo.append(cargando());
+    const filas = await api('/api/contadores/parque').catch(() => null);
+    vaciar(cuerpo);
+    if (!filas) { cuerpo.append(h('div', { class: 'vacio' }, 'No se pudo cargar el listado.')); return; }
+    if (!filas.length) { cuerpo.append(h('div', { class: 'tarjeta vacio' }, 'Todavía no apareció ninguna. Se completa sola con cada toma de los agentes.')); return; }
+
+    const grupos = new Map();
+    for (const f of filas) {
+      if (!grupos.has(f.cliente_id)) grupos.set(f.cliente_id, { id: f.cliente_id, nombre: f.cliente, agentes: new Set(), justprint: f.equipos_justprint ?? 0, equipos: [] });
+      const g = grupos.get(f.cliente_id); g.equipos.push(f); if (f.agente) g.agentes.add(f.agente);
+    }
+    const clientes = [...grupos.values()];
+    const marcaDe = (e) => e.marca ?? 'Sin marca';
+    const volumen = (eqs) => eqs.reduce((a, e) => a + (e.paginas_por_mes ?? 0), 0);
+    const total = volumen(filas);
+    const porMarca = [...filas.reduce((m, e) => m.set(marcaDe(e), (m.get(marcaDe(e)) ?? 0) + 1), new Map())].sort((a, b) => b[1] - a[1]);
+    const PALETA = ['#00BCD4', '#0D1B2A', '#2FB37A', '#F0B429', '#E5484D', '#7A4FBF', '#007E8C', '#6B7C88'];
+    const colorMarca = new Map(porMarca.map(([m], i) => [m, m === 'Sin marca' ? '#B5C2CC' : PALETA[i % PALETA.length]]));
+    const kpi = (rotulo, valor) => h('div', { class: 'tarjeta kpi' }, h('div', { class: 'rotulo' }, rotulo), h('div', { class: 'valor' }, valor));
+
+    const q = h('input', { type: 'search', placeholder: 'Buscar cliente, modelo o serie', 'aria-label': 'Buscar', style: 'flex:1 1 240px;max-width:none' });
+    const orden = h('select', { 'aria-label': 'Ordenar' }, [['vol', 'Más páginas por mes'], ['eq', 'Más equipos'], ['nom', 'Cliente (A a Z)'], ['vis', 'Visto hace más tiempo']].map(([v, t]) => h('option', { value: v }, t)));
+    const btnTodos = h('button', { type: 'button', class: 'btn' }, 'Abrir todos');
+    let marca = null;
+    const chips = h('div', { class: 'otr-chips' });
+    const pintarChips = () => vaciar(chips).append(...['Todas', ...porMarca.map((x) => x[0])].map((m) => h('button', { type: 'button', class: 'otr-chip', 'aria-pressed': String((m === 'Todas' && !marca) || m === marca), onclick: () => { marca = m === 'Todas' ? null : m; pintarChips(); pintar(); } }, m)));
+    const cuenta = h('div', { class: 'apoyo', style: 'margin:12px 0 8px' });
+    const lista = h('div');
+    let visibles = [];
+    const abiertos = new Set([clientes.reduce((a, c) => (volumen(c.equipos) > volumen(a.equipos) ? c : a)).id]);
+
+    function csv() {
+      const cols = [['Cliente', 'cliente'], ['Equipos de JustPrint', 'equipos_justprint'], ['Marca', 'marca'], ['Modelo', 'modelo'], ['Serie', 'numero_serie'], ['IP', 'ip'], ['Visto por primera vez', 'visto_primero'], ['Visto por última vez', 'visto_ultimo'], ['Contador negro', 'contador_negro'], ['Contador color', 'contador_color'], ['Contador total', 'contador_total'], ['Páginas por mes (estimado)', 'paginas_por_mes']];
+      const esc = (v) => (v == null ? '' : /[";\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+      const txt = [cols.map((c) => c[0]), ...filas.map((f) => cols.map((c) => f[c[1]]))].map((r) => r.map(esc).join(';')).join('\r\n');
+      const a = h('a', { href: URL.createObjectURL(new Blob(['\ufeff' + txt], { type: 'text/csv;charset=utf-8' })), download: `otras-impresoras-${new Date().toISOString().slice(0, 10)}.csv` });
+      document.body.append(a); a.click(); a.remove();
+    }
+
+    function pintar() {
+      const t = q.value.trim().toLowerCase();
+      const ls = clientes.map((c) => ({ ...c, equipos: c.equipos.filter((e) => (!marca || marcaDe(e) === marca) && (!t || c.nombre.toLowerCase().includes(t) || `${e.marca ?? ''} ${e.modelo ?? ''} ${e.numero_serie ?? ''} ${e.ip ?? ''}`.toLowerCase().includes(t))) })).filter((c) => c.equipos.length);
+      const primero = (c) => c.equipos.map((e) => e.visto_ultimo).sort()[0];
+      const cmp = { eq: (a, b) => b.equipos.length - a.equipos.length, nom: (a, b) => a.nombre.localeCompare(b.nombre, 'es'), vis: (a, b) => (primero(a) < primero(b) ? -1 : 1), vol: (a, b) => volumen(b.equipos) - volumen(a.equipos) || a.nombre.localeCompare(b.nombre, 'es') };
+      ls.sort(cmp[orden.value]); visibles = ls.map((c) => c.id);
+      cuenta.textContent = `${ls.length} ${ls.length === 1 ? 'cliente' : 'clientes'} · ${ls.reduce((a, c) => a + c.equipos.length, 0)} equipos`;
+      btnTodos.textContent = ls.length && ls.every((c) => abiertos.has(c.id)) ? 'Cerrar todos' : 'Abrir todos';
+      vaciar(lista);
+      if (!ls.length) { lista.append(h('div', { class: 'tarjeta vacio' }, 'No hay equipos que coincidan con la búsqueda.')); return; }
+      const maxVol = Math.max(1, ...filas.map((e) => e.paginas_por_mes ?? 0));
+      lista.append(...ls.map((c) => {
+        const v = volumen(c.equipos); const abierto = abiertos.has(c.id);
+        const marcas = [...new Set(c.equipos.map(marcaDe))]; const ult = c.equipos.map((e) => e.visto_ultimo).sort().at(-1);
+        const sinEstimar = c.equipos.every((e) => e.paginas_por_mes == null);
+        return h('section', { class: `tarjeta otr-cli${abierto ? ' abierto' : ''}` },
+          h('button', { type: 'button', class: 'otr-cab', 'aria-expanded': String(abierto), onclick: () => { if (abiertos.has(c.id)) abiertos.delete(c.id); else abiertos.add(c.id); pintar(); } },
+            h('span', { class: 'otr-flecha', 'aria-hidden': 'true' }, '▶'),
+            h('span', null, h('b', { class: 'otr-nom' }, c.nombre), h('div', { class: 'apoyo' }, `${c.equipos.length} ${c.equipos.length === 1 ? 'equipo' : 'equipos'} de otros${c.agentes.size ? ` · agente ${[...c.agentes].join(', ')}` : ''}`)),
+            h('span', { class: 'otr-tags' }, marcas.map((m) => chip(m, 'mudo')), c.justprint ? chip(`${c.justprint} de JustPrint`, 'ok') : chip('Sin equipos nuestros', 'info'), v > ALTO ? chip('Alto volumen', 'aviso') : null),
+            h('span', { class: 'apoyo otr-visto' }, `visto ${fecha(ult)}`),
+            h('span', { class: 'num' }, sinEstimar ? h('span', { class: 'apoyo' }, 'falta otra toma') : [h('b', { class: 'otr-vol' }, num(v)), h('div', { class: 'apoyo' }, 'pág./mes')])),
+          abierto && h('div', { class: 'otr-det' }, h('table', { class: 'tarjetas' },
+            h('thead', null, h('tr', null, ['Equipo', 'Serie / IP', 'Visto', 'Contador', 'Páginas por mes'].map((x, i) => h('th', { class: i > 2 ? 'num' : null }, x)))),
+            h('tbody', null, [...c.equipos].sort((a, b) => (b.paginas_por_mes ?? -1) - (a.paginas_por_mes ?? -1)).map((e) => h('tr', null,
+              h('td', { 'data-rotulo': 'Equipo' }, h('div', null, h('b', null, marcaDe(e)), ' ', e.modelo ?? '', h('div', { class: 'apoyo' }, e.contador_color != null && e.contador_negro != null ? 'Color' : 'Monocromo o sin detalle'))),
+              h('td', { 'data-rotulo': 'Serie / IP' }, h('div', null, e.numero_serie || '—', h('div', { class: 'apoyo' }, e.ip ?? ''))),
+              h('td', { 'data-rotulo': 'Visto' }, h('div', null, fecha(e.visto_ultimo), h('div', { class: 'apoyo' }, e.tomas > 1 ? `${e.tomas} tomas desde ${fecha(e.visto_primero)}` : 'una toma'))),
+              h('td', { 'data-rotulo': 'Contador', class: 'num' }, h('div', null, e.contador_total != null ? num(e.contador_total) : '—', e.contador_color != null && e.contador_negro != null && h('div', { class: 'apoyo' }, `${num(e.contador_negro)} negro · ${num(e.contador_color)} color`))),
+              h('td', { 'data-rotulo': 'Páginas por mes', class: 'num' }, e.paginas_por_mes != null
+                ? h('span', { class: 'otr-barra' }, h('i', { style: `width:${Math.max(4, Math.round((e.paginas_por_mes / maxVol) * 90))}px` }), num(e.paginas_por_mes))
+                : h('span', { class: 'apoyo' }, 'falta otra toma'))))))));
+      }));
+    }
+
+    btnTodos.addEventListener('click', () => {
+      const cerrar = visibles.length && visibles.every((id) => abiertos.has(id));
+      for (const id of visibles) { if (cerrar) abiertos.delete(id); else abiertos.add(id); }
+      pintar();
+    });
+    q.addEventListener('input', pintar); orden.addEventListener('change', pintar);
+    pintarChips();
+    cuerpo.append(
+      h('div', { class: 'rejilla kpis' }, kpi('Clientes con otras impresoras', num(clientes.length)), kpi('Equipos que no son de JustPrint', num(filas.length)), kpi('Páginas por mes estimadas', num(total)), kpi(`Clientes de más de ${num(ALTO)} pág./mes`, num(clientes.filter((c) => volumen(c.equipos) > ALTO).length))),
+      h('div', { class: 'tarjeta', style: 'margin-bottom:16px' }, h('p', { class: 'etiqueta' }, 'Por marca'),
+        h('div', { class: 'otr-marcas', role: 'img', 'aria-label': porMarca.map(([m, n]) => `${m} ${n}`).join(', ') }, porMarca.map(([m, n]) => h('i', { style: `background:${colorMarca.get(m)};width:${(n / filas.length) * 100}%`, title: `${m}: ${n}` }))),
+        h('div', { class: 'otr-ley' }, porMarca.map(([m, n]) => h('span', { style: `--c:${colorMarca.get(m)}` }, `${m} ${n}`)))),
+      h('div', { class: 'herramientas otr-filtros' }, q, orden, btnTodos, h('button', { type: 'button', class: 'btn btn-principal', onclick: csv }, 'Descargar planilla'), chips),
+      cuenta, lista,
+      h('p', { class: 'apoyo', style: 'margin-top:16px' }, `Las páginas por mes se estiman entre la primera y la última toma de cada equipo; hace falta casi un mes entre las dos. "Alto volumen" marca a los clientes que imprimen más de ${num(ALTO)} páginas por mes fuera de JustPrint. Solo aparecen impresoras de red que responden SNMP: las conectadas por USB no se ven.`));
+    pintar();
   }
 
   return { vistaContadores };

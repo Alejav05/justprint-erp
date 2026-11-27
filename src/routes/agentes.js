@@ -151,7 +151,17 @@ export default async function rutasAgentes(app, { db }) {
         'a.nombre as agente', 'a.cliente_id', 'c.razon_social', 'c.nombre_comercial');
     if (q.cliente) s.where('a.cliente_id', q.cliente);
     if (v) s.whereIn('a.cliente_id', v.length ? v : [0]);
-    return parqueAjeno((await s).map((f) => ({ ...f, cliente: f.nombre_comercial || f.razon_social })));
+    const parque = parqueAjeno((await s).map((f) => ({ ...f, cliente: f.nombre_comercial || f.razon_social })));
+    // Cuántos equipos nuestros tiene hoy cada cliente, para ver el parque completo.
+    const ids = [...new Set(parque.map((x) => x.cliente_id))];
+    const nuestros = new Map();
+    if (ids.length) {
+      const filas = await db('asignaciones_equipo as a').join('contratos as c', 'c.id', 'a.contrato_id')
+        .whereIn('c.cliente_id', ids).where('c.estado', 'vigente').whereNull('c.deleted_at').whereNull('a.hasta')
+        .groupBy('c.cliente_id').select('c.cliente_id').count({ n: 'a.id' });
+      for (const f of filas) nuestros.set(f.cliente_id, Number(f.n));
+    }
+    return parque.map((x) => ({ ...x, equipos_justprint: nuestros.get(x.cliente_id) ?? 0 }));
   });
 
   async function recibidaVisible(req) {

@@ -141,6 +141,7 @@ test('las impresoras que no son de JustPrint arman el parque del cliente, con el
   assert.ok(hp, 'agrupa por serie aunque venga escrita distinto');
   assert.equal(hp.tomas, 2); assert.equal(hp.marca, 'HP'); assert.equal(hp.visto_primero, '2026-10-29'); assert.equal(hp.contador_total, 3050);
   assert.equal(hp.paginas_por_mes, Math.round((3000 / 62) * 30));
+  assert.ok(hp.equipos_justprint >= 1, 'cuenta los equipos nuestros del cliente');
   const sinSerie = r.json().find((x) => x.ip === '192.168.1.70');
   assert.equal(sinSerie.paginas_por_mes, null, 'con una sola toma no se estima');
   assert.ok(!r.json().some((x) => x.numero_serie === 'PRUEBA-003'), 'los equipos de JustPrint no aparecen');
