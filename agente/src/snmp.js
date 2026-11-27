@@ -41,13 +41,15 @@ export function obtener(ip, oids, op = {}, crudo = false) {
 }
 
 /** Recorre un subárbol (para `diagnostico`). */
-export function recorrer(ip, raiz, op = {}) {
+export function recorrer(ip, raiz, op = {}, limite = 0) {
   return new Promise((resolve) => {
     const s = abrir(ip, op); const r = {};
     s.on('error', () => {});
+    // Con `limite` (ms) se corta ahí y devuelve lo que juntó, aunque el equipo no termine de responder.
+    const corte = limite ? setTimeout(() => { try { s.close(); } catch { /* ya cerrada */ } resolve(r); }, limite) : null;
     // Los bloques binarios (como los contadores de Brother) se muestran en hexadecimal para poder leerlos.
     const mostrar = (vb) => (Buffer.isBuffer(vb.value) && vb.value.some((b) => (b < 32 && b !== 0 && b !== 10 && b !== 13) || b > 126) ? `hex:${vb.value.toString('hex')}` : valor(vb));
-    s.subtree(raiz, 20, (vbs) => { for (const vb of vbs) { if (snmp.isVarbindError(vb)) continue; const v = mostrar(vb); if (v !== undefined) r[vb.oid] = v; } }, () => { s.close(); resolve(r); });
+    s.subtree(raiz, 20, (vbs) => { for (const vb of vbs) { if (snmp.isVarbindError(vb)) continue; const v = mostrar(vb); if (v !== undefined) r[vb.oid] = v; } }, () => { if (corte) clearTimeout(corte); try { s.close(); } catch { /* ya cerrada */ } resolve(r); });
   });
 }
 
@@ -60,6 +62,24 @@ function resolver(alternativas, r) {
     const vals = oids.map((o) => numero(r[o]));
     if (vals.every((x) => x !== null)) return { valor: vals.reduce((s, x) => s + x, 0), oids };
   }
+  return null;
+}
+
+/** Tablas de la Printer-MIB que dicen con qué colores imprime el equipo. */
+export const OID_COLORANTES = '1.3.6.1.2.1.43.12.1.1.4'; // prtMarkerColorantValue: "black", "cyan", "magenta", "yellow"
+export const OID_INSUMOS = '1.3.6.1.2.1.43.11.1.1.6'; // prtMarkerSuppliesDescription: "Black Toner", "Cyan Toner"…
+const COLORES = /cyan|magenta|yellow|amarillo|cian|\bcolor/i;
+
+/**
+ * ¿El equipo imprime en color? Primero por los colorantes que declara; si no los informa, por los insumos.
+ * Si no hay datos, por los contadores: un contador color con páginas dice que sí. null si no se puede saber.
+ */
+export function esColor(colorantes = [], insumos = [], color = null) {
+  const c = colorantes.map(String).filter((x) => x.trim());
+  if (c.length) return c.some((x) => COLORES.test(x)) || c.length >= 3;
+  const i = insumos.map(String).filter((x) => /toner|tóner|ink|tinta|cartridge|cartucho|drum|tambor/i.test(x));
+  if (i.length) return i.some((x) => COLORES.test(x));
+  if (color > 0) return true;
   return null;
 }
 
@@ -96,6 +116,10 @@ export async function leerEquipo(ip, op = {}) {
     }
   }
   const total = totalMarca?.valor ?? numero(e.total);
+  // Tablas cortas; con tope de tiempo para que un equipo que no las informa no demore la toma.
+  const tabla = (raiz) => recorrer(ip, raiz, op, op.timeout ?? 2000).then(Object.values, () => []);
+  const colorantes = await tabla(OID_COLORANTES);
+  const insumos = colorantes.length ? [] : await tabla(OID_INSUMOS);
   return {
     ip,
     marca: p?.nombre ?? null,
@@ -104,6 +128,7 @@ export async function leerEquipo(ip, op = {}) {
     negro: negro?.valor ?? null,
     color: color?.valor ?? null,
     total,
+    es_color: esColor(colorantes, insumos, color?.valor ?? null),
     extra: { sysName: e.sysName ?? null, sysDescr: e.sysDescr ? String(e.sysDescr).slice(0, 200) : null, sysObjectID: e.sysObjectID ?? null, oid_negro: negro?.oids ?? null, oid_color: color?.oids ?? null },
   };
 }

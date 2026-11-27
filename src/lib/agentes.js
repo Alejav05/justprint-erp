@@ -175,13 +175,21 @@ export function parqueAjeno(filas) {
     // Con menos de 20 días entre tomas el promedio no dice mucho.
     const d = pri && fin ? dias(pri.fecha, fin.fecha) : 0;
     const porMes = d >= 20 && paginas(fin) >= paginas(pri) ? Math.round(((paginas(fin) - paginas(pri)) / d) * 30) : null;
+    // Color o monocromo: lo que informó el agente (por los colorantes del equipo) y, si no, los contadores.
+    const datos = (x) => { try { return typeof x.datos === 'string' ? JSON.parse(x.datos) : x.datos ?? {}; } catch { return {}; } };
+    const informado = [...ls].reverse().map((x) => datos(x).es_color).find((v) => typeof v === 'boolean');
+    const esColor = informado ?? (ls.some((x) => x.contador_color > 0) ? true : null);
+    // Si el equipo separa negro y color, el volumen también se separa.
+    const sep = ls.filter((x) => x.contador_negro != null && x.contador_color != null);
+    const s0 = sep[0]; const s1 = sep.at(-1); const ds = s0 && s1 ? dias(s0.fecha, s1.fecha) : 0;
+    const porMesColor = ds >= 20 && s1.contador_color >= s0.contador_color ? Math.round(((s1.contador_color - s0.contador_color) / ds) * 30) : null;
     return {
       cliente_id: ult.cliente_id, cliente: ult.cliente, agente: ult.agente,
       marca: [...ls].reverse().find((x) => x.marca)?.marca ?? null, modelo: [...ls].reverse().find((x) => x.modelo)?.modelo ?? null,
       numero_serie: ult.numero_serie ?? null, ip: ult.ip ?? null,
       visto_primero: ls[0].fecha, visto_ultimo: ult.fecha, tomas: ls.length,
       contador_negro: ult.contador_negro, contador_color: ult.contador_color, contador_total: paginas(ult),
-      paginas_por_mes: porMes,
+      paginas_por_mes: porMes, paginas_color_por_mes: esColor === false ? 0 : porMesColor, es_color: esColor,
     };
   }).sort((a, b) => a.cliente.localeCompare(b.cliente, 'es') || String(a.marca ?? '~').localeCompare(String(b.marca ?? '~')) || String(a.modelo).localeCompare(String(b.modelo)));
 }

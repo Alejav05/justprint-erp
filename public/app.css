@@ -463,3 +463,22 @@ table.foto tbody tr{border-top:1px solid #E6EDF1}
 table.foto tr.total{border-top:2px solid #0D1B2A}
 .negocio-kpis.kpis3{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media (max-width:760px){.negocio-kpis.kpis3{grid-template-columns:1fr}}
+
+/* Otras impresoras en los clientes */
+.otr-marcas{display:flex;height:12px;border-radius:99px;overflow:hidden;margin:4px 0 10px;background:var(--borde)}.otr-marcas i{display:block}
+.otr-ley{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px}.otr-ley span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:var(--c)}
+.otr-filtros{gap:8px;align-items:center;padding-bottom:12px;margin-bottom:0;border-bottom:1px solid var(--borde)}
+@media (max-width:760px){.otr-det{padding:4px 8px 8px}.otr-det table.tarjetas tr{box-shadow:none;border-bottom:1px solid var(--borde);border-radius:0;margin:0}}
+.otr-chips{display:flex;flex-wrap:wrap;gap:6px;flex-basis:100%}
+.otr-chip{min-height:36px;padding:0 12px;border-radius:99px;border:1px solid var(--borde);background:var(--blanco);color:var(--texto);cursor:pointer}
+.otr-chip[aria-pressed=true]{background:var(--navy);border-color:var(--navy);color:#fff}
+.otr-cli{padding:0;margin-bottom:8px;overflow:hidden}
+.otr-cab{width:100%;display:grid;grid-template-columns:22px minmax(0,2.2fr) minmax(0,1.6fr) 100px 120px;gap:12px;align-items:center;padding:12px 16px;min-height:56px;background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.otr-cab:hover{background:var(--celeste)}
+.otr-flecha{color:var(--gris);transition:transform .15s}.otr-cli.abierto .otr-flecha{transform:rotate(90deg)}
+.otr-nom{color:var(--navy)}.otr-vol{color:var(--navy);font-size:17px}
+.otr-tags{display:flex;flex-wrap:wrap;gap:4px}
+.otr-det{border-top:1px solid var(--borde);padding:4px 16px 12px}
+.otr-barra{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end;white-space:nowrap}.otr-barra i{display:block;height:6px;border-radius:99px;background:var(--cian)}
+@media (max-width:760px){.otr-cab{grid-template-columns:18px minmax(0,1fr) auto;row-gap:4px}.otr-cab .otr-tags{grid-column:2/4}.otr-cab .otr-visto{display:none}.otr-cab>.num{grid-row:1;grid-column:3}}
+@media (prefers-reduced-motion:reduce){.otr-flecha{transition:none}}

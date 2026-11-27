@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { VERSION } from '../src/version.js';
 
 process.env.JP_AGENTE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'jp-agente-int-'));
 const hayErp = fs.existsSync(new URL('../../node_modules/fastify', import.meta.url));
@@ -61,5 +62,5 @@ test('el agente toma las impresoras del cliente y el ERP las valida', { skip: !h
   const otra = await tomar(cfg, { ahora: new Date(2026, 10, 30), fetchFn: fetchErp });
   assert.equal(otra.omitida, 'completa');
   const agentes = (await tec.llamar('GET', '/api/contadores/agentes')).json();
-  assert.equal(agentes[0].version, '1.2.0');
+  assert.equal(agentes[0].version, VERSION);
 });
