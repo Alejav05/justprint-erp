@@ -7,7 +7,7 @@ import { clientesVisibles, puedeVerCliente } from '../lib/contexto.js';
 import { aDia, hoy, json } from '../lib/fechas.js';
 import { aprobarRecibida, parqueAjeno, CORTE_DESDE_DIA, CORTE_HASTA_DIA, equiposDelCliente, hashToken, nuevoToken, periodoDeCorte, procesarLectura } from '../lib/agentes.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
-import { guardarEstados, panelMonitoreo } from '../lib/monitoreo.js';
+import { fijarAvisos, guardarEstados, panelMonitoreo } from '../lib/monitoreo.js';
 
 const ahoraSql = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
 const contador = z.number().int().min(0).max(4294967295).nullable().optional();
@@ -182,6 +182,19 @@ export default async function rutasAgentes(app, { db }) {
 
   /** Panel de Monitoreo: equipos de JustPrint en clientes con agente, con su último estado. */
   app.get('/api/monitoreo', { preHandler: [auth, requerirPermiso('monitoreo.ver')] }, async (req) => panelMonitoreo(db, { clientes: await clientesVisibles(db, req.ctx) }));
+
+  /** Avisos del monitoreo: apagados por defecto; se prenden para un cliente entero o para un equipo. */
+  app.put('/api/monitoreo/avisos', { preHandler: [auth, requerirPermiso('monitoreo.avisos')] }, async (req, reply) => {
+    const d = z.object({ cliente_id: z.number().int().positive(), equipo_id: z.number().int().positive().nullable().optional(), activo: z.boolean() }).parse(req.body);
+    if (!(await puedeVerCliente(db, req.ctx, d.cliente_id))) return reply.code(404).send({ error: 'no_encontrado' });
+    if (d.equipo_id) {
+      const eq = (await equiposDelCliente(db, d.cliente_id, hoy().slice(0, 7))).find((e) => e.equipo_id === d.equipo_id);
+      if (!eq) return reply.code(400).send({ error: 'equipo_invalido' });
+    }
+    await fijarAvisos(db, { clienteId: d.cliente_id, equipoId: d.equipo_id ?? null, activo: d.activo, usuarioId: req.ctx.id });
+    await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'monitoreo_avisos', d.equipo_id ?? d.cliente_id, null, d);
+    return { ok: true };
+  });
 
   async function recibidaVisible(req) {
     const la = await db('lecturas_agente').where({ id: Number(req.params.id) }).first();

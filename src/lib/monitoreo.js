@@ -89,6 +89,12 @@ export async function panelMonitoreo(db, { clientes = null, hoy = hoyBA() } = {}
       caido: !conexion || dias(conexion, hoy) > DIAS_SIN_CONEXION, dias_sin_conexion: conexion ? dias(conexion, hoy) : null });
   }
   const mes = hoy.slice(0, 7); const cierre = periodoDeCorte(hoy) ?? mes;
+  const avisos = await db('monitoreo_avisos').whereIn('cliente_id', [...porCliente.keys()].length ? [...porCliente.keys()] : [0]).select('cliente_id', 'equipo_id');
+  for (const g of porCliente.values()) {
+    const propios = avisos.filter((a) => a.cliente_id === g.cliente_id);
+    g.avisos_cliente = propios.some((a) => a.equipo_id == null);
+    g.avisos_equipos = new Set(propios.filter((a) => a.equipo_id != null).map((a) => a.equipo_id));
+  }
   for (const g of porCliente.values()) {
     const eqs = await equiposDelCliente(db, g.cliente_id, mes);
     const ids = eqs.map((e) => e.equipo_id);
@@ -127,10 +133,12 @@ export async function panelMonitoreo(db, { clientes = null, hoy = hoyBA() } = {}
         conexion, visto: u?.fecha ?? null, visto_a: u?.updated_at ?? null, ip: u?.ip ?? null, estado: u?.estado ?? null, mensaje: u?.mensaje ?? null,
         errores: errores.map((k) => ({ clave: k, texto: ERRORES[k] ?? k })), insumos,
         contador: u ? { negro: u.contador_negro, color: u.contador_color, total: contadorTotal(u), fecha: u.fecha } : null, paginas,
+        avisos: g.avisos_cliente || g.avisos_equipos.has(e.equipo_id), avisos_propio: g.avisos_equipos.has(e.equipo_id),
         cierre: { periodo: cierre, cargada }, ticket: tickets.find((t) => t.equipo_id === e.equipo_id) ?? null, alertas,
       });
     }
   }
+  for (const g of porCliente.values()) { g.avisos = g.avisos_cliente ? 'cliente' : g.avisos_equipos.size ? 'equipos' : 'no'; delete g.avisos_equipos; }
   const lista = [...porCliente.values()].sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'));
   const eqs = lista.flatMap((c) => c.equipos);
   return {
@@ -143,4 +151,12 @@ export async function panelMonitoreo(db, { clientes = null, hoy = hoyBA() } = {}
     },
     clientes: lista,
   };
+}
+
+/** Prende o apaga los avisos de un cliente entero (sin equipo) o de un equipo del cliente. */
+export async function fijarAvisos(db, { clienteId, equipoId = null, activo, usuarioId = null }) {
+  const q = db('monitoreo_avisos').where({ cliente_id: clienteId });
+  if (equipoId == null) q.whereNull('equipo_id'); else q.where({ equipo_id: equipoId });
+  await q.clone().del();
+  if (activo) await db('monitoreo_avisos').insert({ cliente_id: clienteId, equipo_id: equipoId, created_by: usuarioId });
 }

@@ -499,3 +499,5 @@ table.foto tr.total{border-top:2px solid #0D1B2A}
 .mon-v{text-align:right;font-variant-numeric:tabular-nums}.mon-bar.bajo .mon-v{color:var(--malo);font-weight:700}
 @media (max-width:760px){.mon-cab{grid-template-columns:18px minmax(0,1fr)}.mon-cab .otr-tags{grid-column:2}.mon-cab>.num{display:none}}
 @media (max-width:600px){.mon-al{grid-template-columns:46px minmax(0,1fr)}.mon-al>.btn{grid-column:2;justify-self:start}}
+.mon-avisos{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:12px 0 0}.mon-avisos select{min-height:40px;border:1px solid #CBD8DE;border-radius:10px;padding:0 10px;background:#fff;color:var(--navy);margin-left:6px}
+.mon-check{display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--borde);font-size:13.5px;cursor:pointer}.mon-check input{width:18px;height:18px}

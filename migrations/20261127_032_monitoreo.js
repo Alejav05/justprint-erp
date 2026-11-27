@@ -21,8 +21,19 @@ export async function up(knex) {
     t.unique(['equipo_id', 'fecha']);
     t.index(['agente_id', 'fecha']);
   });
+
+  // Avisos del monitoreo: apagados salvo que se prendan para un cliente entero (equipo_id null) o para un equipo.
+  await knex.schema.createTable('monitoreo_avisos', (t) => {
+    t.increments('id');
+    ref(t, 'cliente_id', 'clientes');
+    ref(t, 'equipo_id', 'equipos', { nula: true });
+    t.integer('created_by').unsigned().nullable();
+    t.timestamp('created_at').notNullable().defaultTo(knex.fn.now());
+    t.index(['cliente_id']);
+  });
 }
 
 export async function down(knex) {
+  await knex.schema.dropTableIfExists('monitoreo_avisos');
   await knex.schema.dropTableIfExists('estado_equipos');
 }

@@ -74,12 +74,42 @@ test('el panel muestra conexión, insumos con días restantes, errores a atender
   assert.equal((await com.llamar('GET', '/api/monitoreo')).statusCode, 403);
 });
 
-test('las alertas de monitoreo avisan el insumo bajo, el error y el equipo sin conexión', async () => {
+test('los avisos están apagados por defecto y se prenden por equipo o por cliente', async () => {
+  const reglasMon = ['monitoreo_toner_bajo', 'monitoreo_error', 'monitoreo_sin_conexion', 'monitoreo_agente_caido'];
+  const eventos = async () => ctx.db('alertas_eventos').whereIn('regla', reglasMon).select('regla', 'titulo', 'entidad');
   await ejecutarAlertas(ctx.db, { ahora: Date.now() });
-  const ev = await ctx.db('alertas_eventos').whereIn('regla', ['monitoreo_toner_bajo', 'monitoreo_error', 'monitoreo_sin_conexion', 'monitoreo_agente_caido']).select('regla', 'titulo');
+  assert.equal((await eventos()).length, 0, 'sin avisos prendidos no se avisa nada');
+
+  // Un técnico no los puede cambiar; el head técnico sí.
+  const tec = await entrar(ctx.app, 'matias@demo.local');
+  assert.equal((await tec.llamar('PUT', '/api/monitoreo/avisos', { cliente_id: cliente, equipo_id: equipos[0].id, activo: true })).statusCode, 403);
+  const head = await entrar(ctx.app, 'head.tecnico@demo.local');
+  const r = await head.llamar('PUT', '/api/monitoreo/avisos', { cliente_id: cliente, equipo_id: equipos[0].id, activo: true });
+  assert.equal(r.statusCode, 200, r.body);
+  let p = (await head.llamar('GET', '/api/monitoreo')).json().clientes.find((x) => x.cliente_id === cliente);
+  assert.equal(p.avisos, 'equipos'); assert.equal(p.equipos.find((e) => e.equipo_id === equipos[0].id).avisos, true);
+  if (equipos[1]) assert.equal(p.equipos.find((e) => e.equipo_id === equipos[1].id).avisos, false);
+
+  await ejecutarAlertas(ctx.db, { ahora: Date.now() + 1000 });
+  let ev = await eventos();
   const reglas = new Set(ev.map((x) => x.regla));
   assert.ok(reglas.has('monitoreo_toner_bajo')); assert.ok(reglas.has('monitoreo_error'));
-  if (equipos[1]) assert.ok(reglas.has('monitoreo_sin_conexion'));
-  assert.ok(!reglas.has('monitoreo_agente_caido'), 'el agente se conectó hoy');
+  assert.ok(!reglas.has('monitoreo_sin_conexion'), 'el otro equipo no tiene avisos');
+  assert.ok(ev.every((x) => !x.entidad.startsWith('equipo:') || x.entidad.startsWith(`equipo:${equipos[0].id}:`)));
   assert.match(ev.find((x) => x.regla === 'monitoreo_toner_bajo').titulo, /Black Toner al 12%/);
+
+  // Prendido para todo el cliente: entra también el equipo sin conexión.
+  await head.llamar('PUT', '/api/monitoreo/avisos', { cliente_id: cliente, activo: true });
+  p = (await head.llamar('GET', '/api/monitoreo')).json().clientes.find((x) => x.cliente_id === cliente);
+  assert.equal(p.avisos, 'cliente');
+  await ejecutarAlertas(ctx.db, { ahora: Date.now() + 2000 });
+  ev = await eventos();
+  if (equipos[1]) assert.ok(ev.some((x) => x.regla === 'monitoreo_sin_conexion'));
+  assert.ok(!ev.some((x) => x.regla === 'monitoreo_agente_caido'), 'el agente se conectó hoy');
+
+  // Se apaga y queda como al principio.
+  await head.llamar('PUT', '/api/monitoreo/avisos', { cliente_id: cliente, activo: false });
+  await head.llamar('PUT', '/api/monitoreo/avisos', { cliente_id: cliente, equipo_id: equipos[0].id, activo: false });
+  p = (await head.llamar('GET', '/api/monitoreo')).json().clientes.find((x) => x.cliente_id === cliente);
+  assert.equal(p.avisos, 'no');
 });

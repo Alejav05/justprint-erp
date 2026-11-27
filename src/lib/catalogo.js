@@ -40,6 +40,7 @@ export const PERMISOS = [
   ['contadores.cargar', 'servicio', 'Cargar los contadores del mes'],
   ['contadores.agentes', 'servicio', 'Dar de alta y administrar los agentes que toman contadores en los clientes'],
   ['monitoreo.ver', 'servicio', 'Ver el monitoreo diario de los equipos: insumos, errores y conexión'],
+  ['monitoreo.avisos', 'servicio', 'Prender o apagar los avisos del monitoreo para un cliente o un equipo'],
   ['equipos.ver', 'equipos', 'Ver equipos y su historial'],
   ['equipos.editar', 'equipos', 'Crear y editar equipos'],
   ['insumos.ver', 'insumos', 'Ver insumos y stock'],
@@ -72,7 +73,7 @@ export const ROLES = {
   head_atencion: {
     descripcion: 'Líder de atención al cliente',
     permisos: ['clientes.ver', 'contactos.ver', 'contactos.editar', 'tickets.ver', 'tickets.crear', 'tickets.atender',
-      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes', 'monitoreo.ver'],
+      'tickets.asignar', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes', 'monitoreo.ver', 'monitoreo.avisos'],
   },
   atencion: {
     descripcion: 'Atención al cliente',
@@ -82,7 +83,7 @@ export const ROLES = {
   head_tecnico: {
     descripcion: 'Líder del área técnica',
     permisos: ['clientes.ver', 'contactos.ver', 'tickets.ver', 'tickets.atender', 'tickets.asignar', 'partes.editar',
-      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes', 'monitoreo.ver'],
+      'remitos.crear', 'insumos.ver', 'insumos.mover', 'equipos.ver', 'equipos.editar', 'reportes.equipo', 'tableros.servicio', 'encuestas.ver', 'contadores.ver', 'contadores.cargar', 'contadores.agentes', 'monitoreo.ver', 'monitoreo.avisos'],
   },
   tecnico: {
     descripcion: 'Técnico de servicio',

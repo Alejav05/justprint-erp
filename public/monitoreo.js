@@ -55,6 +55,30 @@ export function crearMonitoreo(U) {
         location.hash = `#/tickets/${id}`;
       } catch (err) { if (err.message !== 'sesion') aviso('No se pudo crear el ticket'); }
     }
+    const puedeAvisos = puede('monitoreo.avisos');
+    async function fijarAvisos(cuerpoPut) {
+      try { await api('/api/monitoreo/avisos', { metodo: 'PUT', cuerpo: cuerpoPut }); aviso(cuerpoPut.activo ? 'Avisos prendidos' : 'Avisos apagados'); await cargar(); } catch (err) { if (err.message !== 'sesion') aviso('No se pudo cambiar'); }
+    }
+    function controlAvisos(c) {
+      const sel = h('select', { 'aria-label': `Avisos de ${c.cliente}`, disabled: !puedeAvisos },
+        [['no', 'Apagados'], ['cliente', 'Prendidos para todo el cliente'], ['equipos', 'Solo para los equipos que marque']].map(([v, t]) => h('option', { value: v, selected: c.avisos === v }, t)));
+      sel.addEventListener('change', async () => {
+        if (sel.value === 'cliente') await fijarAvisos({ cliente_id: c.cliente_id, activo: true });
+        else if (sel.value === 'no') {
+          for (const e of c.equipos.filter((x) => x.avisos_propio)) await api('/api/monitoreo/avisos', { metodo: 'PUT', cuerpo: { cliente_id: c.cliente_id, equipo_id: e.equipo_id, activo: false } }).catch(() => null);
+          await fijarAvisos({ cliente_id: c.cliente_id, activo: false });
+        } else if (c.avisos === 'cliente') await fijarAvisos({ cliente_id: c.cliente_id, activo: false });
+        else { abiertos.add(c.cliente_id); aviso('Marcá "Avisar" en los equipos que quieras'); datos.clientes.find((x) => x.cliente_id === c.cliente_id).avisos = 'equipos'; pintarLista(); }
+      });
+      return h('div', { class: 'mon-avisos' }, h('label', null, 'Avisos en Notificaciones ', sel),
+        h('span', { class: 'apoyo' }, c.avisos === 'no' ? 'No se avisa nada de este cliente; el panel lo muestra igual.' : c.avisos === 'cliente' ? 'Se avisa insumo bajo, errores y falta de conexión de todos sus equipos.' : 'Se avisa solo de los equipos marcados.'));
+    }
+    function checkEquipo(c, e) {
+      if (c.avisos === 'no' && !e.avisos_propio) return null;
+      const chk = h('input', { type: 'checkbox', checked: e.avisos, disabled: !puedeAvisos || c.avisos === 'cliente' });
+      chk.addEventListener('change', () => fijarAvisos({ cliente_id: c.cliente_id, equipo_id: e.equipo_id, activo: chk.checked }));
+      return h('label', { class: 'mon-check' }, chk, c.avisos === 'cliente' ? ' Avisar (todo el cliente)' : ' Avisar por este equipo');
+    }
     const botonTicket = (e, crear) => (e.ticket ? h('a', { class: 'btn', href: `#/tickets/${e.ticket.id}` }, `Ticket ${e.ticket.numero} abierto`) : puede('tickets.crear') ? h('button', { type: 'button', class: 'btn', onclick: crear }, crear.texto) : null);
 
     function pintar() {
@@ -98,7 +122,7 @@ export function crearMonitoreo(U) {
             paraPedido.length && puede('tickets.crear') ? h('button', { type: 'button', class: 'btn btn-principal', onclick: () => pedirInsumos(paraPedido) }, `Armar pedido de insumos (${paraPedido.length})`) : null),
           cajaAt),
         tabs, h('div', { class: 'herramientas otr-filtros', style: 'border:0;margin-top:12px' }, q, chips), cuenta, lista,
-        h('p', { class: 'apoyo', style: 'margin-top:16px' }, `Los agentes leen el estado una vez por día (desde la versión 1.4). Los días que quedan de cada insumo se estiman con cómo bajó en las últimas semanas. "Insumo bajo" es menos de ${datos.umbral}%: se cambia en Alertas › Toner o insumo bajo. La toma que se factura sigue siendo la de fin de mes y queda en Contadores.`));
+        h('p', { class: 'apoyo', style: 'margin-top:16px' }, `Los agentes leen el estado una vez por día (desde la versión 1.4). Los días que quedan de cada insumo se estiman con cómo bajó en las últimas semanas. Los avisos a Notificaciones están apagados salvo para los clientes o equipos que se prendan acá. "Insumo bajo" es menos de ${datos.umbral}%: se cambia en Alertas › Toner o insumo bajo. La toma que se factura sigue siendo la de fin de mes y queda en Contadores.`));
       pintarLista();
     }
 
@@ -115,7 +139,7 @@ export function crearMonitoreo(U) {
         h('span', { class: 'mon-tr', title: i.nombre }, pct != null ? h('i', { style: `width:${pct}%;background:${(i.tipo === 'toner' || i.tipo === 'tinta') && COLOR[i.color] ? COLOR[i.color] : 'var(--gris)'}` }) : null),
         h('span', { class: 'mon-v' }, pct != null ? `${pct}%` : i.queda_algo ? 'OK' : '—'));
     };
-    function tarjeta(e) {
+    function tarjeta(c, e) {
       const reponibles = e.insumos.filter((i) => ['toner', 'tinta'].includes(i.tipo) && i.dias != null);
       const minDias = reponibles.length ? Math.min(...reponibles.map((i) => i.dias)) : null;
       const est = e.conexion === 'en_linea' ? chip('En línea', 'ok') : e.conexion === 'sin_conexion' ? chip('Sin conexión', 'malo') : chip('Sin datos', 'mudo');
@@ -126,7 +150,8 @@ export function crearMonitoreo(U) {
         e.mensaje ? h('div', { class: 'apoyo', style: 'margin-top:4px' }, `Panel: "${e.mensaje}"`) : null,
         e.insumos.length ? h('div', { class: 'mon-ins' }, e.insumos.filter((i) => i.tipo !== 'otro' || i.nivel != null).map(barra)) : e.visto ? h('div', { class: 'apoyo', style: 'margin-top:8px' }, 'El equipo no informa sus insumos.') : null,
         minDias != null ? h('div', { class: 'apoyo', style: 'margin-top:6px' }, e.insumos.some((i) => i.bajo) ? chip('Insumo bajo', 'aviso') : null, ` El toner alcanza para unos ${minDias} días`) : null,
-        e.ticket ? h('div', { style: 'margin-top:6px' }, h('a', { href: `#/tickets/${e.ticket.id}` }, `Ticket ${e.ticket.numero} abierto`), h('span', { class: 'apoyo' }, ` · ${e.ticket.asunto}`)) : null);
+        e.ticket ? h('div', { style: 'margin-top:6px' }, h('a', { href: `#/tickets/${e.ticket.id}` }, `Ticket ${e.ticket.numero} abierto`), h('span', { class: 'apoyo' }, ` · ${e.ticket.asunto}`)) : null,
+        checkEquipo(c, e));
     }
     function tablaContadores(c) {
       return h('div', null, h('table', { class: 'tarjetas' },
@@ -152,16 +177,18 @@ export function crearMonitoreo(U) {
         const abierto = abiertos.has(c.cliente_id);
         const off = c.equipos.filter((e) => e.conexion === 'sin_conexion').length; const bajos = c.equipos.filter((e) => e.alertas.some((a) => a.tipo === 'insumo_bajo')).length;
         const errs = c.equipos.filter((e) => e.alertas.some((a) => a.tipo === 'error')).length; const caido = c.agentes.find((a) => a.caido);
-        const resumen = [caido && chip('Agente sin conexión', 'malo'), off && chip(`${off} sin conexión`, 'malo'), errs && chip(`${errs} con error`, 'malo'), bajos && chip(`${bajos} con insumo bajo`, 'aviso')].filter(Boolean);
+        const nAv = c.equipos.filter((e) => e.avisos).length;
+        const alertasC = [caido && chip('Agente sin conexión', 'malo'), off && chip(`${off} sin conexión`, 'malo'), errs && chip(`${errs} con error`, 'malo'), bajos && chip(`${bajos} con insumo bajo`, 'aviso')].filter(Boolean);
+        const resumen = [...(alertasC.length ? alertasC : [chip('Todo en orden', 'ok')]), c.avisos === 'cliente' ? chip('Avisos prendidos', 'info') : nAv ? chip(`Avisos en ${nAv} ${nAv === 1 ? 'equipo' : 'equipos'}`, 'info') : null].filter(Boolean);
         const pags = c.equipos.reduce((s, e) => s + (e.paginas?.total ?? 0), 0);
         return h('section', { class: `tarjeta otr-cli${abierto ? ' abierto' : ''}` },
           h('button', { type: 'button', class: 'otr-cab mon-cab', 'aria-expanded': String(abierto), onclick: () => { if (abierto) abiertos.delete(c.cliente_id); else abiertos.add(c.cliente_id); pintarLista(); } },
             h('span', { class: 'otr-flecha', 'aria-hidden': 'true' }, '▶'),
             h('span', null, h('b', { class: 'otr-nom' }, c.cliente), h('div', { class: 'apoyo' }, `${c.equipos.length} ${c.equipos.length === 1 ? 'equipo' : 'equipos'} · agente ${c.agentes.map((a) => a.nombre).join(', ')}`)),
-            h('span', { class: 'otr-tags' }, resumen.length ? resumen : chip('Todo en orden', 'ok')),
+            h('span', { class: 'otr-tags' }, resumen),
             h('span', { class: 'apoyo num' }, vista === 'cont' && pags ? `${num(pags)} pág. este mes` : '')),
-          abierto && h('div', { class: 'otr-det' }, !c.equipos.length ? h('p', { class: 'apoyo' }, 'Este cliente no tiene equipos de JustPrint instalados.')
-            : vista === 'ins' ? h('div', { class: 'mon-grilla' }, c.equipos.map(tarjeta)) : tablaContadores(c)));
+          abierto && h('div', { class: 'otr-det' }, controlAvisos(c), !c.equipos.length ? h('p', { class: 'apoyo' }, 'Este cliente no tiene equipos de JustPrint instalados.')
+            : vista === 'ins' ? h('div', { class: 'mon-grilla' }, c.equipos.map((e) => tarjeta(c, e))) : tablaContadores(c)));
       }));
     }
 
