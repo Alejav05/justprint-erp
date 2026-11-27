@@ -26,5 +26,6 @@ export function crearErp({ erp_url: url, token }, { fetchFn = globalThis.fetch }
   return {
     config: () => llamar('GET', '/api/agente/v1/config'),
     enviar: (lecturas, { prueba = false, tomada_en } = {}) => llamar('POST', '/api/agente/v1/lecturas', { prueba, tomada_en, lecturas }),
+    estado: (equipos) => llamar('POST', '/api/agente/v1/estado', { equipos }),
   };
 }

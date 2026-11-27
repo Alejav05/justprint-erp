@@ -7,6 +7,7 @@ import { clientesVisibles, puedeVerCliente } from '../lib/contexto.js';
 import { aDia, hoy, json } from '../lib/fechas.js';
 import { aprobarRecibida, parqueAjeno, CORTE_DESDE_DIA, CORTE_HASTA_DIA, equiposDelCliente, hashToken, nuevoToken, periodoDeCorte, procesarLectura } from '../lib/agentes.js';
 import { requerirPermiso, requerirSesion } from '../plugins/auth.js';
+import { fijarAvisos, guardarEstados, panelMonitoreo } from '../lib/monitoreo.js';
 
 const ahoraSql = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
 const contador = z.number().int().min(0).max(4294967295).nullable().optional();
@@ -49,6 +50,21 @@ export default async function rutasAgentes(app, { db }) {
       marca: z.string().max(60).optional(), modelo: z.string().max(120).optional(),
       negro: contador, color: contador, total: contador, es_color: z.boolean().nullable().optional(), extra: z.record(z.string(), z.unknown()).optional(),
     })).min(1).max(500),
+  });
+
+  /** Monitoreo diario: estado de cada impresora (insumos, errores, contadores de seguimiento). No factura. */
+  const estadoSchema = z.object({
+    equipos: z.array(z.object({
+      serie: z.string().trim().max(80).nullable().optional(), ip: z.string().max(64).optional(), marca: z.string().max(60).optional(), modelo: z.string().max(120).optional(),
+      negro: contador, color: contador, total: contador, es_color: z.boolean().nullable().optional(),
+      estado: z.string().max(20).nullable().optional(), mensaje: z.string().max(500).nullable().optional(), errores: z.array(z.string().max(40)).max(30).optional(),
+      insumos: z.array(z.object({ nombre: z.string().max(200).optional(), tipo: z.string().max(40).optional(), color: z.string().max(40).nullable().optional(), nivel: z.number().nullable().optional(), queda_algo: z.boolean().optional() })).max(40).optional(),
+    })).max(500),
+  });
+  app.post('/api/agente/v1/estado', { preHandler: autenticarAgente, bodyLimit: 1024 * 1024 }, async (req) => {
+    const d = estadoSchema.parse(req.body);
+    const r = await guardarEstados(db, req.agente, d.equipos);
+    return { recibidos: d.equipos.length, ...r };
   });
 
   /** Recibe una tanda de lecturas. Cada una se procesa por separado y vuelve con su estado. */
@@ -162,6 +178,22 @@ export default async function rutasAgentes(app, { db }) {
       for (const f of filas) nuestros.set(f.cliente_id, Number(f.n));
     }
     return parque.map((x) => ({ ...x, equipos_justprint: nuestros.get(x.cliente_id) ?? 0 }));
+  });
+
+  /** Panel de Monitoreo: equipos de JustPrint en clientes con agente, con su último estado. */
+  app.get('/api/monitoreo', { preHandler: [auth, requerirPermiso('monitoreo.ver')] }, async (req) => panelMonitoreo(db, { clientes: await clientesVisibles(db, req.ctx) }));
+
+  /** Avisos del monitoreo: apagados por defecto; se prenden para un cliente entero o para un equipo. */
+  app.put('/api/monitoreo/avisos', { preHandler: [auth, requerirPermiso('monitoreo.avisos')] }, async (req, reply) => {
+    const d = z.object({ cliente_id: z.number().int().positive(), equipo_id: z.number().int().positive().nullable().optional(), activo: z.boolean() }).parse(req.body);
+    if (!(await puedeVerCliente(db, req.ctx, d.cliente_id))) return reply.code(404).send({ error: 'no_encontrado' });
+    if (d.equipo_id) {
+      const eq = (await equiposDelCliente(db, d.cliente_id, hoy().slice(0, 7))).find((e) => e.equipo_id === d.equipo_id);
+      if (!eq) return reply.code(400).send({ error: 'equipo_invalido' });
+    }
+    await fijarAvisos(db, { clienteId: d.cliente_id, equipoId: d.equipo_id ?? null, activo: d.activo, usuarioId: req.ctx.id });
+    await auditar(db, { usuarioId: req.ctx.id, ip: req.ip }, 'editar', 'monitoreo_avisos', d.equipo_id ?? d.cliente_id, null, d);
+    return { ok: true };
   });
 
   async function recibidaVisible(req) {

@@ -27,7 +27,9 @@ before(async () => {
   await ctx.db('asignaciones_equipo').insert({ equipo_id: eq, contrato_id: a.contrato_id, sede_id: a.sede_id, desde: '2026-01-05' });
   const STD = (descr, objId, serie, total) => ({ '1.3.6.1.2.1.1.1.0': descr, '1.3.6.1.2.1.1.2.0': objId, '1.3.6.1.2.1.43.5.1.1.17.1': serie, '1.3.6.1.2.1.43.10.2.1.4.1.1': total });
   sims = await Promise.all([
-    simularImpresora({ address: '127.0.0.12', port: 16162, valores: { ...STD('HP', '1.3.6.1.4.1.11.2.3.9.1', 'CNBRP12345', 15000), '1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.6.0': 12000, '1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.7.0': 3000 } }),
+    simularImpresora({ address: '127.0.0.12', port: 16162, valores: { ...STD('HP', '1.3.6.1.4.1.11.2.3.9.1', 'CNBRP12345', 15000), '1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.6.0': 12000, '1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.7.0': 3000,
+      // Insumos (Printer-MIB): toner negro al 9%.
+      '1.3.6.1.2.1.43.11.1.1.5.1.1': 3, '1.3.6.1.2.1.43.11.1.1.6.1.1': 'Black Cartridge HP 414A', '1.3.6.1.2.1.43.11.1.1.8.1.1': 100, '1.3.6.1.2.1.43.11.1.1.9.1.1': 9 } }),
     // La Brother color del demo informa solo el total: queda a revisar.
     simularImpresora({ address: '127.0.0.13', port: 16162, valores: STD('Brother', '1.3.6.1.4.1.2435.2.3.9.1', 'PRUEBA-003', 800) }),
     // Una impresora del cliente que no es de JustPrint.
@@ -63,4 +65,23 @@ test('el agente toma las impresoras del cliente y el ERP las valida', { skip: !h
   assert.equal(otra.omitida, 'completa');
   const agentes = (await tec.llamar('GET', '/api/contadores/agentes')).json();
   assert.equal(agentes[0].version, VERSION);
+});
+
+test('el monitoreo diario manda insumos y contadores al panel, sin tocar la facturación', { skip: !hayErp && 'falta npm install en el ERP' }, async () => {
+  const { monitorear } = await import('../src/toma.js');
+  const { entrar } = await import('../../tests/ayuda.js');
+  mock.timers.reset(); mock.timers.enable({ apis: ['Date'], now: new Date('2026-12-03T15:00:00Z') });
+  const cfg = { erp_url: url, token: process.env.TOKEN_PRUEBA, redes: ['127.0.0.12/32'], ips: ['127.0.0.12', '127.0.0.13', '127.0.0.14'], snmp: { puerto: 16162, timeout: 400, reintentos: 0 }, paralelo: 4, perfiles: {} };
+  const antes = await ctx.db('lecturas_contador').count({ n: '*' }).first();
+  const eq = await monitorear(cfg, { ahora: new Date(2026, 11, 3), fetchFn: fetchErp });
+  assert.equal(eq.length, 3);
+  assert.equal(await monitorear(cfg, { ahora: new Date(2026, 11, 3), fetchFn: fetchErp }), null, 'una vez por día');
+  const despues = await ctx.db('lecturas_contador').count({ n: '*' }).first();
+  assert.equal(Number(despues.n), Number(antes.n), 'el monitoreo no carga lecturas de facturación');
+  const tec = await entrar(ctx.app, 'matias@demo.local');
+  const p = (await tec.llamar('GET', '/api/monitoreo')).json();
+  const hp = p.clientes.flatMap((c) => c.equipos).find((e) => e.serie === 'CNBRP12345');
+  assert.equal(hp.conexion, 'en_linea');
+  assert.deepEqual(hp.insumos.map((i) => [i.tipo, i.color, i.nivel, i.bajo]), [['toner', 'negro', 9, true]]);
+  assert.equal(hp.contador.total, 15000);
 });

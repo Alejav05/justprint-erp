@@ -11,6 +11,10 @@ Programa que se instala en **una PC de cada cliente**. A fin de mes busca las im
 - **Sin internet:** guarda la toma y la manda en la próxima corrida (el ERP acepta tomas de hasta 15 días atrás con su fecha original).
 - **Seguridad:** cada agente tiene su propio token. Solo puede mandar lecturas y ver la lista de equipos de su cliente. Se desactiva o se renueva desde el ERP.
 
+## Monitoreo diario (desde la versión 1.4)
+
+Además de la toma de fin de mes, la tarea programada manda una vez por día el **estado** de cada impresora al panel **Monitoreo** del ERP: nivel de cada toner, tinta, tambor y fusor, los errores que informa el equipo (atasco, tapa abierta, sin toner, pide service…), el texto del panel y los contadores del día. Es solo seguimiento: **no carga lecturas en Contadores ni factura**. La toma que se factura sigue siendo la de fin de mes. Para mandarlo en el momento: opción 8 del menú o `agente-contadores monitorear`.
+
 ## Instalación en un cliente (Windows)
 
 Lo más simple: **doble clic en `agente-contadores.exe`** abre un menú (configurar, buscar impresoras, probar, diagnóstico, instalar la toma automática). Para instalar la toma automática hay que abrirlo con *clic derecho › Ejecutar como administrador*. Lo mismo por consola:

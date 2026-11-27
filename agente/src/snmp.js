@@ -132,3 +132,69 @@ export async function leerEquipo(ip, op = {}) {
     extra: { sysName: e.sysName ?? null, sysDescr: e.sysDescr ? String(e.sysDescr).slice(0, 200) : null, sysObjectID: e.sysObjectID ?? null, oid_negro: negro?.oids ?? null, oid_color: color?.oids ?? null },
   };
 }
+
+// ——— Estado del equipo (monitoreo diario): insumos, errores y mensaje del panel ———
+const SUMINISTROS = '1.3.6.1.2.1.43.11.1.1'; // prtMarkerSuppliesEntry
+const ESTADO = {
+  errores: '1.3.6.1.2.1.25.3.5.1.2.1', // hrPrinterDetectedErrorState (bits)
+  dispositivo: '1.3.6.1.2.1.25.3.2.1.5.1', // hrDeviceStatus: 2 funcionando, 3 advertencia, 4 probando, 5 caído
+  panel: '1.3.6.1.2.1.43.16.5.1.2.1.1', // prtConsoleDisplayBufferText: lo que muestra el display
+};
+/** Bits de hrPrinterDetectedErrorState (RFC 3805): [byte, máscara, clave]. */
+const BITS_ERROR = [
+  [0, 0x80, 'poco_papel'], [0, 0x40, 'sin_papel'], [0, 0x20, 'poco_toner'], [0, 0x10, 'sin_toner'], [0, 0x08, 'tapa_abierta'],
+  [0, 0x04, 'atasco'], [0, 0x02, 'fuera_de_linea'], [0, 0x01, 'service'], [1, 0x80, 'falta_bandeja'], [1, 0x40, 'falta_bandeja_salida'],
+  [1, 0x20, 'falta_insumo'], [1, 0x10, 'bandeja_salida_casi_llena'], [1, 0x08, 'bandeja_salida_llena'], [1, 0x04, 'bandeja_vacia'], [1, 0x02, 'mantenimiento_vencido'],
+];
+export function decodificarErrores(buf) {
+  if (!Buffer.isBuffer(buf)) return [];
+  return BITS_ERROR.filter(([b, m]) => b < buf.length && (buf[b] & m)).map(([, , k]) => k);
+}
+/** prtMarkerSuppliesType → qué es. */
+const TIPO_INSUMO = { 3: 'toner', 5: 'tinta', 6: 'tinta', 21: 'toner', 4: 'residuos', 8: 'residuos', 9: 'tambor', 10: 'revelador', 15: 'fusor', 11: 'aceite', 17: 'cinta', 19: 'grapas', 20: 'transferencia', 22: 'tambor' };
+const colorDe = (texto) => {
+  const t = String(texto ?? '').toLowerCase();
+  if (/cyan|cian/.test(t)) return 'cian'; if (/magenta/.test(t)) return 'magenta'; if (/yellow|amarillo/.test(t)) return 'amarillo';
+  if (/black|negro|\bk\b|mono/.test(t)) return 'negro';
+  return null;
+};
+/**
+ * Arma la lista de insumos desde la tabla de suministros. `nivel` es el porcentaje que queda (null si el equipo no lo informa).
+ * Los equipos informan -3 cuando "queda algo" sin decir cuánto, y -2 cuando no saben.
+ */
+export function armarInsumos(tabla, colorantes = {}) {
+  const filas = new Map();
+  for (const [oid, v] of Object.entries(tabla)) {
+    const m = /^1\.3\.6\.1\.2\.1\.43\.11\.1\.1\.(\d+)\.(\d+)\.(\d+)$/.exec(oid.replace(/^\./, ''));
+    if (!m) continue;
+    const k = `${m[2]}.${m[3]}`; if (!filas.has(k)) filas.set(k, { indice: Number(m[3]) });
+    filas.get(k)[m[1]] = v;
+  }
+  return [...filas.values()].sort((a, b) => a.indice - b.indice).map((f) => {
+    const nombre = String(f[6] ?? '').replace(/\0/g, '').trim() || `Insumo ${f.indice}`;
+    const max = Number(f[8]); const lvl = Number(f[9]);
+    const nivel = Number.isFinite(lvl) && lvl >= 0 && max > 0 ? Math.max(0, Math.min(100, Math.round((lvl / max) * 100))) : null;
+    const tipo = TIPO_INSUMO[Number(f[5])] ?? (/toner|tóner/i.test(nombre) ? 'toner' : /drum|tambor|opc/i.test(nombre) ? 'tambor' : /waste|residu/i.test(nombre) ? 'residuos' : /fuser|fusor/i.test(nombre) ? 'fusor' : 'otro');
+    const colorante = f[3] != null ? colorantes[String(f[3])] : null;
+    return { nombre: nombre.slice(0, 80), tipo, color: colorDe(colorante) ?? colorDe(nombre), nivel, queda_algo: lvl === -3 };
+  });
+}
+
+/** Lee el estado de un equipo: insumos con su nivel, errores que informa y el texto del panel. Con tope de tiempo. */
+export async function leerEstado(ip, op = {}) {
+  const limite = (op.timeout ?? 1500) * 3;
+  const [tabla, colTabla, base, crudo] = await Promise.all([
+    recorrer(ip, SUMINISTROS, op, limite),
+    recorrer(ip, OID_COLORANTES, op, limite),
+    obtener(ip, [ESTADO.dispositivo, ESTADO.panel], op).catch(() => ({})),
+    obtener(ip, [ESTADO.errores], op, true).catch(() => ({})),
+  ]);
+  const colorantes = Object.fromEntries(Object.entries(colTabla).map(([o, v]) => [o.split('.').at(-1), v]));
+  const disp = Number(base[ESTADO.dispositivo]);
+  return {
+    insumos: armarInsumos(tabla, colorantes),
+    errores: decodificarErrores(crudo[ESTADO.errores]),
+    estado: { 2: 'ok', 3: 'advertencia', 4: 'ok', 5: 'error' }[disp] ?? null,
+    mensaje: base[ESTADO.panel] ? String(base[ESTADO.panel]).slice(0, 120) : null,
+  };
+}

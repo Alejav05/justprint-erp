@@ -8,11 +8,13 @@ import { estadoSla } from './servicio.js';
 import { aSql, cargarFeriados, deSql } from './sla.js';
 import { config } from '../config.js';
 import { stockDe } from '../routes/insumos.js';
+import { panelMonitoreo } from './monitoreo.js';
 
 const ABIERTOS = ['abierto', 'asignado', 'en_curso', 'esperando_cliente'];
 const nombreCliente = (c) => c.nombre_comercial || c.razon_social;
 const sumarMeses = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); };
 const plata = (n, m) => (m === 'ARS' ? '$ ' : 'USD ') + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const diaBA = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(ms));
 const diasEntre = (desde, hasta) => Math.max(0, Math.round((Date.parse(hasta) - Date.parse(desde)) / 86400000));
 
 async function carteraDe(db) {
@@ -200,6 +202,57 @@ export const REGLAS = [
       const h = hoy(); const out = [];
       const ls = await db('leads').whereNotIn('etapa', ['ganado', 'perdido']).whereNull('deleted_at').whereNotNull('proxima_accion_fecha').whereNotNull('responsable_id').where('proxima_accion_fecha', '<=', h).select('id', 'empresa', 'proxima_accion', 'proxima_accion_fecha', 'responsable_id');
       for (const l of ls) { const f = aDia(l.proxima_accion_fecha); out.push({ entidad: `lead:${l.id}:${f}`, vars: { empresa: l.empresa, accion: l.proxima_accion || 'Retomar contacto', fecha: f.split('-').reverse().join('/') }, destino: '#/hunting', responsables: { comercial: l.responsable_id } }); }
+      return out;
+    },
+  },
+  {
+    clave: 'monitoreo_toner_bajo', nombre: 'Toner o insumo bajo', descripcion: 'Solo para los clientes o equipos con los avisos prendidos en Monitoreo. El monitoreo diario ve un toner, tinta, tambor o fusor de un equipo de JustPrint por debajo del umbral. También fija qué es "bajo" en el panel de Monitoreo.', unidad: '% que queda', umbral: 15,
+    canales: ['sistema'], destinatarios: { roles: ['head_atencion', 'atencion'], responsables: [], usuarios: [] }, frecuencia_horas: 72,
+    asunto: '{insumo} al {nivel}%: {equipo} · {cliente}', cuerpo: '{insumo} al {nivel}% en {equipo} (serie {serie}) de {cliente}. {dias}', variables: ['insumo', 'nivel', 'equipo', 'serie', 'cliente', 'dias'],
+    async evaluar(db, { ahora }) {
+      const p = await panelMonitoreo(db, { hoy: diaBA(ahora) }); const out = [];
+      for (const c of p.clientes) for (const e of c.equipos.filter((x) => x.avisos)) for (const a of e.alertas.filter((x) => x.tipo === 'insumo_bajo')) {
+        out.push({ entidad: `equipo:${e.equipo_id}:insumo:${a.insumo}`.slice(0, 60), vars: { insumo: a.insumo, nivel: a.nivel, equipo: `${e.marca} ${e.modelo}`, serie: e.serie, cliente: c.cliente, dias: a.dias != null ? `Al ritmo actual alcanza para unos ${a.dias} días.` : '' }, destino: '#/monitoreo', responsables: {} });
+      }
+      return out;
+    },
+  },
+  {
+    clave: 'monitoreo_error', nombre: 'Equipo con error', descripcion: 'Solo para los clientes o equipos con los avisos prendidos en Monitoreo. Un equipo de JustPrint informa un error que necesita atención: sin toner, pide service, falta un insumo, mantenimiento vencido, atasco o tapa abierta.', unidad: null, umbral: null,
+    canales: ['sistema'], destinatarios: { roles: ['head_tecnico'], responsables: [], usuarios: [] }, frecuencia_horas: 24,
+    asunto: 'Error en {equipo} · {cliente}', cuerpo: '{equipo} (serie {serie}) de {cliente} informa: {errores}.', variables: ['equipo', 'serie', 'cliente', 'errores'],
+    async evaluar(db, { ahora }) {
+      const p = await panelMonitoreo(db, { hoy: diaBA(ahora) }); const out = [];
+      for (const c of p.clientes) for (const e of c.equipos.filter((x) => x.avisos)) {
+        const errs = e.alertas.filter((x) => x.tipo === 'error');
+        if (errs.length) out.push({ entidad: `equipo:${e.equipo_id}:error:${errs.map((x) => x.error).sort().join(',')}`.slice(0, 60), vars: { equipo: `${e.marca} ${e.modelo}`, serie: e.serie, cliente: c.cliente, errores: errs.map((x) => x.texto.toLowerCase()).join(', ') }, destino: '#/monitoreo', responsables: {} });
+      }
+      return out;
+    },
+  },
+  {
+    clave: 'monitoreo_sin_conexion', nombre: 'Equipo sin conexión', descripcion: 'Solo para los clientes o equipos con los avisos prendidos en Monitoreo. El agente del cliente sigue funcionando pero hace días que no ve a un equipo de JustPrint: puede estar apagado, desconectado o con otra IP.', unidad: 'días sin verlo', umbral: 2,
+    canales: ['sistema'], destinatarios: { roles: ['head_tecnico', 'head_atencion'], responsables: [], usuarios: [] }, frecuencia_horas: 48,
+    asunto: 'Sin conexión: {equipo} · {cliente}', cuerpo: 'El agente no ve a {equipo} (serie {serie}, IP {ip}) de {cliente} desde el {desde}.', variables: ['equipo', 'serie', 'ip', 'cliente', 'desde'],
+    async evaluar(db, { umbral, ahora }) {
+      const p = await panelMonitoreo(db, { hoy: diaBA(ahora) }); const out = [];
+      for (const c of p.clientes) for (const e of c.equipos.filter((x) => x.avisos)) for (const a of e.alertas.filter((x) => x.tipo === 'sin_conexion' && x.dias >= (umbral ?? 2))) {
+        out.push({ entidad: `equipo:${e.equipo_id}:conexion`, vars: { equipo: `${e.marca} ${e.modelo}`, serie: e.serie, ip: e.ip ?? 's/d', cliente: c.cliente, desde: a.desde.split('-').reverse().join('/') }, destino: '#/monitoreo', responsables: {} });
+      }
+      return out;
+    },
+  },
+  {
+    clave: 'monitoreo_agente_caido', nombre: 'Agente sin conexión', descripcion: 'Solo para los clientes con algún aviso prendido en Monitoreo. La PC donde corre el agente de un cliente no se conecta con el ERP: si sigue así, no se toman los contadores de fin de mes.', unidad: 'días sin conexión', umbral: 2,
+    canales: ['sistema'], destinatarios: { roles: ['head_tecnico', 'head_atencion'], responsables: [], usuarios: [] }, frecuencia_horas: 24,
+    asunto: 'Agente sin conexión: {agente} · {cliente}', cuerpo: 'El agente {agente} de {cliente} (PC {pc}) no se conecta desde el {desde}. Sin él no se monitorean los equipos ni se toman los contadores de fin de mes.', variables: ['agente', 'cliente', 'pc', 'desde'],
+    async evaluar(db, { umbral, ahora }) {
+      const hoy = diaBA(ahora); const out = [];
+      const conAvisos = new Set((await db('monitoreo_avisos').select('cliente_id')).map((x) => x.cliente_id));
+      for (const a of (await db('agentes_contadores as a').join('clientes as c', 'c.id', 'a.cliente_id').whereNull('a.deleted_at').where('a.activo', true).whereNotNull('a.ultima_conexion').select('a.*', 'c.razon_social', 'c.nombre_comercial')).filter((x) => conAvisos.has(x.cliente_id))) {
+        const desde = aDia(a.ultima_conexion);
+        if (diasEntre(desde, hoy) >= (umbral ?? 2)) out.push({ entidad: `agente:${a.id}`, vars: { agente: a.nombre, cliente: nombreCliente(a), pc: a.equipo_host ?? 's/d', desde: desde.split('-').reverse().join('/') }, destino: '#/contadores/agentes', responsables: {} });
+      }
       return out;
     },
   },

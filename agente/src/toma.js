@@ -1,9 +1,9 @@
 // La toma: recorrer la red, leer las impresoras y mandar las lecturas al ERP.
-import { log, leerPendientes, guardarPendientes, leerEstado, guardarEstado } from './config.js';
+import { log, leerPendientes, guardarPendientes, leerEstado as leerEstado2, guardarEstado } from './config.js';
 import { crearErp, ErrorErp } from './erp.js';
 import { combinarPerfiles } from './perfiles.js';
 import { direccionesARecorrer, enParalelo } from './red.js';
-import { leerEquipo } from './snmp.js';
+import { leerEquipo, leerEstado } from './snmp.js';
 
 const normalizar = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const hoyLocal = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -44,7 +44,7 @@ async function vaciarPendientes(erp) {
  * Toma completa. `forzar` ignora la ventana de fin de mes y lo ya tomado; `prueba` manda las lecturas marcadas como prueba
  * (el ERP las registra pero no las usa para facturar).
  */
-export async function tomar(cfg, { forzar = false, prueba = false, fetchFn, ahora = new Date() } = {}) {
+export async function tomar(cfg, { forzar = false, prueba = false, fetchFn, ahora = new Date(), relevadas = null } = {}) {
   const erp = crearErp(cfg, { fetchFn });
   let remoto = null;
   try { remoto = await erp.config(); } catch (e) { if (e.estado === 401) throw e; log(`Aviso: ${e.message} Se toma igual y se guarda para mandar después.`); }
@@ -55,7 +55,7 @@ export async function tomar(cfg, { forzar = false, prueba = false, fetchFn, ahor
   }
   if (remoto) await vaciarPendientes(erp);
 
-  const equipos = await relevar(cfg);
+  const equipos = relevadas ?? await relevar(cfg);
   log(`Encontré ${equipos.length} impresoras: ${equipos.map((e) => `${e.ip} ${e.marca ?? '?'} ${e.serie ?? 's/serie'}`).join(' · ') || 'ninguna'}`);
   const esperados = remoto?.equipos ?? [];
   const encontradas = new Set(equipos.map((e) => normalizar(e.serie)));
@@ -74,8 +74,31 @@ export async function tomar(cfg, { forzar = false, prueba = false, fetchFn, ahor
     const p = leerPendientes(); p.push({ tomada_en, lecturas }); guardarPendientes(p.slice(-20));
     log(`No se pudo enviar (${e.message}). Quedó guardada y se reintenta en la próxima corrida.`);
   }
-  guardarEstado({ ...leerEstado(), ultima_toma: new Date().toISOString(), ultimas_ips: equipos.map((e) => e.ip) });
+  guardarEstado({ ...leerEstado2(), ultima_toma: new Date().toISOString(), ultimas_ips: equipos.map((e) => e.ip) });
   return { equipos, faltan, resultados };
 }
 
 export { ErrorErp };
+
+/**
+ * Monitoreo diario: insumos, errores y contadores de cada impresora, solo para seguimiento (no factura).
+ * Corre una vez por día; `forzar` lo repite. Devuelve las impresoras encontradas, para reusarlas en la toma.
+ */
+export async function monitorear(cfg, { forzar = false, fetchFn, ahora = new Date() } = {}) {
+  const hoy = hoyLocal(ahora); const est = leerEstado2();
+  if (!forzar && est.ultimo_monitoreo === hoy) return null;
+  const erp = crearErp(cfg, { fetchFn });
+  const equipos = await relevar(cfg);
+  const op = { ...cfg.snmp };
+  const datos = await enParalelo(equipos, 8, async (e) => ({ ...e, ...(await leerEstado(e.ip, op).catch(() => ({}))) }));
+  const envio = datos.map(({ ip, marca, modelo, serie, negro, color, total, es_color, insumos, errores, estado, mensaje }) => ({ ip, marca: marca ?? undefined, modelo: modelo ?? undefined, serie, negro, color, total, es_color, insumos: insumos ?? [], errores: errores ?? [], estado: estado ?? null, mensaje: mensaje ?? null }));
+  try {
+    const r = await erp.estado(envio);
+    log(`Monitoreo: ${envio.length} impresoras leídas, ${r.guardados ?? 0} de JustPrint registradas en el ERP.`);
+    guardarEstado({ ...leerEstado2(), ultimo_monitoreo: hoy });
+  } catch (e) {
+    if (e.estado === 401) throw e;
+    log(`Monitoreo: no se pudo enviar (${e.message}). Se reintenta en la próxima corrida.`);
+  }
+  return equipos;
+}

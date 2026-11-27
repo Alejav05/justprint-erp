@@ -7,7 +7,7 @@ import { ARBOLES_DIAGNOSTICO, combinarPerfiles } from './perfiles.js';
 import { esIpv4, expandirCidr } from './red.js';
 import { leerEquipo, recorrer } from './snmp.js';
 import { desinstalarTarea, instalarTarea, NOMBRE_TAREA } from './tarea.js';
-import { relevar, tomar } from './toma.js';
+import { monitorear, relevar, tomar } from './toma.js';
 import { VERSION } from './version.js';
 
 const AYUDA = `Agente de toma de contadores JustPrint v${VERSION}
@@ -20,7 +20,8 @@ Uso: agente-contadores <comando> [opciones]
   probar       Verifica la conexión con el ERP, busca las impresoras y manda una toma de PRUEBA (no factura).
   buscar       Solo busca las impresoras de la red y muestra lo que leyó (no manda nada).
   tomar        Toma los contadores y los manda al ERP. --forzar la hace aunque no sea fin de mes.
-  tarea        Lo que corre la tarea programada: toma solo si es fin de mes y faltan equipos.
+  tarea        Lo que corre la tarea programada: el monitoreo del día y, si es fin de mes y faltan equipos, la toma.
+  monitorear   Lee ahora insumos, errores y contadores de seguimiento y los manda al panel de Monitoreo (no factura).
   diagnostico <ip>  Recorre los OID de contadores de un equipo, para confirmar dónde informa negro y color.
   instalar     Crea la tarea programada de Windows ("${NOMBRE_TAREA}").
   desinstalar  Borra la tarea programada.
@@ -114,7 +115,13 @@ async function main() {
       return;
     }
     case 'tomar': { const t = await tomar(cfg, { forzar: Boolean(o.forzar) }); if (t.equipos) tabla(t.equipos); return; }
-    case 'tarea': await tomar(cfg); return;
+    case 'tarea': {
+      // Primero el monitoreo del día (si falla, la toma de fin de mes sigue igual); después, la toma si corresponde.
+      let relevadas = null;
+      try { relevadas = await monitorear(cfg); } catch (e) { log(`Monitoreo: ${e.message}`); if (e.estado === 401) throw e; }
+      await tomar(cfg, { relevadas }); return;
+    }
+    case 'monitorear': { await monitorear(cfg, { forzar: true }); console.log('Estado enviado al ERP (Monitoreo).'); return; }
     case 'diagnostico': return diagnostico(resto[0], cfg);
     case 'instalar': instalarTarea(); console.log(`Tarea "${NOMBRE_TAREA}" creada: corre a diario y toma solo a fin de mes.`); return;
     case 'desinstalar': desinstalarTarea(); console.log('Tarea borrada.'); return;
@@ -137,7 +144,7 @@ async function menu() {
     for (;;) {
       const cfg = leerConfig();
       console.log(cfg.token ? `Conectado a ${cfg.erp_url} (token …${cfg.token.slice(-6)})` : 'Todavía no está configurado: elegí 1 primero (o 2 para solo buscar impresoras).');
-      console.log('\n  1. Configurar (dirección del ERP y token)\n  2. Buscar impresoras y ver sus contadores\n  3. Probar contra el ERP (toma de prueba, no factura)\n  4. Tomar ahora y mandar al ERP (lectura real del período)\n  5. Diagnóstico de una impresora (para confirmar negro y color)\n  6. Instalar la toma automática de fin de mes\n  7. Ver ayuda de comandos\n  0. Salir\n');
+      console.log('\n  1. Configurar (dirección del ERP y token)\n  2. Buscar impresoras y ver sus contadores\n  3. Probar contra el ERP (toma de prueba, no factura)\n  4. Tomar ahora y mandar al ERP (lectura real del período)\n  5. Diagnóstico de una impresora (para confirmar negro y color)\n  6. Instalar la toma automática (fin de mes) y el monitoreo diario\n  7. Ver ayuda de comandos\n  8. Mandar ahora el estado al Monitoreo (insumos y errores)\n  0. Salir\n');
       const op = await preguntar('Opción: ');
       try {
         if (op === '0' || op === '') break;
@@ -154,8 +161,9 @@ async function menu() {
           }
         }
         else if (op === '5') await diagnostico(await preguntar('IP de la impresora: '), cfg);
-        else if (op === '6') { instalarTarea(); console.log('Listo: la PC va a tomar los contadores sola a fin de mes.'); }
+        else if (op === '6') { instalarTarea(); console.log('Listo: la PC va a mandar el estado de los equipos todos los días y tomar los contadores sola a fin de mes.'); }
         else if (op === '7') console.log(AYUDA);
+        else if (op === '8') { const eq = await monitorear(cfg, { forzar: true }); console.log(`Listo: ${eq?.length ?? 0} impresoras leídas. Mirá el panel Monitoreo del ERP.`); }
       } catch (e) {
         console.log(`\nNo se pudo: ${e.message}${/schtasks|Acceso denegado|Access is denied/i.test(e.message) ? ' (para instalar, abrí el programa con clic derecho > Ejecutar como administrador)' : ''}`);
       }

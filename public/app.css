@@ -482,3 +482,22 @@ table.foto tr.total{border-top:2px solid #0D1B2A}
 .otr-barra{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end;white-space:nowrap}.otr-barra i{display:block;height:6px;border-radius:99px;background:var(--cian)}
 @media (max-width:760px){.otr-cab{grid-template-columns:18px minmax(0,1fr) auto;row-gap:4px}.otr-cab .otr-tags{grid-column:2/4}.otr-cab .otr-visto{display:none}.otr-cab>.num{grid-row:1;grid-column:3}}
 @media (prefers-reduced-motion:reduce){.otr-flecha{transition:none}}
+
+/* Monitoreo de equipos */
+.mon-al{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--borde)}
+.mon-al>.chip{justify-self:start}
+.mon-tabs{display:flex;gap:4px;border-bottom:1px solid var(--borde);overflow-x:auto}
+.mon-tab{min-height:44px;padding:0 14px;border:0;background:none;font-weight:700;color:var(--gris);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+.mon-tab[aria-selected=true]{color:var(--navy);border-color:var(--cian)}
+.mon-cab{grid-template-columns:22px minmax(0,1fr) auto auto}
+.mon-grilla{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));padding-top:12px}
+.mon-eq{border:1px solid var(--borde);border-radius:10px;padding:12px}
+.mon-eq-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.mon-eq-top b{color:var(--navy)}
+.mon-ins{margin-top:10px;display:grid;gap:7px}
+.mon-bar{display:grid;grid-template-columns:76px minmax(0,1fr) 40px;gap:8px;align-items:center;font-size:13px}
+.mon-tr{height:9px;border-radius:99px;background:var(--mudo-bg);overflow:hidden}.mon-tr i{display:block;height:100%;border-radius:99px}
+.mon-v{text-align:right;font-variant-numeric:tabular-nums}.mon-bar.bajo .mon-v{color:var(--malo);font-weight:700}
+@media (max-width:760px){.mon-cab{grid-template-columns:18px minmax(0,1fr)}.mon-cab .otr-tags{grid-column:2}.mon-cab>.num{display:none}}
+@media (max-width:600px){.mon-al{grid-template-columns:46px minmax(0,1fr)}.mon-al>.btn{grid-column:2;justify-self:start}}
+.mon-avisos{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:12px 0 0}.mon-avisos select{min-height:40px;border:1px solid #CBD8DE;border-radius:10px;padding:0 10px;background:#fff;color:var(--navy);margin-left:6px}
+.mon-check{display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--borde);font-size:13.5px;cursor:pointer}.mon-check input{width:18px;height:18px}
